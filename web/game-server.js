@@ -332,6 +332,7 @@ function createGameServer(options) {
         if (msg.type === 'leave') { pokerRoom.leave(client.playerId); client.playerId = null; return; }
         if (msg.type === 'ready') reason = pokerRoom.setReady(client.playerId, msg.ready);
         else if (msg.type === 'baseBet') reason = pokerRoom.setBaseBet(client.playerId, msg.amount);
+        else if (msg.type === 'baseBetVote') reason = pokerRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
         else if (msg.type === 'start') reason = pokerRoom.begin(client.playerId);
         else if (msg.type === 'call') reason = pokerRoom.call(client.playerId);
         else if (msg.type === 'raise') reason = pokerRoom.raise(client.playerId, msg.amount);
