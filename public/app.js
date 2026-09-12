@@ -159,7 +159,7 @@ function hideBannerIf(why) {
  */
 function resolveServerUrl() {
   if (window.liar && typeof window.liar.getServer === 'function') return window.liar.getServer();
-  var endpoint = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? '' : '/api/ws';
+  var endpoint = location.hostname === 'localhost' || location.hostname === '127.0.0.1' ? '?game=liar' : '/api/ws?game=liar';
   return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + endpoint;
 }
 
@@ -1504,9 +1504,10 @@ if (window.liar && typeof window.liar.onServerChange === 'function') {
 
 // 새로고침해도 접속 화면으로 되돌아가지 않게, 닉네임과 토큰을 저장해 두고 다시 참가한다.
 $('spectator-input').checked = spectatorMode;
-var savedName = readStored(NAME_KEY);
+var portalName = sessionStorage.getItem('game-portal-nickname');
+var savedName = portalName || readStored(NAME_KEY);
 if (savedName) $('nickname-input').value = savedName;
-if (savedName && readToken()) {
+if (savedName && (readToken() || portalName)) {
   myNickname = savedName;
   joined = true;
   enterGameScreen();
