@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createRoom } = require('./room');
+const { createPokerRoom } = require('./poker-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
@@ -46,9 +47,12 @@ function createGameServer(options) {
   const pingMs = opts.pingMs || PING_MS; // 테스트에서 짧게 잡으려고 주입받는다
 
   const clients = new Set(); // { ws, playerId }
+  const pokerClients = new Set();
+  const portalClients = new Set();
   let server = null;
   let wss = null;
   let room = null;
+  let pokerRoom = null;
   let pingTimer = null;
   let initialized = false;
 
@@ -68,6 +72,25 @@ function createGameServer(options) {
       if (!client.playerId) continue;
       sendTo(client.ws, room.stateFor(client.playerId));
     }
+    broadcastPortal();
+  }
+
+  function broadcastPoker() {
+    if (!pokerRoom) return;
+    for (const client of pokerClients) if (client.playerId) sendTo(client.ws, pokerRoom.stateFor(client.playerId));
+    broadcastPortal();
+  }
+
+  function broadcastPortal() {
+    if (!room || !pokerRoom) return;
+    const liar = room._debug();
+    const poker = pokerRoom.status();
+    const label = (info) => info.phase !== 'lobby' && info.phase !== 'result' ? '진행중' : (info.playerCount ? '진행 대기중' : '대기중');
+    const payload = { type: 'games', games: {
+      liar: { label: '라이어 게임', playerCount: [...clients].filter((c) => c.playerId).length, status: label({ phase: liar.phase, playerCount: [...clients].filter((c) => c.playerId).length }) },
+      poker: { label: '인디언 포커', playerCount: poker.playerCount, status: label(poker) },
+    } };
+    for (const client of portalClients) sendTo(client.ws, payload);
   }
 
   function handleHttp(req, res) {
@@ -97,7 +120,7 @@ function createGameServer(options) {
    */
   function startHeartbeat() {
     pingTimer = setInterval(() => {
-      for (const client of clients) {
+      for (const client of [...clients, ...pokerClients, ...portalClients]) {
         if (client.missedPongs >= PONG_GRACE) {
           warn(`[연결 끊김] ${client.playerId || '미참가'} 응답이 없어 정리합니다`);
           try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
@@ -111,7 +134,19 @@ function createGameServer(options) {
     if (typeof pingTimer.unref === 'function') pingTimer.unref();
   }
 
-  function handleConnection(ws) {
+  function handleConnection(ws, req) {
+    const game = new URL(req.url || '/', 'http://localhost').searchParams.get('game') || 'liar';
+    if (game === 'portal') {
+      const client = { ws, playerId: null, missedPongs: 0 };
+      portalClients.add(client);
+      ws.on('error', () => {});
+      ws.on('pong', () => { client.missedPongs = 0; });
+      ws.on('close', () => portalClients.delete(client));
+      ws.on('message', (raw) => { try { if (JSON.parse(raw).type === 'ping') sendTo(ws, { type: 'pong' }); } catch {} });
+      broadcastPortal();
+      return;
+    }
+    if (game === 'poker') { handlePokerConnection(ws); return; }
     const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     clients.add(client);
 
@@ -257,6 +292,7 @@ function createGameServer(options) {
           }
         },
       });
+      pokerRoom = createPokerRoom({ onChange: broadcastPoker });
       startHeartbeat();
       server = http.createServer(handleHttp);
       // [S-1] 이 서버는 자기가 내려준 화면(같은 출처)이나 Electron 창(로컬 출처)만
@@ -266,6 +302,49 @@ function createGameServer(options) {
       // 통째로 물리는 일을 막는다.
       wss = new WebSocketServer({ server, verifyClient: allowOrigin, maxPayload: 16 * 1024 });
       wss.on('connection', handleConnection);
+  }
+
+  function handlePokerConnection(ws) {
+    const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+    pokerClients.add(client);
+    ws.on('error', (err) => warn(`[포커 연결 오류] ${err.message}`));
+    ws.on('pong', () => { client.missedPongs = 0; });
+    ws.on('close', () => { pokerClients.delete(client); if (client.playerId) pokerRoom.disconnect(client.playerId); });
+    ws.on('message', (raw) => {
+      try {
+        const now = Date.now();
+        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
+        client.count += 1;
+        if (client.count > RATE_MAX) return;
+        const msg = JSON.parse(raw);
+        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'join') {
+          if (client.playerId) return;
+          const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
+          if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          client.playerId = joined.playerId;
+          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
+          sendTo(ws, pokerRoom.stateFor(joined.playerId));
+          return;
+        }
+        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
+        let reason = null;
+        if (msg.type === 'leave') { pokerRoom.leave(client.playerId); client.playerId = null; return; }
+        if (msg.type === 'ready') reason = pokerRoom.setReady(client.playerId, msg.ready);
+        else if (msg.type === 'baseBet') reason = pokerRoom.setBaseBet(client.playerId, msg.amount);
+        else if (msg.type === 'start') reason = pokerRoom.begin(client.playerId);
+        else if (msg.type === 'call') reason = pokerRoom.call(client.playerId);
+        else if (msg.type === 'raise') reason = pokerRoom.raise(client.playerId, msg.amount);
+        else if (msg.type === 'allin') reason = pokerRoom.allin(client.playerId);
+        else if (msg.type === 'fold') reason = pokerRoom.fold(client.playerId);
+        else if (msg.type === 'donate') reason = pokerRoom.donate(client.playerId, msg.targetId, msg.amount);
+        else reason = '지원하지 않는 요청입니다.';
+        if (reason) sendTo(ws, { type: 'error', message: reason });
+      } catch (err) {
+        error(`[포커 요청 실패] ${err && err.stack ? err.stack : err}`);
+        sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
+      }
+    });
   }
 
   function start() {
@@ -301,9 +380,15 @@ function createGameServer(options) {
       try { client.ws.terminate(); } catch { /* 이미 끊김 */ }
     }
     clients.clear();
+    for (const client of [...pokerClients, ...portalClients]) {
+      try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
+    }
+    pokerClients.clear();
+    portalClients.clear();
     if (wss) { try { wss.close(); } catch { /* 무시 */ } wss = null; }
     if (server) { try { server.close(); } catch { /* 무시 */ } server = null; }
     room = null;
+    pokerRoom = null;
     initialized = false;
   }
 
