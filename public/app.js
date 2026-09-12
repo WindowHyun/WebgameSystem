@@ -328,6 +328,7 @@ function leaveRoom() {
   if (kicked) return;
   sendMessage({ type: 'leave' });
   resetRoomScreen();
+  if (!(window.liar && window.liar.isElectron)) setTimeout(function () { location.href = '/'; }, 80);
 }
 
 function resetRoomScreen() {
