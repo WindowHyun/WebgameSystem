@@ -1,8 +1,50 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>인디언 포커</title><link rel="stylesheet" href="poker.css"></head><body><div id="app">
-<aside><a href="/" class="back">← 게임 선택</a><h1>인디언<br>포커</h1><div id="players"></div><p class="tip">칩이 부족한 참가자를<br>우클릭하면 기부할 수 있습니다.</p></aside>
-<main><header><div><small>ROUND POT</small><strong id="pot">0원</strong></div><div class="meta"><span id="phase">대기 중</span><span id="base-label">기본 100원</span></div></header>
-<section id="table"><div id="message">참가자들이 준비하면 시작할 수 있습니다.</div><div id="cards"></div></section>
-<section id="lobby" class="controls"><label>기본 배팅금 <input id="base-bet" type="number" min="100" step="100" value="100"></label><button id="set-bet">설정</button><button id="ready">준비</button><button id="start">게임 시작</button></section>
-<section id="betting" class="controls hidden"><button id="call">콜</button><label>레이즈 <input id="raise-amount" type="number" min="100" step="100" value="100"></label><button id="raise">레이즈</button><button id="allin" class="danger">올인</button><button id="fold" class="ghost">폴드</button></section>
-<section id="history"></section><div id="error" role="alert"></div></main></div>
-<div id="donate" class="popover hidden"><b id="donate-name"></b><input id="donate-amount" type="number" min="100" step="100" value="100"><button id="donate-send">기부하기</button></div><script src="poker.js"></script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>인디언 포커</title>
+  <link rel="stylesheet" href="poker.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <a href="/" class="back" aria-label="게임 선택으로 돌아가기">←</a>
+      <div><h1>인디언 포커</h1><p id="phase">대기 중</p></div>
+      <div class="pot"><small>현재 팟</small><strong id="pot">0원</strong></div>
+    </header>
+
+    <section class="players-panel">
+      <div class="section-title"><b>참가자</b><small>칩이 부족한 참가자를 우클릭하면 기부할 수 있습니다.</small></div>
+      <div id="players"></div>
+    </section>
+
+    <main>
+      <section id="table">
+        <div class="round-info"><span id="base-label">기본 100원</span><span id="message">참가자들이 준비하면 시작할 수 있습니다.</span></div>
+        <div id="cards"></div>
+      </section>
+
+      <section id="lobby" class="controls">
+        <div class="bet-setting"><label for="base-bet">기본 배팅금 제안</label><input id="base-bet" type="number" min="100" step="100" value="100"><button id="set-bet">투표 요청</button></div>
+        <div class="main-actions"><button id="ready" class="secondary">준비</button><button id="start">게임 시작</button></div>
+      </section>
+
+      <section id="betting" class="controls hidden">
+        <button id="call">콜</button>
+        <div class="raise-setting"><input id="raise-amount" aria-label="레이즈 금액" type="number" min="100" step="100" value="100"><button id="raise" class="secondary">레이즈</button></div>
+        <button id="allin" class="warning">올인</button><button id="fold" class="text-button">폴드</button>
+      </section>
+
+      <section id="history" aria-label="게임 기록"></section>
+    </main>
+  </div>
+
+  <div id="proposal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card"><small>기본 배팅금 변경 제안</small><h2 id="proposal-title"></h2><p id="proposal-count"></p><div><button id="proposal-no" class="secondary">거절</button><button id="proposal-yes">동의</button></div></div>
+  </div>
+  <div id="donate" class="popover hidden"><b id="donate-name"></b><input id="donate-amount" aria-label="기부 금액" type="number" min="100" step="100" value="100"><button id="donate-send">기부하기</button></div>
+  <div id="error" role="alert"></div>
+  <script src="poker.js"></script>
+</body>
+</html>
