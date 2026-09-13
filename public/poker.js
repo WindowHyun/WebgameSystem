@@ -10,6 +10,7 @@
   var ws = null;
   var reconnectTimer = null;
   var reconnectDelay = 500;
+  var superseded = false;
   var state = null;
   var donationTarget = null;
   var leaving = false;
@@ -37,6 +38,7 @@
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
       if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
+      if (data.type === 'replaced') { superseded = true; showError('다른 창에서 같은 참가자로 접속했습니다.'); return; }
       if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'pokerState') { state = data; render(); }
@@ -44,6 +46,7 @@
     ws.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
     ws.onclose = function () {
       if (leaving) { location.href = '/'; return; }
+      if (superseded) return;
       showError('서버에 다시 연결하고 있습니다.');
       clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, reconnectDelay);

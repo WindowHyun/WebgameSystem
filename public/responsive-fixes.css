@@ -13,6 +13,45 @@
   white-space: nowrap;
 }
 
+.poker-page .player,
+.blackjack-page .player {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  padding-right: 8px;
+}
+
+.poker-page .player::before,
+.blackjack-page .player::before {
+  grid-row: 1 / 3;
+}
+
+.poker-page .player b,
+.blackjack-page .player b {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.poker-page .player small,
+.blackjack-page .player small {
+  grid-column: 2 / 4;
+  grid-row: 2;
+}
+
+.poker-page .player .status,
+.blackjack-page .player .status {
+  position: static;
+  grid-column: 3;
+  grid-row: 1;
+  align-self: start;
+  justify-self: end;
+}
+
+.poker-page .player.turn,
+.blackjack-page .player.turn {
+  padding-right: 26px;
+}
+
 /* 블랙잭 상대 카드에는 소유자를 오해할 수 있는 "내 카드" 문구를 쓰지 않는다. */
 .blackjack-page .blackjack-seat .hidden-card::after {
   content: "비공개";
