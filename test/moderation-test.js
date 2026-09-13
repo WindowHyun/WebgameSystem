@@ -184,7 +184,8 @@ test('kicking the liar finishes the round and dispose clears every timer', () =>
 
 test('Origin guard accepts same DNS origin, explicit proxy origin and only Electron loopback ports', () => {
   const request = (origin, host = 'liar.example.com', secure = true) => ({ origin, secure, req: { headers: { host } } });
-  assert.equal(isAllowedOrigin(request('https://liar.example.com')), true);
+    assert.equal(isAllowedOrigin(request('https://liar.example.com')), true);
+    assert.equal(isAllowedOrigin(request('https://liar.example.com', 'liar.example.com', false)), true);
   assert.equal(isAllowedOrigin(request('http://203.0.113.1:8080')), false);
   assert.equal(isAllowedOrigin(request('http://127.0.0.1:1234')), false);
   assert.equal(isAllowedOrigin(request('http://127.0.0.1:55510')), true);
