@@ -381,6 +381,7 @@ function createGameServer(options) {
           if (client.playerId) return;
           const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
           if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          replaceCardConnection(pokerClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
           sendTo(ws, pokerRoom.stateFor(joined.playerId));
@@ -425,6 +426,7 @@ function createGameServer(options) {
           if (client.playerId) return;
           const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });
           if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          replaceCardConnection(blackjackClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
           sendTo(ws, blackjackRoom.stateFor(joined.playerId));
@@ -451,6 +453,16 @@ function createGameServer(options) {
         sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
       }
     });
+  }
+
+  function replaceCardConnection(gameClients, incoming, playerId) {
+    for (const existing of gameClients) {
+      if (existing === incoming || existing.playerId !== playerId) continue;
+      // close 이벤트가 새로 복구된 자리를 다시 끊김 처리하지 않게 먼저 연결을 떼어 낸다.
+      existing.playerId = null;
+      sendTo(existing.ws, { type: 'replaced', message: '같은 참가자가 다른 연결에서 다시 접속했습니다.' });
+      existing.ws.close(4001, 'replaced');
+    }
   }
 
   function start() {
