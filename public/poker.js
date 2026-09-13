@@ -7,14 +7,16 @@
   if (!nickname) { location.href = '/'; return; }
 
   var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
+  var ws = null;
+  var reconnectTimer = null;
+  var reconnectDelay = 500;
   var state = null;
   var donationTarget = null;
   var leaving = false;
 
   function $(id) { return document.getElementById(id); }
   function send(type, extra) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
   }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
@@ -24,15 +26,30 @@
     setTimeout(function () { $('error').style.display = 'none'; }, 3000);
   }
 
-  ws.onopen = function () { send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) }); };
-  ws.onmessage = function (event) {
-    var data = JSON.parse(event.data);
-    if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
-    if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
-    if (data.type === 'error') { showError(data.message); return; }
-    if (data.type === 'pokerState') { state = data; render(); }
-  };
-  ws.onclose = function () { if (leaving) { location.href = '/'; return; } showError('서버 연결이 끊겼습니다. 새로고침해 주세요.'); };
+  function connect() {
+    if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
+    ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
+    ws.onopen = function () {
+      reconnectDelay = 500;
+      send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) });
+    };
+    ws.onmessage = function (event) {
+      var data;
+      try { data = JSON.parse(event.data); } catch (error) { return; }
+      if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
+      if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
+      if (data.type === 'error') { showError(data.message); return; }
+      if (data.type === 'pokerState') { state = data; render(); }
+    };
+    ws.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
+    ws.onclose = function () {
+      if (leaving) { location.href = '/'; return; }
+      showError('서버에 다시 연결하고 있습니다.');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+    };
+  }
 
   function cardLabel(card) {
     if (card.hidden) return '';
@@ -103,7 +120,19 @@
   }
 
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
-  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; send('leave'); };
+  $('leave').onclick = function (event) {
+    event.preventDefault();
+    if (leaving) return;
+    leaving = true;
+    clearTimeout(reconnectTimer);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      send('leave');
+      setTimeout(function () { location.href = '/'; }, 1200);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      location.href = '/';
+    }
+  };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };
@@ -121,4 +150,5 @@
   });
   document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
   setInterval(function () { send('ping'); }, 20000);
+  connect();
 }());
