@@ -2,8 +2,9 @@
   "name": "liar-game",
   "version": "0.10.3",
   "private": true,
-  "description": "Vercel WebSocket 기반 멀티플레이 웹게임 모음",
+  "description": "Render WebSocket 기반 멀티플레이 웹게임 모음",
   "scripts": {
+    "start": "node web/server.js",
     "web": "node web/server.js",
     "test": "node test/run-all.js",
     "test:ui": "node test/web-ui-test.js",
