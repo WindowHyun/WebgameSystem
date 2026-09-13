@@ -14,6 +14,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createRoom } = require('./room');
 const { createPokerRoom } = require('./poker-room');
+const { createBlackjackRoom } = require('./blackjack-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
@@ -48,11 +49,13 @@ function createGameServer(options) {
 
   const clients = new Set(); // { ws, playerId }
   const pokerClients = new Set();
+  const blackjackClients = new Set();
   const portalClients = new Set();
   let server = null;
   let wss = null;
   let room = null;
   let pokerRoom = null;
+  let blackjackRoom = null;
   let pingTimer = null;
   let initialized = false;
 
@@ -81,14 +84,22 @@ function createGameServer(options) {
     broadcastPortal();
   }
 
+  function broadcastBlackjack() {
+    if (!blackjackRoom) return;
+    for (const client of blackjackClients) if (client.playerId) sendTo(client.ws, blackjackRoom.stateFor(client.playerId));
+    broadcastPortal();
+  }
+
   function broadcastPortal() {
-    if (!room || !pokerRoom) return;
+    if (!room || !pokerRoom || !blackjackRoom) return;
     const liar = room._debug();
     const poker = pokerRoom.status();
+    const blackjack = blackjackRoom.status();
     const label = (info) => info.phase !== 'lobby' && info.phase !== 'result' ? '진행중' : (info.playerCount ? '진행 대기중' : '대기중');
     const payload = { type: 'games', games: {
       liar: { label: '라이어 게임', playerCount: [...clients].filter((c) => c.playerId).length, status: label({ phase: liar.phase, playerCount: [...clients].filter((c) => c.playerId).length }) },
       poker: { label: '인디언 포커', playerCount: poker.playerCount, status: label(poker) },
+      blackjack: { label: '블랙잭 21', playerCount: blackjack.playerCount, status: label(blackjack) },
     } };
     for (const client of portalClients) sendTo(client.ws, payload);
   }
@@ -120,7 +131,7 @@ function createGameServer(options) {
    */
   function startHeartbeat() {
     pingTimer = setInterval(() => {
-      for (const client of [...clients, ...pokerClients, ...portalClients]) {
+      for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
         if (client.missedPongs >= PONG_GRACE) {
           warn(`[연결 끊김] ${client.playerId || '미참가'} 응답이 없어 정리합니다`);
           try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
@@ -147,6 +158,7 @@ function createGameServer(options) {
       return;
     }
     if (game === 'poker') { handlePokerConnection(ws); return; }
+    if (game === 'blackjack') { handleBlackjackConnection(ws); return; }
     const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     clients.add(client);
 
@@ -293,6 +305,7 @@ function createGameServer(options) {
         },
       });
       pokerRoom = createPokerRoom({ onChange: broadcastPoker });
+      blackjackRoom = createBlackjackRoom({ onChange: broadcastBlackjack });
       startHeartbeat();
       server = http.createServer(handleHttp);
       // [S-1] 이 서버는 자기가 내려준 화면(같은 출처)이나 Electron 창(로컬 출처)만
@@ -348,6 +361,52 @@ function createGameServer(options) {
     });
   }
 
+  function handleBlackjackConnection(ws) {
+    const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+    blackjackClients.add(client);
+    ws.on('error', (err) => warn(`[블랙잭 연결 오류] ${err.message}`));
+    ws.on('pong', () => { client.missedPongs = 0; });
+    ws.on('close', () => { blackjackClients.delete(client); if (client.playerId) blackjackRoom.disconnect(client.playerId); });
+    ws.on('message', (raw) => {
+      try {
+        const now = Date.now();
+        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
+        client.count += 1;
+        if (client.count > RATE_MAX) return;
+        const msg = JSON.parse(raw);
+        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'join') {
+          if (client.playerId) return;
+          const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });
+          if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          client.playerId = joined.playerId;
+          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
+          sendTo(ws, blackjackRoom.stateFor(joined.playerId));
+          return;
+        }
+        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
+        let reason = null;
+        if (msg.type === 'leave') { blackjackRoom.leave(client.playerId); client.playerId = null; return; }
+        if (msg.type === 'ready') reason = blackjackRoom.setReady(client.playerId, msg.ready);
+        else if (msg.type === 'baseBet') reason = blackjackRoom.proposeBaseBet(client.playerId, msg.amount);
+        else if (msg.type === 'baseBetVote') reason = blackjackRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
+        else if (msg.type === 'start') reason = blackjackRoom.begin(client.playerId);
+        else if (msg.type === 'hit') reason = blackjackRoom.hit(client.playerId);
+        else if (msg.type === 'stand') reason = blackjackRoom.stand(client.playerId);
+        else if (msg.type === 'call') reason = blackjackRoom.call(client.playerId);
+        else if (msg.type === 'raise') reason = blackjackRoom.raise(client.playerId, msg.amount);
+        else if (msg.type === 'allin') reason = blackjackRoom.allin(client.playerId);
+        else if (msg.type === 'fold') reason = blackjackRoom.fold(client.playerId);
+        else if (msg.type === 'donate') reason = blackjackRoom.donate(client.playerId, msg.targetId, msg.amount);
+        else reason = '지원하지 않는 요청입니다.';
+        if (reason) sendTo(ws, { type: 'error', message: reason });
+      } catch (err) {
+        error(`[블랙잭 요청 실패] ${err && err.stack ? err.stack : err}`);
+        sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
+      }
+    });
+  }
+
   function start() {
     return new Promise((resolve, reject) => {
       if (server) { resolve(); return; }
@@ -381,15 +440,17 @@ function createGameServer(options) {
       try { client.ws.terminate(); } catch { /* 이미 끊김 */ }
     }
     clients.clear();
-    for (const client of [...pokerClients, ...portalClients]) {
+    for (const client of [...pokerClients, ...blackjackClients, ...portalClients]) {
       try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
     }
     pokerClients.clear();
+    blackjackClients.clear();
     portalClients.clear();
     if (wss) { try { wss.close(); } catch { /* 무시 */ } wss = null; }
     if (server) { try { server.close(); } catch { /* 무시 */ } server = null; }
     room = null;
     pokerRoom = null;
+    blackjackRoom = null;
     initialized = false;
   }
 
