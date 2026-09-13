@@ -14,6 +14,7 @@ const suites = [
   'web-room-test.js',                     // 게임 규칙
   'fuzz-test.js',                          // 무작위 조작으로 규칙 두들기기
   'connection-test.js',                    // 연결 유지 / 죽은 연결 정리
+  'render-http-test.js',                   // Render 정적 파일·상태 확인 최적화
   'vercel-adapter-test.js',                // Vercel export 서버에서 실제 WebSocket 연결
 ];
 let failed = 0;
