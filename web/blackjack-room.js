@@ -20,17 +20,43 @@ function createBlackjackRoom(options) {
   let turn = 0;
   let currentBet = 0;
   let allInCap = null;
-  let closeOnCallBy = null;
   let acted = new Set();
   let result = null;
+  let actionTimer = null;
+  let proposalTimer = null;
+  const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
+  const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
 
   const makeId = () => crypto.randomBytes(8).toString('hex');
   const makeToken = () => crypto.randomBytes(18).toString('hex');
   const note = (text) => { history.push({ text, timestamp: Date.now() }); if (history.length > 40) history.shift(); };
   const score = (hand) => hand.reduce((sum, card) => sum + (card.rank > 10 ? 10 : card.rank), 0);
   const inRound = () => contenders.map((id) => players.find((p) => p.id === id)).filter(Boolean);
-  const bettingPlayers = () => inRound().filter((p) => !p.isFolded && !p.isBusted);
+  const bettingPlayers = () => inRound().filter((p) => !p.isFolded);
   const currentBetPlayer = () => bettingPlayers()[turn % Math.max(bettingPlayers().length, 1)];
+  const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
+  const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
+  function uniqueNickname(value, excludeId) {
+    const used = new Set(players.filter((p) => p.id !== excludeId).map((p) => p.nickname));
+    if (!used.has(value)) return value;
+    for (let number = 2; number < 1000; number += 1) {
+      const suffix = `(${number})`; const candidate = value.slice(0, 24 - suffix.length) + suffix;
+      if (!used.has(candidate)) return candidate;
+    }
+    return value.slice(0, 20) + '-' + makeId().slice(0, 3);
+  }
+  function armActionTimer() {
+    clearActionTimer();
+    if (actionTimeoutMs <= 0) return;
+    if (phase === 'playing') {
+      const player = currentPlayingPlayer();
+      if (player) actionTimer = setTimeout(() => stand(player.id, true), actionTimeoutMs);
+    } else if (phase === 'betting') {
+      const player = currentBetPlayer();
+      if (player) actionTimer = setTimeout(() => fold(player.id, true), actionTimeoutMs);
+    }
+    if (actionTimer && actionTimer.unref) actionTimer.unref();
+  }
 
   function freshDeck() {
     const cards = [];
@@ -44,16 +70,19 @@ function createBlackjackRoom(options) {
 
   function draw(player) {
     const card = deck.pop();
-    if (card) player.hand.push(card);
+    if (!card) return null;
+    player.hand.push(card);
     player.score = score(player.hand);
     if (player.score > 21) player.isBusted = true;
+    return card;
   }
 
   function resetIfEmpty() {
     if (players.some((p) => p.connected)) return;
+    clearActionTimer(); clearProposalTimer();
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
     baseBetProposal = null; pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0;
-    allInCap = null; closeOnCallBy = null; acted = new Set(); result = null;
+    allInCap = null; acted = new Set(); result = null;
   }
 
   function join({ nickname, token: oldToken }) {
@@ -61,11 +90,11 @@ function createBlackjackRoom(options) {
     if (!clean) return { error: '닉네임을 입력해 주세요.' };
     const restored = players.find((p) => p.token === oldToken && !p.connected);
     if (restored) {
-      restored.connected = true; restored.nickname = clean; changed();
+      restored.connected = true; restored.nickname = uniqueNickname(clean, restored.id); changed();
       return { playerId: restored.id, token: restored.token, restored: true };
     }
     if (players.filter((p) => p.connected).length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
-    const player = { id: makeId(), token: makeToken(), nickname: clean, chips: INITIAL_CHIPS, connected: true, ready: false, hand: [], score: 0, isBusted: false, isStanding: false, isFolded: false, isAllIn: false, roundBet: 0 };
+    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), chips: INITIAL_CHIPS, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: false, isFolded: false, isAllIn: false, roundBet: 0 };
     players.push(player);
     if (!hostId) hostId = player.id;
     changed();
@@ -83,11 +112,12 @@ function createBlackjackRoom(options) {
     const player = players.find((p) => p.id === playerId);
     if (!player) return;
     player.connected = false;
-    if (baseBetProposal) { baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
+    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (phase === 'playing' || phase === 'betting') forceFold(player);
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'playing') advancePlaying();
     else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
+    else if (phase === 'betting') armActionTimer();
     resetIfEmpty(); changed();
   }
 
@@ -96,10 +126,11 @@ function createBlackjackRoom(options) {
     if (!player) return;
     player.connected = false; forceFold(player);
     players.splice(players.indexOf(player), 1);
-    if (baseBetProposal) { baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
+    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'playing') advancePlaying();
     else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
+    else if (phase === 'betting') armActionTimer();
     resetIfEmpty(); changed();
   }
 
@@ -121,10 +152,17 @@ function createBlackjackRoom(options) {
       baseBet = value; note(`기본 배팅금이 ${value.toLocaleString()}원으로 변경되었습니다.`); changed(); return null;
     }
     baseBetProposal = { id: makeId(), proposerId: playerId, proposerName: player.nickname, amount: value, votes: new Map() };
-    note(`${player.nickname}님이 기본 배팅금 ${value.toLocaleString()}원을 제안했습니다.`); changed(); return null;
+    note(`${player.nickname}님이 기본 배팅금 ${value.toLocaleString()}원을 제안했습니다.`);
+    proposalTimer = setTimeout(() => {
+      if (!baseBetProposal) return;
+      note('기본 배팅금 투표 시간이 끝나 변경이 취소되었습니다.'); baseBetProposal = null; proposalTimer = null; changed();
+    }, proposalTimeoutMs);
+    if (proposalTimer.unref) proposalTimer.unref();
+    changed(); return null;
   }
 
   function voteBaseBet(playerId, proposalId, agree) {
+    if (phase !== 'lobby' && phase !== 'result') return '게임 중에는 투표할 수 없습니다.';
     if (!baseBetProposal || baseBetProposal.id !== proposalId) return '종료된 투표입니다.';
     if (playerId === baseBetProposal.proposerId) return '제안자는 투표 대상이 아닙니다.';
     if (!players.some((p) => p.id === playerId && p.connected)) return '참가자를 찾을 수 없습니다.';
@@ -135,9 +173,9 @@ function createBlackjackRoom(options) {
     const agreed = [...baseBetProposal.votes.values()].filter(Boolean).length;
     const remaining = voters.length - baseBetProposal.votes.size;
     if (agreed >= required) {
-      baseBet = baseBetProposal.amount; note(`찬성 ${agreed}명으로 기본 배팅금이 ${baseBet.toLocaleString()}원으로 변경되었습니다.`); baseBetProposal = null;
+      baseBet = baseBetProposal.amount; note(`찬성 ${agreed}명으로 기본 배팅금이 ${baseBet.toLocaleString()}원으로 변경되었습니다.`); clearProposalTimer(); baseBetProposal = null;
     } else if (agreed + remaining < required || remaining === 0) {
-      note(`찬성 ${agreed}명으로 변경이 거절되었습니다. 다시 설정해 주세요.`); baseBetProposal = null;
+      note(`찬성 ${agreed}명으로 변경이 거절되었습니다. 다시 설정해 주세요.`); clearProposalTimer(); baseBetProposal = null;
     }
     changed(); return null;
   }
@@ -145,11 +183,12 @@ function createBlackjackRoom(options) {
   function begin(playerId) {
     if (playerId !== hostId) return '방장만 시작할 수 있습니다.';
     if (phase !== 'lobby' && phase !== 'result') return '이미 게임이 진행 중입니다.';
+    if (baseBetProposal) return '기본 배팅금 투표가 끝난 뒤 시작해 주세요.';
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
     if (ready.length < MIN_PLAYERS) return '준비한 참가자가 2명 이상이어야 합니다.';
     phase = 'playing'; result = null; pot = 0; deck = freshDeck(); contenders = ready.map((p) => p.id); turn = 0;
     for (const player of players) {
-      player.hand = []; player.score = 0; player.isBusted = false; player.isStanding = false;
+      player.hand = []; player.tieCards = []; player.score = 0; player.isBusted = false; player.isStanding = false;
       player.isFolded = !contenders.includes(player.id); player.isAllIn = false; player.roundBet = 0;
       if (contenders.includes(player.id)) { draw(player); draw(player); }
     }
@@ -162,7 +201,7 @@ function createBlackjackRoom(options) {
     const round = inRound();
     for (let offset = 0; offset < round.length; offset += 1) {
       const player = round[(turn + offset) % round.length];
-      if (!player.isStanding && !player.isBusted && !player.isFolded) return player;
+      if (!player.isStanding && !player.isFolded) return player;
     }
     return null;
   }
@@ -172,31 +211,32 @@ function createBlackjackRoom(options) {
     const round = inRound();
     if (!keepTurn) turn = (turn + 1) % Math.max(round.length, 1);
     const next = currentPlayingPlayer();
-    if (next) { turn = round.findIndex((p) => p.id === next.id); return; }
+    if (next) { turn = round.findIndex((p) => p.id === next.id); armActionTimer(); return; }
     beginBetting();
   }
 
   function hit(playerId) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
-    draw(player);
-    note(`${player.nickname}님이 히트했습니다.${player.isBusted ? ' 21을 넘어 버스트했습니다.' : ''}`);
-    if (player.isBusted) advancePlaying(false);
-    changed(); return null;
+    if (!draw(player)) {
+      player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); advancePlaying(false); changed(); return null;
+    }
+    note(`${player.nickname}님이 히트했습니다.${player.isBusted ? ' 21을 넘었지만 계속 진행할 수 있습니다.' : ''}`);
+    armActionTimer(); changed(); return null;
   }
 
-  function stand(playerId) {
+  function stand(playerId, timedOut) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
-    player.isStanding = true; note(`${player.nickname}님이 스탠드했습니다.`); advancePlaying(false); changed(); return null;
+    player.isStanding = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 스탠드되었습니다.` : `${player.nickname}님이 스탠드했습니다.`); advancePlaying(false); changed(); return null;
   }
 
   function beginBetting() {
-    const survivors = inRound().filter((p) => !p.isBusted && !p.isFolded);
-    if (!survivors.length) { refundAndFinish('모든 참가자가 버스트했습니다. 승자 없이 라운드를 종료합니다.'); return; }
+    const survivors = inRound().filter((p) => !p.isFolded);
     if (survivors.length === 1) { settle(survivors[0]); return; }
-    phase = 'betting'; turn = 0; currentBet = baseBet; allInCap = null; closeOnCallBy = null; acted = new Set();
+    phase = 'betting'; turn = 0; currentBet = baseBet; allInCap = null; acted = new Set();
     note('카드 선택이 끝났습니다. 배팅을 시작합니다.');
+    armActionTimer();
   }
 
   function pay(player, amount) { player.chips -= amount; player.roundBet += amount; pot += amount; }
@@ -213,8 +253,8 @@ function createBlackjackRoom(options) {
     const needed = Math.max(0, currentBet - player.roundBet);
     if (player.chips < needed) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
     pay(player, needed); acted.add(playerId); note(`${player.nickname}님이 ${needed.toLocaleString()}원을 콜했습니다.`);
-    if (closeOnCallBy === playerId || bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
-    advanceBet(); changed(); return null;
+    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
+    advanceBet(); armActionTimer(); changed(); return null;
   }
 
   function raise(playerId, amount) {
@@ -224,8 +264,8 @@ function createBlackjackRoom(options) {
     const value = Number(amount); const needed = currentBet - player.roundBet + value;
     if (!Number.isInteger(value) || value < 100 || value % 100 !== 0) return '레이즈는 100원 단위로 입력해 주세요.';
     if (needed >= player.chips) return '레이즈 후 칩이 남아야 합니다. 전액은 올인을 사용하세요.';
-    pay(player, needed); currentBet += value; acted = new Set([playerId]); advanceBet(); closeOnCallBy = currentBetPlayer().id;
-    note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); changed(); return null;
+    pay(player, needed); currentBet += value; acted = new Set([playerId]); advanceBet();
+    note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
   }
 
   function allin(playerId) {
@@ -235,33 +275,30 @@ function createBlackjackRoom(options) {
     if (player.chips <= 0) return '올인할 칩이 없습니다.';
     const cap = player.roundBet + player.chips; pay(player, player.chips); player.isAllIn = true; allInCap = cap; currentBet = cap;
     for (const other of bettingPlayers()) if (other.roundBet > cap) { const refund = other.roundBet - cap; other.roundBet -= refund; other.chips += refund; pot -= refund; }
-    acted.add(playerId); note(`${player.nickname}님이 ${cap.toLocaleString()}원에 올인했습니다.`); advanceBet(); changed(); return null;
+    acted.add(playerId); note(`${player.nickname}님이 ${cap.toLocaleString()}원에 올인했습니다.`); advanceBet(); armActionTimer(); changed(); return null;
   }
 
-  function fold(playerId) {
+  function fold(playerId, timedOut) {
     const player = currentBetPlayer();
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
-    player.isFolded = true; note(`${player.nickname}님이 폴드했습니다.`);
+    player.isFolded = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 폴드되었습니다.` : `${player.nickname}님이 폴드했습니다.`);
     if (bettingPlayers().length === 1) { settle(bettingPlayers()[0]); return null; }
-    turn %= bettingPlayers().length; changed(); return null;
+    turn %= bettingPlayers().length; armActionTimer(); changed(); return null;
   }
 
   function showdown() {
-    let candidates = bettingPlayers();
+    let candidates = bettingPlayers().filter((p) => p.score <= 21);
+    if (!candidates.length) { refundAndFinish('모든 참가자가 21을 초과해 배팅금을 돌려드립니다.'); return; }
     const bestScore = Math.max(...candidates.map((p) => p.score));
     candidates = candidates.filter((p) => p.score === bestScore);
     const mostCards = Math.max(...candidates.map((p) => p.hand.length));
     candidates = candidates.filter((p) => p.hand.length === mostCards);
     let safety = 20;
     while (candidates.length > 1 && deck.length >= candidates.length && safety-- > 0) {
-      note(`동점자 ${candidates.length}명이 카드 한 장씩 재대결합니다.`);
-      candidates.forEach(draw);
-      candidates = candidates.filter((p) => !p.isBusted);
-      if (!candidates.length) { refundAndFinish('재대결 참가자가 모두 버스트해 배팅금을 돌려드립니다.'); return; }
-      const nextScore = Math.max(...candidates.map((p) => p.score));
-      candidates = candidates.filter((p) => p.score === nextScore);
-      const nextCards = Math.max(...candidates.map((p) => p.hand.length));
-      candidates = candidates.filter((p) => p.hand.length === nextCards);
+      note(`동점자 ${candidates.length}명이 재대결 카드 한 장씩 뽑습니다.`);
+      const drawn = candidates.map((player) => { const card = deck.pop(); player.tieCards.push(card); return { player, value: card.rank > 10 ? 10 : card.rank }; });
+      const bestTieCard = Math.max(...drawn.map((entry) => entry.value));
+      candidates = drawn.filter((entry) => entry.value === bestTieCard).map((entry) => entry.player);
     }
     if (candidates.length === 1) settle(candidates[0]);
     else refundAndFinish('동점을 가리지 못해 배팅금을 돌려드립니다.');
@@ -269,6 +306,7 @@ function createBlackjackRoom(options) {
 
   function settle(winner) {
     if (!winner) return;
+    clearActionTimer();
     const amount = pot; winner.chips += pot; pot = 0; phase = 'result';
     result = { winnerId: winner.id, nickname: winner.nickname, amount, noWinner: false };
     note(`${winner.nickname}님이 ${winner.score}점으로 팟 ${amount.toLocaleString()}원을 획득했습니다.`);
@@ -276,11 +314,13 @@ function createBlackjackRoom(options) {
   }
 
   function refundAndFinish(message) {
+    clearActionTimer();
     for (const player of players) { player.chips += player.roundBet; player.roundBet = 0; player.ready = false; player.isAllIn = false; }
     pot = 0; phase = 'result'; result = { noWinner: true, message }; note(message); changed();
   }
 
   function donate(fromId, toId, amount) {
+    if (phase !== 'lobby' && phase !== 'result') return '기부는 대기 중에만 할 수 있습니다.';
     const from = players.find((p) => p.id === fromId); const to = players.find((p) => p.id === toId); const value = Number(amount);
     if (!from || !to || from === to) return '기부 대상을 확인해 주세요.';
     if (to.chips >= baseBet) return '현재 칩이 부족한 참가자에게만 기부할 수 있습니다.';
@@ -301,7 +341,7 @@ function createBlackjackRoom(options) {
       history: history.slice(-12),
       players: players.filter((p) => p.connected).map((p) => {
         const reveal = phase === 'result' ? !p.isFolded : p.id === playerId;
-        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, score: reveal ? p.score : null, cards: p.hand.map((card) => reveal ? card : { hidden: true }), isBusted: p.isBusted, isStanding: p.isStanding, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet };
+        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, score: reveal ? p.score : null, cards: p.hand.map((card) => reveal ? card : { hidden: true }), tieCards: p.tieCards.map((card) => phase === 'result' ? card : { hidden: true }), isBusted: reveal ? p.isBusted : false, isStanding: p.isStanding, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet };
       }),
     };
   }
