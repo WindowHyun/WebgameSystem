@@ -7,6 +7,9 @@ const room = createBlackjackRoom({ onChange() {} });
 const a = room.join({ nickname: 'A' });
 const b = room.join({ nickname: 'B' });
 assert.ok(!a.error && !b.error);
+const aReconnected = room.join({ nickname: 'A', token: a.token });
+assert.equal(aReconnected.playerId, a.playerId);
+assert.equal(room.stateFor(a.playerId).players.length, 2);
 
 assert.equal(room.proposeBaseBet(a.playerId, 500), null);
 let state = room.stateFor(b.playerId);
