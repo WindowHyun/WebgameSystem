@@ -11,6 +11,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const zlib = require('zlib');
 const { WebSocketServer } = require('ws');
 const { createRoom } = require('./room');
 const { createPokerRoom } = require('./poker-room');
@@ -40,6 +42,24 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.woff2': 'font/woff2',
 };
+
+// Render에서는 같은 프로세스가 정적 화면과 게임 소켓을 함께 제공한다. 정적 파일을
+// 요청할 때마다 디스크에서 읽지 않고 시작 시 한 번만 읽어 둔다. 텍스트 파일의 gzip
+// 결과도 재사용하므로 모바일 회선의 초기 다운로드와 서버 CPU 사용량을 함께 줄인다.
+const STATIC_FILES = new Map();
+for (const name of fs.readdirSync(PUBLIC_DIR)) {
+  const file = path.join(PUBLIC_DIR, name);
+  if (!fs.statSync(file).isFile()) continue;
+  const body = fs.readFileSync(file);
+  const type = MIME[path.extname(name)] || 'application/octet-stream';
+  const compressible = /^(text\/|application\/(javascript|json))/.test(type);
+  STATIC_FILES.set(name, {
+    body,
+    gzip: compressible ? zlib.gzipSync(body, { level: zlib.constants.Z_BEST_SPEED }) : null,
+    type,
+    etag: `"${crypto.createHash('sha256').update(body).digest('base64url').slice(0, 16)}"`,
+  });
+}
 
 function createGameServer(options) {
   const opts = options || {};
@@ -106,23 +126,46 @@ function createGameServer(options) {
 
   function handleHttp(req, res) {
     const requested = (req.url || '/').split('?')[0];
+    if (requested === '/healthz') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('{"ok":true}');
+      return;
+    }
     const name = requested === '/' ? 'index.html' : path.basename(requested);
-    const file = path.join(PUBLIC_DIR, name);
+    const asset = STATIC_FILES.get(name);
+    if (!asset) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('없는 파일입니다.');
+      return;
+    }
 
-    // basename으로 잘라 냈으므로 상위 디렉터리로는 못 나간다.
-    fs.readFile(file, (err, data) => {
-      if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-        res.end('없는 파일입니다.');
-        return;
-      }
-      res.writeHead(200, {
-        'Content-Type': MIME[path.extname(name)] || 'application/octet-stream',
-        // 화면을 고친 뒤에도 브라우저가 옛 파일을 들고 있으면 "나만 안 되는" 상황이 된다.
-        'Cache-Control': 'no-store',
-      });
-      res.end(data);
-    });
+    // HTML은 항상 재검증하고, 이름이 고정된 JS/CSS도 짧게만 캐시한다. 폰트와 이미지는
+    // 내용 변경이 드물어 오래 캐시한다. ETag가 같으면 본문을 다시 보내지 않는다.
+    if (req.headers['if-none-match'] === asset.etag) {
+      res.writeHead(304, { ETag: asset.etag, 'Cache-Control': cacheControl(name) });
+      res.end();
+      return;
+    }
+    const useGzip = asset.gzip && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+    const headers = {
+      'Content-Type': asset.type,
+      'Content-Length': useGzip ? asset.gzip.length : asset.body.length,
+      'Cache-Control': cacheControl(name),
+      ETag: asset.etag,
+      'X-Content-Type-Options': 'nosniff',
+    };
+    if (useGzip) {
+      headers['Content-Encoding'] = 'gzip';
+      headers.Vary = 'Accept-Encoding';
+    }
+    res.writeHead(200, headers);
+    res.end(req.method === 'HEAD' ? undefined : (useGzip ? asset.gzip : asset.body));
+  }
+
+  function cacheControl(name) {
+    if (name.endsWith('.html')) return 'no-cache';
+    if (/\.(woff2|png)$/.test(name)) return 'public, max-age=31536000, immutable';
+    return 'public, max-age=300, must-revalidate';
   }
 
   /**
@@ -146,6 +189,8 @@ function createGameServer(options) {
   }
 
   function handleConnection(ws, req) {
+    // 작은 턴 메시지를 즉시 전송해 Nagle 지연을 피한다.
+    if (ws._socket && typeof ws._socket.setNoDelay === 'function') ws._socket.setNoDelay(true);
     const game = new URL(req.url || '/', 'http://localhost').searchParams.get('game') || 'liar';
     if (game === 'portal') {
       const client = { ws, playerId: null, missedPongs: 0 };
@@ -313,7 +358,8 @@ function createGameServer(options) {
       // [M3] 기본값이 100MB다. 이 게임이 주고받는 가장 큰 메시지는 300자 채팅이라
       // 그만한 프레임을 받아 줄 이유가 없다. 화면 쪽 버그 하나로 서버 메모리가
       // 통째로 물리는 일을 막는다.
-      wss = new WebSocketServer({ server, verifyClient: allowOrigin, maxPayload: 16 * 1024 });
+      // 상태 메시지가 작고 빈도가 낮아 per-message 압축 협상 비용이 이득보다 크다.
+      wss = new WebSocketServer({ server, verifyClient: allowOrigin, maxPayload: 16 * 1024, perMessageDeflate: false });
       wss.on('connection', handleConnection);
   }
 
