@@ -66,6 +66,7 @@
   }
 
   function render() {
+    document.body.dataset.phase = state.phase;
     var you = state.players.find(function (player) { return player.id === state.you.id; });
     var lobby = state.phase === 'lobby' || state.phase === 'result';
     var myTurn = state.turnPlayerId === state.you.id;
