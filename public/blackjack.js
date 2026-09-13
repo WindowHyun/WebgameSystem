@@ -8,14 +8,15 @@
   var ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=blackjack');
   var state = null;
   var donationTarget = null;
+  var leaving = false;
   function $(id) { return document.getElementById(id); }
   function send(type, extra) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {}))); }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
   function showError(text) { $('error').textContent = text; $('error').style.display = 'block'; setTimeout(function () { $('error').style.display = 'none'; }, 3000); }
   ws.onopen = function () { send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) }); };
-  ws.onmessage = function (event) { var data = JSON.parse(event.data); if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; } if (data.type === 'error') { showError(data.message); return; } if (data.type === 'blackjackState') { state = data; render(); } };
-  ws.onclose = function () { showError('서버 연결이 끊겼습니다. 새로고침해 주세요.'); };
+  ws.onmessage = function (event) { var data = JSON.parse(event.data); if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; } if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; } if (data.type === 'error') { showError(data.message); return; } if (data.type === 'blackjackState') { state = data; render(); } };
+  ws.onclose = function () { if (leaving) { location.href = '/'; return; } showError('서버 연결이 끊겼습니다. 새로고침해 주세요.'); };
   function cardLabel(card) { if (card.hidden) return ''; var labels = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }; return (labels[card.rank] || card.rank) + card.suit; }
   function renderProposal() {
     var proposal = state.baseBetProposal;
@@ -41,7 +42,7 @@
     if (state.phase === 'betting') { var bettor = state.players.find(function (p) { return p.id === state.turnPlayerId; }); message = bettor ? '현재 ' + bettor.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 배팅 액션을 선택하세요.' : '') : '배팅을 진행하고 있습니다.'; }
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
     $('message').textContent = message;
-    $('players').innerHTML = state.players.map(function (player) { var status = player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>'; }).join('');
+    $('players').innerHTML = state.players.map(function (player) { var status = player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>'; }).join('');
     $('cards').innerHTML = state.players.filter(function (player) { return player.cards.length; }).map(function (player) {
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
@@ -53,6 +54,7 @@
     renderProposal();
   }
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
+  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; send('leave'); };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };

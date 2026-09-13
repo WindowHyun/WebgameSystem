@@ -19,7 +19,7 @@ const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
 
-const PUBLIC_DIR = path.join(__dirname, 'public');
+const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // [S-2] 한 사람이 보낼 수 있는 요청 수 제한. 악의가 아니라 화면 쪽 버그로도
 // 무한 루프가 돌 수 있다. 넉넉하게 잡되 폭주는 끊는다.
@@ -322,7 +322,7 @@ function createGameServer(options) {
     pokerClients.add(client);
     ws.on('error', (err) => warn(`[포커 연결 오류] ${err.message}`));
     ws.on('pong', () => { client.missedPongs = 0; });
-    ws.on('close', () => { pokerClients.delete(client); if (client.playerId) pokerRoom.disconnect(client.playerId); });
+    ws.on('close', () => { pokerClients.delete(client); if (pokerRoom && client.playerId) pokerRoom.disconnect(client.playerId); });
     ws.on('message', (raw) => {
       try {
         const now = Date.now();
@@ -342,7 +342,7 @@ function createGameServer(options) {
         }
         if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
         let reason = null;
-        if (msg.type === 'leave') { pokerRoom.leave(client.playerId); client.playerId = null; return; }
+        if (msg.type === 'leave') { pokerRoom.leave(client.playerId); client.playerId = null; sendTo(ws, { type: 'left' }); return; }
         if (msg.type === 'ready') reason = pokerRoom.setReady(client.playerId, msg.ready);
         else if (msg.type === 'baseBet') reason = pokerRoom.setBaseBet(client.playerId, msg.amount);
         else if (msg.type === 'baseBetVote') reason = pokerRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
@@ -366,7 +366,7 @@ function createGameServer(options) {
     blackjackClients.add(client);
     ws.on('error', (err) => warn(`[블랙잭 연결 오류] ${err.message}`));
     ws.on('pong', () => { client.missedPongs = 0; });
-    ws.on('close', () => { blackjackClients.delete(client); if (client.playerId) blackjackRoom.disconnect(client.playerId); });
+    ws.on('close', () => { blackjackClients.delete(client); if (blackjackRoom && client.playerId) blackjackRoom.disconnect(client.playerId); });
     ws.on('message', (raw) => {
       try {
         const now = Date.now();
@@ -386,7 +386,7 @@ function createGameServer(options) {
         }
         if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
         let reason = null;
-        if (msg.type === 'leave') { blackjackRoom.leave(client.playerId); client.playerId = null; return; }
+        if (msg.type === 'leave') { blackjackRoom.leave(client.playerId); client.playerId = null; sendTo(ws, { type: 'left' }); return; }
         if (msg.type === 'ready') reason = blackjackRoom.setReady(client.playerId, msg.ready);
         else if (msg.type === 'baseBet') reason = blackjackRoom.proposeBaseBet(client.playerId, msg.amount);
         else if (msg.type === 'baseBetVote') reason = blackjackRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);

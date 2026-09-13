@@ -34,6 +34,19 @@ function createPokerRoom(options) {
   const note = (text) => { history.push({ text, timestamp: Date.now() }); if (history.length > 40) history.shift(); };
   const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
+  function rebaseBettingTurn(previousTurnId, departedId) {
+    const list = active();
+    if (!list.length) { turn = 0; return; }
+    const preserved = list.findIndex((player) => player.id === previousTurnId);
+    if (preserved >= 0) { turn = preserved; return; }
+    const departedIndex = contenders.indexOf(departedId);
+    for (let offset = 1; offset <= contenders.length; offset += 1) {
+      const candidateId = contenders[(departedIndex + offset) % contenders.length];
+      const next = list.findIndex((player) => player.id === candidateId);
+      if (next >= 0) { turn = next; return; }
+    }
+    turn = 0;
+  }
   function uniqueNickname(value, excludeId) {
     const used = new Set(players.filter((p) => p.id !== excludeId).map((p) => p.nickname));
     if (!used.has(value)) return value;
@@ -104,13 +117,15 @@ function createPokerRoom(options) {
     p.connected = false;
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (phase === 'betting' && contenders.includes(pid) && !p.isFolded) {
-      const wasTurn = current() && current().id === pid;
+      const previousTurnId = current() && current().id;
       p.isFolded = true;
       note(`${p.nickname}님의 연결이 끊겨 폴드 처리되었습니다.`);
       const left = active();
       if (left.length === 1) settle(left[0], false);
-      else if (wasTurn) turn %= left.length;
-      armActionTimer();
+      else {
+        rebaseBettingTurn(previousTurnId, pid);
+        armActionTimer();
+      }
     }
     if (hostId === pid) hostId = (players.find((x) => x.connected) || {}).id || null;
     resetEmptyRoom();
@@ -121,9 +136,18 @@ function createPokerRoom(options) {
     const index = players.findIndex((p) => p.id === pid);
     if (index < 0) return;
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
-    if (phase === 'betting' && contenders.includes(pid) && !players[index].isFolded) fold(pid);
+    const previousTurnId = phase === 'betting' && current() ? current().id : null;
+    if (phase === 'betting' && contenders.includes(pid) && !players[index].isFolded) {
+      players[index].isFolded = true;
+      note(`${players[index].nickname}님이 방을 나가 폴드 처리되었습니다.`);
+    }
     players.splice(index, 1);
     if (hostId === pid) hostId = (players.find((p) => p.connected) || {}).id || null;
+    if (phase === 'betting') {
+      const left = active();
+      if (left.length === 1) settle(left[0], false);
+      else if (left.length > 1) { rebaseBettingTurn(previousTurnId, pid); armActionTimer(); }
+    }
     resetEmptyRoom();
     changed();
   }

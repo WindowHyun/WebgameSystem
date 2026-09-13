@@ -10,6 +10,7 @@
   var ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
   var state = null;
   var donationTarget = null;
+  var leaving = false;
 
   function $(id) { return document.getElementById(id); }
   function send(type, extra) {
@@ -27,10 +28,11 @@
   ws.onmessage = function (event) {
     var data = JSON.parse(event.data);
     if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
+    if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
     if (data.type === 'error') { showError(data.message); return; }
     if (data.type === 'pokerState') { state = data; render(); }
   };
-  ws.onclose = function () { showError('서버 연결이 끊겼습니다. 새로고침해 주세요.'); };
+  ws.onclose = function () { if (leaving) { location.href = '/'; return; } showError('서버 연결이 끊겼습니다. 새로고침해 주세요.'); };
 
   function cardLabel(card) {
     if (card.hidden) return '';
@@ -74,7 +76,8 @@
 
     $('players').innerHTML = state.players.map(function (player) {
       var status = player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
-      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
+      var initial = Array.from(player.nickname)[0] || '나';
+      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
     $('cards').innerHTML = state.players.filter(function (player) { return player.card; }).map(function (player) {
@@ -100,6 +103,7 @@
   }
 
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
+  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; send('leave'); };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };

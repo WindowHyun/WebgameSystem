@@ -36,6 +36,33 @@ function createBlackjackRoom(options) {
   const currentBetPlayer = () => bettingPlayers()[turn % Math.max(bettingPlayers().length, 1)];
   const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
+  function rebaseBettingTurn(previousTurnId, departedId) {
+    const list = bettingPlayers();
+    if (!list.length) { turn = 0; return; }
+    const preserved = list.findIndex((player) => player.id === previousTurnId);
+    if (preserved >= 0) { turn = preserved; return; }
+    const departedIndex = contenders.indexOf(departedId);
+    for (let offset = 1; offset <= contenders.length; offset += 1) {
+      const candidateId = contenders[(departedIndex + offset) % contenders.length];
+      const next = list.findIndex((player) => player.id === candidateId);
+      if (next >= 0) { turn = next; return; }
+    }
+    turn = 0;
+  }
+
+  function rebasePlayingTurn(previousTurnId, departedId) {
+    const round = inRound();
+    const eligible = round.filter((player) => !player.isStanding && !player.isFolded);
+    if (!eligible.length) { beginBetting(); return; }
+    const preserved = round.findIndex((player) => player.id === previousTurnId && !player.isStanding && !player.isFolded);
+    if (preserved >= 0) { turn = preserved; armActionTimer(); return; }
+    const departedIndex = contenders.indexOf(departedId);
+    for (let offset = 1; offset <= contenders.length; offset += 1) {
+      const candidateId = contenders[(departedIndex + offset) % contenders.length];
+      const next = round.findIndex((player) => player.id === candidateId && !player.isStanding && !player.isFolded);
+      if (next >= 0) { turn = next; armActionTimer(); return; }
+    }
+  }
   function uniqueNickname(value, excludeId) {
     const used = new Set(players.filter((p) => p.id !== excludeId).map((p) => p.nickname));
     if (!used.has(value)) return value;
@@ -111,26 +138,28 @@ function createBlackjackRoom(options) {
   function disconnect(playerId) {
     const player = players.find((p) => p.id === playerId);
     if (!player) return;
+    const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false;
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (phase === 'playing' || phase === 'betting') forceFold(player);
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
-    if (phase === 'playing') advancePlaying();
+    if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
     else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
-    else if (phase === 'betting') armActionTimer();
+    else if (phase === 'betting') { rebaseBettingTurn(previousTurnId, playerId); armActionTimer(); }
     resetIfEmpty(); changed();
   }
 
   function leave(playerId) {
     const player = players.find((p) => p.id === playerId);
     if (!player) return;
+    const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false; forceFold(player);
     players.splice(players.indexOf(player), 1);
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
-    if (phase === 'playing') advancePlaying();
+    if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
     else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
-    else if (phase === 'betting') armActionTimer();
+    else if (phase === 'betting') { rebaseBettingTurn(previousTurnId, playerId); armActionTimer(); }
     resetIfEmpty(); changed();
   }
 
