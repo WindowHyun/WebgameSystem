@@ -67,9 +67,9 @@
     var message = '참가자들이 준비하면 시작할 수 있습니다.';
     if (state.phase === 'betting') {
       var turnPlayer = state.players.find(function (player) { return player.id === state.turnPlayerId; });
-      message = myTurn ? '내 차례입니다. 상대 카드와 배팅을 확인하세요.' : (turnPlayer ? turnPlayer.nickname + '님의 차례' : '진행 중');
+      message = turnPlayer ? '현재 ' + turnPlayer.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 상대 카드와 배팅을 확인하세요.' : '') : '배팅을 진행하고 있습니다.';
     }
-    if (state.result) message = state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
+    if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
     $('message').textContent = message;
 
     $('players').innerHTML = state.players.map(function (player) {
@@ -86,6 +86,7 @@
     document.querySelectorAll('.player').forEach(function (element) {
       element.oncontextmenu = function (event) {
         event.preventDefault();
+        if (state.phase !== 'lobby' && state.phase !== 'result') { showError('기부는 대기 중에만 할 수 있습니다.'); return; }
         if (element.dataset.id === state.you.id) return;
         donationTarget = element.dataset.id;
         var target = state.players.find(function (player) { return player.id === donationTarget; });
@@ -108,6 +109,12 @@
   $('allin').onclick = function () { send('allin'); };
   $('fold').onclick = function () { send('fold'); };
   $('donate-send').onclick = function () { send('donate', { targetId: donationTarget, amount: Number($('donate-amount').value) }); $('donate').classList.add('hidden'); };
+  document.querySelectorAll('button[data-help]').forEach(function (button) {
+    function showHelp() { $('action-help').textContent = button.dataset.help; }
+    button.addEventListener('mouseenter', showHelp);
+    button.addEventListener('focus', showHelp);
+    button.addEventListener('touchstart', showHelp, { passive: true });
+  });
   document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
   setInterval(function () { send('ping'); }, 20000);
 }());
