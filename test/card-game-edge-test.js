@@ -107,7 +107,61 @@ async function run() {
   await wait(75);
   assert.equal(blackjackTimeout.stateFor(bta.playerId).phase, 'result');
 
-  console.log('카드 게임 이슈 방지: 정보 은닉·투표·배팅 종료·턴 동기화·시간제한·정원·닉네임 통과');
+  const latePoker = createPokerRoom({ onChange() {}, actionTimeoutMs: 0 });
+  const [lpA, lpB] = joinReady(latePoker, ['진행자A', '진행자B']);
+  assert.equal(latePoker.begin(lpA.playerId), null);
+  const lpLate = latePoker.join({ nickname: '늦은참가자' });
+  let lateState = latePoker.stateFor(lpLate.playerId);
+  assert.equal(lateState.you.inRound, false);
+  assert.ok(lateState.players.filter((p) => p.card).every((p) => p.card.hidden), '진행 중 입장자에게 기존 참가자의 카드가 보여서는 안 됩니다.');
+  latePoker.call(latePoker.stateFor(lpA.playerId).turnPlayerId);
+  latePoker.fold(latePoker.stateFor(lpA.playerId).turnPlayerId);
+  lateState = latePoker.stateFor(lpLate.playerId);
+  assert.equal(lateState.result.revealed, false);
+  assert.ok(lateState.players.filter((p) => p.card).every((p) => p.card.hidden), '폴드로 끝난 판의 승자 카드는 공개하지 않습니다.');
+  assert.ok(lateState.players.every((p) => p.roundBet === 0));
+  for (const player of [lpA, lpB, lpLate]) latePoker.setReady(player.playerId, true);
+  assert.equal(latePoker.begin(lpA.playerId), null);
+  assert.equal(latePoker.stateFor(lpLate.playerId).you.inRound, true, '진행 중 입장자는 다음 판부터 참가해야 합니다.');
+
+  const foldedPoker = createPokerRoom({ onChange() {}, actionTimeoutMs: 0 });
+  const [fpA, , fpC] = joinReady(foldedPoker, ['A', 'B', 'C']);
+  assert.equal(foldedPoker.begin(fpA.playerId), null);
+  while (foldedPoker.stateFor(fpA.playerId).turnPlayerId !== fpC.playerId) foldedPoker.call(foldedPoker.stateFor(fpA.playerId).turnPlayerId);
+  assert.equal(foldedPoker.fold(fpC.playerId), null);
+  const foldedState = foldedPoker.stateFor(fpC.playerId);
+  assert.ok(foldedState.players.filter((p) => p.card).every((p) => p.card.hidden), '폴드한 참가자에게 남은 사람들의 카드가 보여서는 안 됩니다.');
+
+  const lateBlackjack = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0 });
+  const [lbA, lbB] = joinReady(lateBlackjack, ['진행자A', '진행자B']);
+  assert.equal(lateBlackjack.begin(lbA.playerId), null);
+  const lbLate = lateBlackjack.join({ nickname: '늦은참가자' });
+  assert.equal(lateBlackjack.stateFor(lbLate.playerId).you.inRound, false);
+  lateBlackjack.disconnect(lbA.playerId);
+  lateBlackjack.disconnect(lbB.playerId);
+  const recovered = lateBlackjack.stateFor(lbLate.playerId);
+  assert.equal(recovered.phase, 'result', '진행 참가자가 0명이 되면 판을 종료해야 합니다.');
+  assert.equal(recovered.turnPlayerId, null);
+  assert.equal(lateBlackjack.setReady(lbLate.playerId, true), null, '대기 참가자는 종료 후 다음 판을 준비할 수 있어야 합니다.');
+  const lbNext = lateBlackjack.join({ nickname: '다음참가자' });
+  lateBlackjack.setReady(lbNext.playerId, true);
+  assert.equal(lateBlackjack.begin(lbLate.playerId), null);
+  assert.equal(lateBlackjack.stateFor(lbLate.playerId).you.inRound, true, '대기 참가자는 다음 블랙잭 판에 참가해야 합니다.');
+
+  for (const makeRoom of [createPokerRoom, createBlackjackRoom]) {
+    const reserved = makeRoom({ onChange() {}, actionTimeoutMs: 0, disconnectGraceMs: 15 });
+    const seats = Array.from({ length: 5 }, (_, index) => reserved.join({ nickname: `자리${index}` }));
+    reserved.disconnect(seats[4].playerId);
+    assert.match(reserved.join({ nickname: '정원우회' }).error, /최대 5명/, '재접속 유예 자리도 정원에 포함해야 합니다.');
+    assert.equal(reserved.join({ nickname: '자리4', token: seats[4].token }).playerId, seats[4].playerId);
+    assert.equal(reserved.status().playerCount, 5);
+    reserved.disconnect(seats[4].playerId);
+    await wait(30);
+    assert.ok(!reserved.join({ nickname: '정리후참가' }).error, '유예가 끝난 연결 종료 자리는 제거해야 합니다.');
+    assert.equal(reserved.status().playerCount, 5);
+  }
+
+  console.log('카드 게임 이슈 방지: 정보 은닉·중도 참가·투표·배팅 종료·턴 동기화·시간제한·재접속 정원·닉네임 통과');
 }
 
 run().catch((error) => {

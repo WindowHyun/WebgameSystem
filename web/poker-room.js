@@ -24,8 +24,10 @@ function createPokerRoom(options) {
   let baseBetProposal = null;
   let actionTimer = null;
   let proposalTimer = null;
+  const dropTimers = new Map();
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
+  const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
 
   const id = () => crypto.randomBytes(8).toString('hex');
   const token = () => crypto.randomBytes(18).toString('hex');
@@ -34,6 +36,20 @@ function createPokerRoom(options) {
   const note = (text) => { history.push({ text, timestamp: Date.now() }); if (history.length > 40) history.shift(); };
   const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
+  const cancelDrop = (pid) => { const timer = dropTimers.get(pid); if (timer) clearTimeout(timer); dropTimers.delete(pid); };
+  function scheduleDrop(pid) {
+    cancelDrop(pid);
+    const timer = setTimeout(() => {
+      dropTimers.delete(pid);
+      const index = players.findIndex((p) => p.id === pid && !p.connected);
+      if (index < 0) return;
+      players.splice(index, 1);
+      contenders = contenders.filter((id) => id !== pid);
+      changed();
+    }, Math.max(0, disconnectGraceMs));
+    if (timer.unref) timer.unref();
+    dropTimers.set(pid, timer);
+  }
   function rebaseBettingTurn(previousTurnId, departedId) {
     const list = active();
     if (!list.length) { turn = 0; return; }
@@ -68,6 +84,8 @@ function createPokerRoom(options) {
   function resetEmptyRoom() {
     if (players.some((p) => p.connected)) return false;
     clearActionTimer(); clearProposalTimer();
+    for (const timer of dropTimers.values()) clearTimeout(timer);
+    dropTimers.clear();
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
     pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; allInCap = null;
     acted = new Set(); result = null; baseBetProposal = null;
@@ -100,13 +118,15 @@ function createPokerRoom(options) {
     // close가 늦게 도착할 수 있다. 토큰이 같으면 연결 상태와 관계없이 같은 자리다.
     const restored = players.find((p) => p.token === oldToken);
     if (restored) {
+      cancelDrop(restored.id);
       restored.connected = true;
       restored.nickname = uniqueNickname(clean, restored.id);
       changed();
       return { playerId: restored.id, token: restored.token, restored: true };
     }
-    if (players.filter((p) => p.connected).length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
-    const p = { id: id(), token: token(), nickname: uniqueNickname(clean), chips: INITIAL_CHIPS, connected: true, ready: false, currentCard: null, isAllIn: false, isFolded: false, roundBet: 0, roundContribution: 0 };
+    if (players.length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
+    const waiting = phase === 'betting' || phase === 'showdown';
+    const p = { id: id(), token: token(), nickname: uniqueNickname(clean), chips: INITIAL_CHIPS, connected: true, ready: false, currentCard: null, isAllIn: false, isFolded: waiting, roundBet: 0, roundContribution: 0 };
     players.push(p);
     if (!hostId) hostId = p.id;
     changed();
@@ -130,13 +150,14 @@ function createPokerRoom(options) {
       }
     }
     if (hostId === pid) hostId = (players.find((x) => x.connected) || {}).id || null;
-    resetEmptyRoom();
+    if (!resetEmptyRoom()) scheduleDrop(pid);
     changed();
   }
 
   function leave(pid) {
     const index = players.findIndex((p) => p.id === pid);
     if (index < 0) return;
+    cancelDrop(pid);
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     const previousTurnId = phase === 'betting' && current() ? current().id : null;
     if (phase === 'betting' && contenders.includes(pid) && !players[index].isFolded) {
@@ -282,7 +303,7 @@ function createPokerRoom(options) {
     const cap = p.roundBet + p.chips;
     pay(p, p.chips); p.isAllIn = true; allInCap = cap; currentBet = cap;
     for (const x of active()) {
-      if (x.roundBet > cap) { const refund = x.roundBet - cap; x.roundBet -= refund; x.chips += refund; pot -= refund; }
+      if (x.roundBet > cap) { const refund = x.roundBet - cap; x.roundBet -= refund; x.roundContribution -= refund; x.chips += refund; pot -= refund; }
     }
     acted.add(pid); note(`${p.nickname}님이 ${cap.toLocaleString()}원에 올인했습니다.`);
     advance(); armActionTimer(); changed(); return null;
@@ -314,7 +335,7 @@ function createPokerRoom(options) {
     const won = pot; winner.chips += pot; pot = 0; phase = 'result';
     result = { winnerId: winner.id, nickname: winner.nickname, amount: won, revealed };
     note(`${winner.nickname}님이 팟 ${won.toLocaleString()}원을 획득했습니다.`);
-    for (const p of players) { p.ready = false; p.isAllIn = false; }
+    for (const p of players) { p.ready = false; p.isAllIn = false; p.roundBet = 0; p.roundContribution = 0; }
     changed(); return null;
   }
 
@@ -336,9 +357,10 @@ function createPokerRoom(options) {
 
   function stateFor(pid) {
     const me = players.find((p) => p.id === pid);
+    const viewerInRound = !!me && contenders.includes(pid) && !me.isFolded;
     return {
       type: 'pokerState', phase, baseBet, pot, currentBet, allInCap, hostId, turnPlayerId: current() && current().id,
-      result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready } : null,
+      result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
       baseBetProposal: baseBetProposal ? {
         id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount,
         agreed: [...baseBetProposal.votes.values()].filter(Boolean).length,
@@ -347,7 +369,13 @@ function createPokerRoom(options) {
         yourVote: pid === baseBetProposal.proposerId || baseBetProposal.votes.has(pid),
       } : null,
       canStart: pid === hostId && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
-      players: players.filter((p) => p.connected).map((p) => ({ id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? ((phase === 'betting' && p.id === pid) || p.isFolded ? { hidden: true } : p.currentCard) : null })),
+      players: players.filter((p) => p.connected).map((p) => {
+        const inRound = contenders.includes(p.id);
+        let reveal = false;
+        if (phase === 'betting') reveal = viewerInRound && p.id !== pid && !p.isFolded;
+        else if (phase === 'result') reveal = !!(result && result.revealed) && !p.isFolded;
+        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, inRound, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? (reveal ? p.currentCard : { hidden: true }) : null };
+      }),
     };
   }
 
