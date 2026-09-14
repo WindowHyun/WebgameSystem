@@ -312,15 +312,19 @@ function w15_tokenSeatCollision() {
   const { room, players } = makeRoom(['A', 'B'], 0);
   const token = players[0].token;
 
-  // 같은 토큰으로 또 들어온다 - 첫 번째가 아직 접속해 있는 상태
+  // [모바일] 화면 전환·백그라운드 전환으로 소켓이 조용히 죽으면, 서버는 한참 뒤에야
+  // ping 실패로 그걸 알아챈다. 그사이 새 연결이 같은 토큰으로 먼저 들어와도 자리를
+  // 잃지 않아야 한다 - room.js는 연결 상태와 관계없이 토큰이 같으면 같은 자리를
+  // 내준다. "진짜 다른 창"과의 구분(이전 연결을 끊어 내는 것)은 소켓 계층
+  // (game-server.js의 replaceConnection)이 맡는다.
   const second = room.join({ nickname: 'A2', token });
-  check('W15 이미 접속 중인 자리는 토큰이 같아도 뺏지 않는다 (새 참가자가 된다)',
-    second.playerId !== players[0].playerId && second.restored === false,
-    `기존=${players[0].playerId} / 새로=${second.playerId}`);
-  check('W15 그래서 창 두 개가 두 참가자로 보인다',
-    room.stateFor(second.playerId).players.length === 3);
+  check('W15 [모바일] 이전 연결이 아직 connected로 보여도 같은 토큰이면 같은 자리로 돌아온다',
+    second.playerId === players[0].playerId && second.restored === true,
+    `기존=${players[0].playerId} / 재접속=${second.playerId}`);
+  check('W15 그래서 참가자 수는 그대로 2명이다',
+    room.stateFor(second.playerId).players.length === 2);
 
-  // 끊긴 뒤에는 같은 토큰으로 원래 자리에 돌아온다
+  // 끊긴 뒤에도 같은 토큰으로 원래 자리에 돌아온다
   room.disconnect(players[0].playerId);
   const back = room.join({ nickname: 'A', token });
   check('W15 끊긴 자리는 같은 토큰으로 돌아올 수 있다',

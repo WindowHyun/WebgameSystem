@@ -25,6 +25,7 @@ var NAME_KEY = 'liar-game-nickname';
 var MODE_KEY = 'liar-game-spectator';
 var spectatorMode = readStored(MODE_KEY) === 'true';
 var kicked = false;
+var superseded = false; // 같은 토큰으로 다른 연결이 자리를 넘겨받았다 - 이 창은 더 붙지 않는다
 var moderationSignature = '';
 var sessionToken = null;
 try { sessionToken = window.sessionStorage.getItem(TOKEN_KEY); } catch (e) { /* memory fallback */ }
@@ -164,7 +165,8 @@ function resolveServerUrl() {
 }
 
 function connect() {
-  if (kicked) return;
+  if (kicked || superseded) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   var url = resolveServerUrl();
   if (!url) {
     $('conn-hint').textContent = '같은 네트워크의 참가자를 찾는 중...';
@@ -192,6 +194,13 @@ function connect() {
       myId = msg.playerId;
       saveToken(msg.token);
       writeStored(NAME_KEY, myNickname);
+      return;
+    }
+    if (msg.type === 'replaced') {
+      stopWatchdog();
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      superseded = true; // 이 창은 더 이상 붙지 않는다 - 새 연결이 같은 자리를 이어받았다
+      showBanner('warn', '다른 곳에서 같은 참가자로 다시 접속해 이 창의 연결을 닫았습니다.');
       return;
     }
     if (msg.type === 'kicked') {
@@ -232,7 +241,7 @@ function connect() {
 
   ws.onclose = function () {
     stopWatchdog();
-    if (kicked) return;
+    if (kicked || superseded) return;
     $('conn-hint').textContent = '서버와 연결이 끊어졌습니다.';
     showBanner('warn', '서버와의 연결이 끊어졌습니다. 다시 연결하는 중입니다...');
     scheduleReconnect();
@@ -273,7 +282,7 @@ function stopWatchdog() {
 }
 
 function scheduleReconnect() {
-  if (kicked) return;
+  if (kicked || superseded) return;
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(function () { reconnectTimer = null; connect(); }, reconnectDelay);
   reconnectDelay = Math.min(reconnectDelay * 2, 5000);
@@ -1502,6 +1511,17 @@ if (window.liar && typeof window.liar.onServerChange === 'function') {
     connect();
   });
 }
+
+// [모바일] 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다.
+// 타이머 기반 감시(watchdog)는 백그라운드 탭에서 함께 느려지거나 멈추므로, 화면이
+// 다시 보이는 순간을 직접 잡아 재시도 대기를 건너뛰고 바로 다시 붙는다.
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible' || kicked || superseded) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  reconnectDelay = 500;
+  connect();
+});
 
 // 새로고침해도 접속 화면으로 되돌아가지 않게, 닉네임과 토큰을 저장해 두고 다시 참가한다.
 $('spectator-input').checked = spectatorMode;

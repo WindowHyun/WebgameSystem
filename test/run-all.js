@@ -10,6 +10,7 @@ const suites = [
   'poker-room-test.js',                    // 인디언 포커 기본 규칙
   'card-game-edge-test.js',                // 카드 게임 악용·중단 방지 규칙
   'card-server-leave-test.js',             // 명시적 퇴장 즉시 제거·중복 입장 방지
+  'liar-reconnect-test.js',                // 라이어 게임: 모바일 백그라운드 재접속 자리 인계
   'moderation-test.js',                   // 관전·강퇴 및 재접속 회귀
   'web-room-test.js',                     // 게임 규칙
   'fuzz-test.js',                          // 무작위 조작으로 규칙 두들기기

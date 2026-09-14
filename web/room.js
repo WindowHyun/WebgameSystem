@@ -305,14 +305,15 @@ function createRoom(options) {
     // 글자(코드 포인트) 단위로 자른다.
     const nickname = Array.from(String(input.nickname).trim()).slice(0, 24).join('');
 
-    // 토큰이 맞으면 같은 사람으로 되살린다. 새로고침하거나 잠깐 끊겨도 자리를 잃지 않는다.
-    // 단, 그 자리에 이미 누가 접속해 있으면 되살리지 않는다. 한 PC에서 창을 두 개 띄우면
-    // 저장소를 공유해 토큰이 같아지는데, 그때 두 창이 한 사람으로 합쳐져 버린다.
-    // (창 두 개 = 두 참가자여야 한다.)
+    // 토큰이 같으면 연결 상태와 관계없이 같은 자리다. 모바일에서 화면을 전환하거나
+    // 잠깐 백그라운드로 내리면 OS가 WebSocket을 조용히 끊어 버리는데, 서버는 그걸
+    // ping 응답 실패로만 알아채므로(최대 수십 초) 그사이 새 소켓이 먼저 열려 재접속을
+    // 시도할 수 있다. 그때 "아직 connected"라는 이유로 자리를 거부하면 정작 튕긴
+    // 사람이 참가자 정보를 잃고 새 사람으로 들어가 버린다. 진짜로 다른 창이 같은
+    // 토큰을 들고 있었다면, 소켓 계층(game-server.js)이 그 이전 연결을 끊어 낸다.
     if (input.token) {
       for (const player of players.values()) {
         if (player.token !== input.token) continue;
-        if (player.connected) break; // 이미 쓰고 있는 자리 - 새 참가자로 들어간다
         cancelDrop(player.id);
         player.connected = true;
         if (phase === 'lobby' || phase === 'result') player.nickname = uniqueNickname(nickname, player.id);
