@@ -91,17 +91,21 @@
     if (state.phase === 'betting') {
       var turnPlayer = state.players.find(function (player) { return player.id === state.turnPlayerId; });
       message = turnPlayer ? '현재 ' + turnPlayer.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 상대 카드와 배팅을 확인하세요.' : '') : '배팅을 진행하고 있습니다.';
+      if (!state.you.inRound) message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.';
+      else if (you.isFolded) message = '폴드했습니다. 남은 판을 관전하고 있습니다.';
     }
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
     $('message').textContent = message;
 
     $('players').innerHTML = state.players.map(function (player) {
-      var status = player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
+      var waiting = state.phase === 'betting' && !player.inRound;
+      var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
       var initial = Array.from(player.nickname)[0] || '나';
       return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
-    $('cards').innerHTML = state.players.filter(function (player) { return player.card; }).map(function (player) {
+    var canSeeTable = state.phase !== 'betting' || (state.you.inRound && !you.isFolded);
+    $('cards').innerHTML = (canSeeTable ? state.players : []).filter(function (player) { return player.card; }).map(function (player) {
       var red = !player.card.hidden && (player.card.suit === '♥' || player.card.suit === '♦');
       return '<div class="seat ' + (player.isFolded ? 'folded' : '') + '"><div class="card ' + (player.card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(player.card) + '</div><b>' + escapeHtml(player.nickname) + '</b></div>';
     }).join('');
