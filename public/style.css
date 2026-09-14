@@ -253,7 +253,7 @@ input:disabled { opacity:.5; }
 
 /* ───────────────── 좁은 화면 [S-4] ───────────────── */
 @media (max-width: 720px) {
-  #screen-game { flex-direction: column; height: 100dvh; }
+  #screen-game { flex-direction: column; height: 100svh; }
 
   #sidebar { width:100%; flex-shrink:0; padding:8px 12px; max-height:none; overflow:visible; }
   #sidebar h2, #sidebar .sub { display:none; }
