@@ -101,7 +101,7 @@
       var waiting = state.phase === 'betting' && !player.inRound;
       var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
       var initial = Array.from(player.nickname)[0] || '나';
-      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
+      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
     var canSeeTable = state.phase !== 'betting' || (state.you.inRound && !you.isFolded);
@@ -111,18 +111,22 @@
     }).join('');
 
     $('history').innerHTML = state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join('');
-    document.querySelectorAll('.player').forEach(function (element) {
-      element.oncontextmenu = function (event) {
-        event.preventDefault();
+    function openDonation(element, event) {
+        event.preventDefault(); event.stopPropagation();
         if (state.phase !== 'lobby' && state.phase !== 'result') { showError('기부는 대기 중에만 할 수 있습니다.'); return; }
         if (element.dataset.id === state.you.id) return;
         donationTarget = element.dataset.id;
         var target = state.players.find(function (player) { return player.id === donationTarget; });
         $('donate-name').textContent = target.nickname + '님에게';
-        $('donate').style.left = Math.min(event.clientX, innerWidth - 190) + 'px';
-        $('donate').style.top = Math.min(event.clientY, innerHeight - 150) + 'px';
+        var rect = element.getBoundingClientRect();
+        $('donate').style.left = Math.min(event.clientX || rect.right, innerWidth - 190) + 'px';
+        $('donate').style.top = Math.min(event.clientY || rect.bottom, innerHeight - 150) + 'px';
         $('donate').classList.remove('hidden');
-      };
+    }
+    document.querySelectorAll('.player').forEach(function (element) {
+      element.oncontextmenu = function (event) { openDonation(element, event); };
+      element.onclick = function (event) { openDonation(element, event); };
+      element.onkeydown = function (event) { if (event.key === 'Enter' || event.key === ' ') openDonation(element, event); };
     });
     renderProposal();
   }

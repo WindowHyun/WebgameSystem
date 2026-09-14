@@ -245,14 +245,15 @@ input:disabled { opacity:.5; }
 @media (max-width: 720px) {
   #screen-game { flex-direction: column; height: 100dvh; }
 
-  #sidebar { width:100%; flex-shrink:0; padding:10px 14px; max-height:34vh; overflow-y:auto; }
+  #sidebar { width:100%; flex-shrink:0; padding:8px 12px; max-height:none; overflow:visible; }
   #sidebar h2, #sidebar .sub { display:none; }
-  #sidebar .label { margin:0 0 6px; }
-  #participant-list { display:flex; flex-wrap:wrap; gap:6px 14px; }
-  #participant-list li { padding:2px 0; }
+  #sidebar .label { margin:0 0 5px; font-size:11px; }
+  #participant-list { display:flex; flex-wrap:nowrap; gap:6px 14px; overflow-x:auto; scrollbar-width:none; }
+  #participant-list li { min-width:max-content; padding:2px 0; }
   #participant-list .tag { margin-left:6px; }
-  #sidebar-foot { margin-top:10px; padding-top:8px; display:flex; align-items:center; gap:10px; }
+  #sidebar-foot { position:absolute; right:12px; top:7px; margin:0; padding:0; border:0; }
   #leave-btn { width:auto; margin:0; padding:4px 10px; flex-shrink:0; }
+  #sidebar-foot p { display:none; }
 
   #main { flex:1; min-height:0; }
   #topbar { padding:10px 14px; }
@@ -262,7 +263,9 @@ input:disabled { opacity:.5; }
   #role-card { margin:10px 14px 0; padding:10px 12px; }
   #chat { padding:10px 14px; }
   #jump-bar { width:calc(100% - 28px); margin:0 14px 8px; }
-  #composer { padding:10px 14px; }
+  #composer { padding:8px 12px; }
+  #composer-toolbar { display:none; }
+  #composer-actions .fmt-btn:disabled { display:none; }
 
   .opts, .guess-row { max-width:none; }
   .msg.my-turn { margin-left:-10px; padding-left:7px; }

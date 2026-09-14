@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>모여서 게임</title>
-  <link rel="stylesheet" href="portal.css">
-  <link rel="stylesheet" href="responsive-fixes.css">
+  <link rel="stylesheet" href="portal.css?v=5">
+  <link rel="stylesheet" href="responsive-fixes.css?v=2">
 </head>
 <body class="portal-page">
   <div class="portal-shell">
@@ -17,24 +17,21 @@
     <main>
       <section id="name-screen" class="name-screen">
         <div class="name-copy">
-          <p class="eyebrow">WEBGAME SYSTEM</p>
-          <h1>오늘은 어떤 이름으로 플레이할까요?</h1>
-          <p class="description">한 번 입력하면 모든 게임에서 같은 닉네임을 사용합니다. 게임 선택 화면에서 언제든 바꿀 수 있어요.</p>
+          <p class="eyebrow">모여서 게임 워크스페이스</p>
+          <h1>어떤 이름으로<br>참여할까요?</h1>
+          <p class="description">게임에서 사용할 닉네임을 입력하세요. 로그인이나 가입은 필요하지 않습니다.</p>
           <form id="name-form">
-            <label class="sr-only" for="nickname">닉네임</label>
-            <input id="nickname" maxlength="24" autocomplete="off" placeholder="닉네임을 입력하세요" required>
-            <button>게임 선택</button>
+            <label for="nickname">닉네임</label>
+            <input id="nickname" maxlength="24" autocomplete="off" placeholder="예: 게임왕" required>
+            <button>게임 채널로 이동</button>
           </form>
-        </div>
-        <div class="name-visual" aria-hidden="true">
-          <span class="bubble bubble-one"></span><span class="bubble bubble-two"></span>
-          <div class="card-fan"><i>7</i><i>A</i><i>21</i></div>
+          <p class="join-footnote"><i></i> 입력한 이름은 이 브라우저에서만 사용됩니다.</p>
         </div>
       </section>
 
       <section id="games-screen" class="games-screen hidden">
         <header class="games-header">
-          <div><p class="eyebrow">게임 선택</p><h1><span id="player-name"></span>님, 무엇을 시작할까요?</h1><p class="description">현재 상태와 참가 인원을 확인하고 바로 입장하세요.</p></div>
+          <div><p class="eyebrow">게임 채널</p><h1><span id="player-name"></span>님, 채널을 선택하세요</h1><p class="description">왼쪽 채널 목록에서 참가 인원과 진행 상태를 확인할 수 있습니다.</p></div>
           <button id="rename" class="profile-button"><span id="profile-initial">나</span> 닉네임 변경</button>
         </header>
         <div class="games">
