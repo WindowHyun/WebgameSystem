@@ -123,6 +123,14 @@ async function run() {
   for (const player of [lpA, lpB, lpLate]) latePoker.setReady(player.playerId, true);
   assert.equal(latePoker.begin(lpA.playerId), null);
   assert.equal(latePoker.stateFor(lpLate.playerId).you.inRound, true, '진행 중 입장자는 다음 판부터 참가해야 합니다.');
+  const pokerNextTurns = new Set();
+  while (latePoker.stateFor(lpA.playerId).phase === 'betting') {
+    const playerId = latePoker.stateFor(lpA.playerId).turnPlayerId;
+    pokerNextTurns.add(playerId);
+    assert.equal(latePoker.fold(playerId), null);
+  }
+  assert.equal(pokerNextTurns.size, 2, '3명 포커의 다음 판에서 서로 다른 두 참가자의 턴을 처리해야 합니다.');
+  assert.equal(latePoker.stateFor(lpLate.playerId).phase, 'result', '3명 포커의 다음 판이 정산까지 끝나야 합니다.');
 
   const foldedPoker = createPokerRoom({ onChange() {}, actionTimeoutMs: 0 });
   const [fpA, , fpC] = joinReady(foldedPoker, ['A', 'B', 'C']);
@@ -147,6 +155,30 @@ async function run() {
   lateBlackjack.setReady(lbNext.playerId, true);
   assert.equal(lateBlackjack.begin(lbLate.playerId), null);
   assert.equal(lateBlackjack.stateFor(lbLate.playerId).you.inRound, true, '대기 참가자는 다음 블랙잭 판에 참가해야 합니다.');
+
+  const nextBlackjack = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0 });
+  const [nbA, nbB] = joinReady(nextBlackjack, ['A', 'B']);
+  assert.equal(nextBlackjack.begin(nbA.playerId), null);
+  const nbC = nextBlackjack.join({ nickname: 'C' });
+  while (nextBlackjack.stateFor(nbA.playerId).phase === 'playing') {
+    assert.equal(nextBlackjack.stand(nextBlackjack.stateFor(nbA.playerId).turnPlayerId), null);
+  }
+  nextBlackjack.call(nextBlackjack.stateFor(nbA.playerId).turnPlayerId);
+  nextBlackjack.fold(nextBlackjack.stateFor(nbA.playerId).turnPlayerId);
+  for (const player of [nbA, nbB, nbC]) nextBlackjack.setReady(player.playerId, true);
+  assert.equal(nextBlackjack.begin(nbA.playerId), null);
+  assert.equal(nextBlackjack.stateFor(nbC.playerId).players.filter((p) => p.inRound).length, 3, '다음 블랙잭 판은 세 명 모두 참가해야 합니다.');
+  const blackjackNextTurns = new Set();
+  while (nextBlackjack.stateFor(nbA.playerId).phase === 'playing') {
+    const playerId = nextBlackjack.stateFor(nbA.playerId).turnPlayerId;
+    blackjackNextTurns.add(playerId);
+    assert.equal(nextBlackjack.stand(playerId), null);
+  }
+  assert.equal(blackjackNextTurns.size, 3, '3명 블랙잭의 다음 판에서 세 참가자의 카드 선택 턴을 모두 처리해야 합니다.');
+  while (nextBlackjack.stateFor(nbA.playerId).phase === 'betting') {
+    assert.equal(nextBlackjack.fold(nextBlackjack.stateFor(nbA.playerId).turnPlayerId), null);
+  }
+  assert.equal(nextBlackjack.stateFor(nbC.playerId).phase, 'result', '3명 블랙잭의 다음 판이 정산까지 끝나야 합니다.');
 
   for (const makeRoom of [createPokerRoom, createBlackjackRoom]) {
     const reserved = makeRoom({ onChange() {}, actionTimeoutMs: 0, disconnectGraceMs: 15 });
