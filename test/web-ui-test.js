@@ -345,8 +345,11 @@ async function main() {
   check('X10 [요청] 나가기를 누르면 남은 사람 목록에서 즉시 사라진다',
     !(await liar2.page.textContent('#participant-list')).includes(citizens[0].name),
     (await liar2.page.textContent('#participant-list')).replace(/\s+/g, ' ').trim());
-  check('X10 나간 사람은 접속 화면으로 돌아간다',
-    (await citizens[0].page.isVisible('#screen-join')) && !(await citizens[0].page.isVisible('#screen-game')));
+  // 웹 버전에서 나가기는 같은 페이지의 접속 화면이 아니라 게임 포털(/)로 돌려보낸다
+  // (포커·블랙잭과 동일한 동작).
+  await citizens[0].page.waitForURL((u) => u.pathname === '/', { timeout: 3000 }).catch(() => {});
+  check('X10 나간 사람은 게임 포털로 돌아간다',
+    citizens[0].page.url() === `${URL}/`, citizens[0].page.url());
   check('X10 시민 한 명이 빠져도 남은 2명은 라운드를 이어간다',
     (await liar2.page.locator('#live-block .track .pill').count()) === 3
     && (await liar2.page.isHidden('#start-btn')));
@@ -359,7 +362,8 @@ async function main() {
   check('X10 [이슈] 혼자 남아도 게임 시작 버튼이 다시 보인다',
     await liar2.page.isVisible('#start-btn'));
 
-  // 나갔던 사람이 다시 들어오면 바로 시작할 수 있어야 한다
+  // 나갔던 사람이 다시 들어오면 바로 시작할 수 있어야 한다 (포털에서 게임으로 되짚어간다)
+  await citizens[0].page.goto(`${URL}/liar.html`);
   await citizens[0].page.fill('#nickname-input', citizens[0].name);
   await citizens[0].page.click('#join-btn');
   await liar2.page.waitForFunction(
@@ -394,6 +398,9 @@ async function main() {
   // 길이만 보고 다시 그리면, 한 줄 밀어내고 한 줄 넣느라 길이가 그대로여서
   // 100줄이 넘는 순간부터 새 글이 화면에 안 붙는다.
   // 라이어가 나가서 혼자 남았으니, 다시 두 명을 만들어야 시작할 수 있다.
+  // (나가기는 게임 포털로 돌려보내므로, 라이어 게임 화면으로 되짚어가 다시 참가한다.)
+  await liar3.page.waitForURL((u) => u.pathname === '/', { timeout: 3000 }).catch(() => {});
+  await liar3.page.goto(`${URL}/liar.html`);
   await liar3.page.fill('#nickname-input', liar3.name);
   await liar3.page.click('#join-btn');
   await stays.page.waitForFunction(
@@ -444,7 +451,7 @@ async function mentionCheck(browser) {
     const ctx = await browser.newContext();
     ctxs.push(ctx);
     const page = await ctx.newPage();
-    await page.goto(`http://127.0.0.1:${PORT + 8}`);
+    await page.goto(`http://127.0.0.1:${PORT + 8}/liar.html`);
     await page.fill('#nickname-input', name);
     await page.click('#join-btn');
     return page;
@@ -511,14 +518,14 @@ async function chatRedrawRecoversCheck(browser) {
   await own.start();
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
-  await page.goto(`http://127.0.0.1:${PORT + 7}`);
+  await page.goto(`http://127.0.0.1:${PORT + 7}/liar.html`);
   await page.fill('#nickname-input', '회복');
   await page.click('#join-btn');
   await page.waitForSelector('#screen-game:not(.hidden)', { timeout: 5000 });
 
   const ctx2 = await browser.newContext();
   const other = await ctx2.newPage();
-  await other.goto(`http://127.0.0.1:${PORT + 7}`);
+  await other.goto(`http://127.0.0.1:${PORT + 7}/liar.html`);
   await other.fill('#nickname-input', '상대');
   await other.click('#join-btn');
   await wait(400);
@@ -547,7 +554,7 @@ async function chatRedrawRecoversCheck(browser) {
   // 참가는 대화 줄을 남기지 않으므로 대화 지문은 그대로다 - 고치기 전에는 여기서 안 그렸다.
   const ctx3 = await browser.newContext();
   const third = await ctx3.newPage();
-  await third.goto(`http://127.0.0.1:${PORT + 7}`);
+  await third.goto(`http://127.0.0.1:${PORT + 7}/liar.html`);
   await third.fill('#nickname-input', '세번째');
   await third.click('#join-btn');
   await page.waitForFunction(
@@ -578,7 +585,7 @@ async function bannerAutoHideCheck(browser) {
   await own.start();
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
-  await page.goto(`http://127.0.0.1:${PORT + 6}`);
+  await page.goto(`http://127.0.0.1:${PORT + 6}/liar.html`);
   await page.fill('#nickname-input', '배너');
   await page.click('#join-btn');
   await page.waitForSelector('#screen-game:not(.hidden)', { timeout: 5000 });
@@ -615,7 +622,7 @@ async function spectatorBannerCheck(browser) {
   // 앞선 테스트가 쓰던 방에는 사람과 판이 남아 있다. 깨끗한 방에서 본다.
   const own = createGameServer({ port: PORT + 5 });
   await own.start();
-  const ownUrl = `http://127.0.0.1:${PORT + 5}`;
+  const ownUrl = `http://127.0.0.1:${PORT + 5}/liar.html`;
 
   const ctxs = [];
   const join = async (name) => {
@@ -711,7 +718,7 @@ async function oldServerCheck(browser) {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
   const banners = [];
-  await page.goto(`http://127.0.0.1:${OLD_PORT}`);
+  await page.goto(`http://127.0.0.1:${OLD_PORT}/liar.html`);
   await page.fill('#nickname-input', '옛날이');
   await page.click('#join-btn');
   await page.waitForSelector('#screen-game:not(.hidden)', { timeout: 5000 });
@@ -746,7 +753,7 @@ async function oldServerCheck(browser) {
 async function slackLookCheck(browser) {
   const own = createGameServer({ port: PORT + 9 });
   await own.start();
-  const url = `http://127.0.0.1:${PORT + 9}`;
+  const url = `http://127.0.0.1:${PORT + 9}/liar.html`;
   const ctxs = [];
   const join = async (name) => {
     const ctx = await browser.newContext();

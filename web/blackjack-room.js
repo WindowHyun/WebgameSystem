@@ -394,7 +394,8 @@ function createBlackjackRoom(options) {
       baseBetProposal: baseBetProposal ? { id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount, agreed: [...baseBetProposal.votes.values()].filter(Boolean).length, voted: baseBetProposal.votes.size, total: players.filter((p) => p.connected && p.id !== baseBetProposal.proposerId).length, yourVote: playerId === baseBetProposal.proposerId || baseBetProposal.votes.has(playerId) } : null,
       history: history.slice(-12),
       players: players.filter((p) => p.connected).map((p) => {
-        const reveal = phase === 'result' ? !p.isFolded : p.id === playerId;
+        // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
+        const reveal = phase === 'result' ? true : p.id === playerId;
         return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, inRound: contenders.includes(p.id), score: reveal ? p.score : null, cards: p.hand.map((card) => reveal ? card : { hidden: true }), tieCards: p.tieCards.map((card) => phase === 'result' ? card : { hidden: true }), isBusted: reveal ? p.isBusted : false, isStanding: p.isStanding, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet };
       }),
     };

@@ -942,7 +942,8 @@ for (const fn of [w1_minimumPlayers, w2_liarNeverSeesWord, w3_everyoneSeesSameRe
   w57_nextRoundIsAsked, w58_nextRoundAgreed, w59_nextRoundRejectedGoesStraightToVoting,
   w60_nextRoundTimeoutSkips, w61_fullFlowStillReachesFreeChat,
   w62_systemLinesDoNotCrowdOutChat, w63_recentSystemLinesStillSurviveFlooding,
-  w64_mentionIsDetected, w65_mentionEdgeCases, w66_mentionSurvivesDeparture]) {
+  w64_mentionIsDetected, w65_mentionEdgeCases, w66_mentionSurvivesDeparture,
+  w67_disconnectAfterVotingDoesNotDropTheVote]) {
   try { fn(); } catch (err) { check(`${fn.name} 실행 중 예외`, false, err.message); }
 }
 
@@ -1349,6 +1350,30 @@ function w66_mentionSurvivesDeparture() {
   room.leave(b);
   check('W66 부른 사람이 나가도 지난 대화에 이름이 남는다',
     mentionsOf(room, a).join(',') === '영희', mentionsOf(room, a).join(',') || '(사라짐)');
+}
+
+function w67_disconnectAfterVotingDoesNotDropTheVote() {
+  // [모바일] 표를 던진 직후 순간적으로 접속이 끊겨도(10초 유예 안), 이미 던진 표는
+  // 개표에 그대로 들어가야 한다. A=라이어. B가 정확히 A를 지목한 뒤 접속이 끊긴다.
+  // 그 뒤 A와 C도 투표해 activeRoster()로는 B가 빠지지만, B의 표는 살아 있어야 한다.
+  const { room, players } = makeRoom(['A', 'B', 'C'], 0);
+  room.start();
+  const [a, b, c] = idsOf(players);
+  passProposal(room, [a, b, c]);
+
+  room.vote(b, a); // B가 실제 라이어(A)를 정확히 지목한다
+  room.disconnect(b); // 그 직후 B의 연결이 끊긴다(아직 방에는 남아 있다)
+  check('W67 접속이 끊겨도 이미 던진 표는 지워지지 않는다',
+    room._debug().round.votes.has(b), JSON.stringify([...room._debug().round.votes.entries()]));
+
+  // 만약 A가 C를 지목하고 C가 A를 지목하면: B의 표까지 합쳐 A가 2표, C가 1표라
+  // A가 정확히 지목되어야 한다. B의 표가 사라진다면 1:1 동점으로 라이어가 자동 승리한다.
+  room.vote(a, c);
+  room.vote(c, a);
+  const s = room.stateFor(c);
+  check('W67 [이슈] 접속이 끊긴 사람의 표도 집계에 포함되어 라이어가 정확히 지목된다',
+    s.phase === 'guess' || (s.result && s.result.accused && s.result.accused.nickname === 'A'),
+    s.result ? `${s.result.reason}/${s.result.accused ? s.result.accused.nickname : '-'}` : s.phase);
 }
 
 const failed = results.filter((r) => !r.ok).length;

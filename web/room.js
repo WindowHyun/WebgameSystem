@@ -884,9 +884,14 @@ function createRoom(options) {
       return;
     }
 
+    // 집계는 activeRoster()(접속 중인 사람)가 아니라 아직 방에 있는 이번 라운드 참가자
+    // 전원으로 한다. 투표를 던진 직후 잠깐 접속이 끊긴 사람(10초 유예 안)의 표까지
+    // 여기서 지워 버리면, 이미 정당하게 던진 표 하나로 결과가 뒤집힐 수 있다.
+    // (완전히 나간 사람의 표만 제외한다 - players.has()가 그 기준이다.)
     const counts = new Map();
-    for (const player of activeRoster()) {
-      const targetId = round.votes.get(player.id);
+    for (const seat of round.roster) {
+      if (!players.has(seat.id)) continue;
+      const targetId = round.votes.get(seat.id);
       if (targetId && players.has(targetId)) counts.set(targetId, (counts.get(targetId) || 0) + 1);
     }
     if (counts.size === 0) { finish('liar', 'noVotes'); return; }
@@ -1007,7 +1012,12 @@ function createRoom(options) {
       round: round ? {
         category: round.category,
         // left = 이미 방을 나간 사람. 화면이 투표 후보에서 빼는 데 쓴다.
-        roster: round.roster.map((r) => ({ id: r.id, nickname: r.nickname, left: !players.has(r.id) })),
+        // connected = 아직 방에는 있지만(10초 유예 안) 지금은 접속이 끊긴 사람.
+        // 화면이 "오프라인" 표시를 하는 데 쓴다 - 투표 후보에서 빼지는 않는다.
+        roster: round.roster.map((r) => {
+          const p = players.get(r.id);
+          return { id: r.id, nickname: r.nickname, left: !p, connected: !!p && !!p.connected };
+        }),
         // 설명 단계 진행 상황. 화면이 "누구 차례 / 몇 명 남았는지"를 이걸로 그린다.
         speaker: phase === 'turn' && currentSpeakerId()
           ? { id: currentSpeakerId(), nickname: nameOf(currentSpeakerId()) } : null,

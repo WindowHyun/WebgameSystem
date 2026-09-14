@@ -67,6 +67,15 @@ function avatarColorFor(key) {
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
 }
 
+/**
+ * 아바타에 넣을 이니셜 두 글자. slice(0,2)는 UTF-16 코드유닛 기준이라 이모지
+ * 중간을 잘라 깨진 글자를 남길 수 있다(room.js가 닉네임을 자를 때와 같은 이유).
+ * Array.from은 코드 포인트 단위로 쪼개므로 최소한 이모지 하나는 온전히 남는다.
+ */
+function graphemeInitial(name) {
+  return Array.from(String(name == null ? '' : name)).slice(0, 2).join('') || '?';
+}
+
 // 연속으로 같은 사람이 친 대화는 아바타·이름을 한 번만 보여준다. 이 안에 있으면 같은 묶음.
 var GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -336,8 +345,16 @@ $('join-btn').onclick = function () {
 function leaveRoom() {
   if (kicked) return;
   sendMessage({ type: 'leave' });
-  resetRoomScreen();
-  if (!(window.liar && window.liar.isElectron)) setTimeout(function () { location.href = '/'; }, 80);
+  if (window.liar && window.liar.isElectron) {
+    // Electron 버전에는 돌아갈 포털이 없다 - 이 화면에서 바로 접속 화면을 보여준다.
+    resetRoomScreen();
+    return;
+  }
+  // 웹 버전은 게임 포털(여러 게임을 고르는 화면)로 돌려보낸다. 곧 다른 페이지로
+  // 이동하므로 접속 화면을 잠깐 그렸다 지우는 대신 저장된 토큰만 정리한다.
+  saveToken(null);
+  clearStored(NAME_KEY);
+  setTimeout(function () { location.href = '/'; }, 80);
 }
 
 function resetRoomScreen() {
@@ -402,6 +419,10 @@ $('moderation-panel').addEventListener('click', function (ev) {
     sendMessage({ type: 'kickVote', proposalId: state.moderation.proposal.id, agree: button.getAttribute('data-kick-vote') === 'yes' });
   }
 });
+$('mode-toggle-btn').onclick = function () {
+  if (!state || !state.you) return;
+  sendMessage({ type: 'mode', spectator: !state.you.spectator });
+};
 $('start-btn').onclick = function () { sendMessage({ type: 'start' }); };
 $('vote-btn').onclick = function () { sendMessage({ type: 'callVote' }); };
 $('send-btn').onclick = function () {
@@ -532,7 +553,7 @@ function messageShell(opts) {
   if (!opts.grouped) {
     var avatar = document.createElement('div');
     avatar.className = opts.system ? 'avatar sys' : 'avatar';
-    avatar.textContent = opts.system ? '⚙️' : (opts.name || '?').slice(0, 2);
+    avatar.textContent = opts.system ? '⚙️' : graphemeInitial(opts.name);
     if (!opts.system) avatar.style.background = avatarColorFor(opts.avatarKey || opts.name);
     slot.appendChild(avatar);
   }
@@ -1090,14 +1111,22 @@ function buildVote(s) {
     // 이미 방을 나간 사람은 고를 수 없다. 서버도 같은 규칙으로 막는다.
     s.round.roster.filter(function (p) { return p.id !== myId && !p.left; }).forEach(function (p) {
       var b = document.createElement('button');
-      b.className = 'opt';
+      b.className = p.connected ? 'opt' : 'opt offline';
       b.dataset.id = p.id;
       var mini = document.createElement('span');
       mini.className = 'mini';
-      mini.textContent = p.nickname.slice(0, 2);
+      mini.textContent = graphemeInitial(p.nickname);
       mini.style.background = avatarColorFor(p.id);
       b.appendChild(mini);
       b.appendChild(document.createTextNode(p.nickname));
+      // 접속이 끊긴 사람도 계속 후보로 남지만(10초 유예 안 돌아올 수 있다), 지금
+      // 답할 수 없는 상태라는 것은 알려 준다.
+      if (!p.connected) {
+        var tag = document.createElement('span');
+        tag.className = 'cnt';
+        tag.textContent = '오프라인';
+        b.appendChild(tag);
+      }
       opts.appendChild(b);
     });
     shell.body.appendChild(opts);
@@ -1185,7 +1214,7 @@ function renderParticipants(s) {
     var avatar = document.createElement('span');
     avatar.className = 'p-avatar';
     avatar.style.background = avatarColorFor(p.id);
-    avatar.textContent = p.nickname.slice(0, 2);
+    avatar.textContent = graphemeInitial(p.nickname);
     var badge = document.createElement('span');
     badge.className = 'p-badge ' + (p.connected ? 'online' : 'offline');
     avatarWrap.appendChild(avatar);
@@ -1274,6 +1303,15 @@ function renderTally(s) {
   var el = $('tally-label');
   if (!s.record || s.record.rounds === 0) { el.textContent = ''; return; }
   el.textContent = s.record.rounds + '판 · ' + LABELS.liar + ' ' + s.record.liarWins + ' / 시민 ' + s.record.citizenWins;
+}
+
+/** 라운드 사이(대기·정산 후)에는 나갔다 들어오지 않아도 관전⇄참가를 바꿀 수 있다. */
+function renderModeToggle(s) {
+  var btn = $('mode-toggle-btn');
+  if (!s.you || !s.you.canChangeMode) { btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  btn.textContent = s.you.spectator ? '참가자로 전환' : '관전으로 전환';
+  btn.title = s.you.spectator ? '다음 판부터 참가자로 전환합니다' : '다음 판부터 관전으로 전환합니다';
 }
 
 /**
@@ -1437,6 +1475,7 @@ function render(s) {
   try {
     renderParticipants(s);
     renderTally(s);
+    renderModeToggle(s);
     renderRoleCard(s);
     renderChat(s);
     renderLive(s);

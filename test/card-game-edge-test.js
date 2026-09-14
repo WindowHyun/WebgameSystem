@@ -133,12 +133,16 @@ async function run() {
   assert.equal(latePoker.stateFor(lpLate.playerId).phase, 'result', '3명 포커의 다음 판이 정산까지 끝나야 합니다.');
 
   const foldedPoker = createPokerRoom({ onChange() {}, actionTimeoutMs: 0 });
-  const [fpA, , fpC] = joinReady(foldedPoker, ['A', 'B', 'C']);
+  const [fpA, fpB, fpC] = joinReady(foldedPoker, ['A', 'B', 'C']);
   assert.equal(foldedPoker.begin(fpA.playerId), null);
   while (foldedPoker.stateFor(fpA.playerId).turnPlayerId !== fpC.playerId) foldedPoker.call(foldedPoker.stateFor(fpA.playerId).turnPlayerId);
   assert.equal(foldedPoker.fold(fpC.playerId), null);
   const foldedState = foldedPoker.stateFor(fpC.playerId);
-  assert.ok(foldedState.players.filter((p) => p.card).every((p) => p.card.hidden), '폴드한 참가자에게 남은 사람들의 카드가 보여서는 안 됩니다.');
+  // [이슈] 폴드해도 이번 라운드 참가자였으니 아직 뛰고 있는 사람들의 카드는 계속 보여야 한다.
+  assert.ok(foldedState.players.filter((p) => p.id !== fpC.playerId && p.card).every((p) => !p.card.hidden),
+    '폴드해도 아직 뛰고 있는 다른 사람의 카드는 계속 보여야 합니다.');
+  assert.equal(foldedState.players.find((p) => p.id === fpA.playerId).card.hidden, undefined, 'A는 아직 뛰고 있다');
+  assert.equal(foldedState.players.find((p) => p.id === fpB.playerId).card.hidden, undefined, 'B는 아직 뛰고 있다');
 
   const lateBlackjack = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0 });
   const [lbA, lbB] = joinReady(lateBlackjack, ['진행자A', '진행자B']);
