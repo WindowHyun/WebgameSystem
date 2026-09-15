@@ -293,7 +293,11 @@ function stopWatchdog() {
 function scheduleReconnect() {
   if (kicked || superseded) return;
   if (reconnectTimer) return;
-  reconnectTimer = setTimeout(function () { reconnectTimer = null; connect(); }, reconnectDelay);
+  // 간격을 사람마다 흩뜨린다. Vercel 함수가 재활용되거나 Render가 재배포되면 방 전체가
+  // 같은 순간에 끊기는데, 지터가 없으면 그 인원이 5초마다 한꺼번에 다시 두드려
+  // 막 올라온 서버를 또 넘어뜨린다.
+  var wait = Math.round(reconnectDelay * (0.7 + Math.random() * 0.6));
+  reconnectTimer = setTimeout(function () { reconnectTimer = null; connect(); }, wait);
   reconnectDelay = Math.min(reconnectDelay * 2, 5000);
 }
 

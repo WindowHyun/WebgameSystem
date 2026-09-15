@@ -21,17 +21,34 @@
   }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
+  var errorTimer = null;
   function showError(text) {
     $('error').textContent = text;
     $('error').style.display = 'block';
-    setTimeout(function () { $('error').style.display = 'none'; }, 3000);
+    clearTimeout(errorTimer); // 앞의 토스트가 뒤에 온 것까지 같이 지우지 않게 한다
+    errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
   }
+  /**
+   * 끊긴 동안 화면이 살아 있는 척하지 않게 한다. 예전에는 3초짜리 토스트가 사라지고 나면
+   * 버튼이 전부 눌리는 상태로 남아서, 콜이나 폴드를 눌러도 아무 일도 일어나지 않았다.
+   */
+  function setOffline(offline) {
+    if (offline) document.body.setAttribute('data-offline', '');
+    else document.body.removeAttribute('data-offline');
+  }
+  /**
+   * 재시도 간격을 사람마다 흩뜨린다. Vercel 함수가 재활용되거나 Render가 재배포되면
+   * 붙어 있던 사람이 전부 같은 순간에 끊기는데, 지터가 없으면 그 인원이 5초마다
+   * 한꺼번에 다시 두드려 막 올라온 서버를 다시 넘어뜨린다.
+   */
+  function nextDelay() { return Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)); }
 
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
     ws.onopen = function () {
       reconnectDelay = 500;
+      setOffline(false);
       send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) });
     };
     ws.onmessage = function (event) {
@@ -47,9 +64,9 @@
     ws.onclose = function () {
       if (leaving) { location.href = '/'; return; }
       if (superseded) return;
-      showError('서버에 다시 연결하고 있습니다.');
+      setOffline(true);
       clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, reconnectDelay);
+      reconnectTimer = setTimeout(connect, nextDelay());
       reconnectDelay = Math.min(reconnectDelay * 2, 5000);
     };
   }

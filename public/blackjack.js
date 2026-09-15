@@ -16,11 +16,23 @@
   function send(type, extra) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {}))); }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
-  function showError(text) { $('error').textContent = text; $('error').style.display = 'block'; setTimeout(function () { $('error').style.display = 'none'; }, 3000); }
+  var errorTimer = null;
+  function showError(text) {
+    $('error').textContent = text; $('error').style.display = 'block';
+    clearTimeout(errorTimer); // 앞의 토스트가 뒤에 온 것까지 같이 지우지 않게 한다
+    errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
+  }
+  // 끊긴 동안 버튼이 눌리는 채로 남아 "눌러도 아무 일이 없는" 상태를 만들지 않는다.
+  function setOffline(offline) {
+    if (offline) document.body.setAttribute('data-offline', '');
+    else document.body.removeAttribute('data-offline');
+  }
+  // 재시도 간격을 흩뜨려, 한꺼번에 끊긴 사람들이 동시에 다시 두드리지 않게 한다.
+  function nextDelay() { return Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)); }
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=blackjack');
-    ws.onopen = function () { reconnectDelay = 500; send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) }); };
+    ws.onopen = function () { reconnectDelay = 500; setOffline(false); send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) }); };
     ws.onmessage = function (event) {
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
@@ -34,9 +46,9 @@
     ws.onclose = function () {
       if (leaving) { location.href = '/'; return; }
       if (superseded) return;
-      showError('서버에 다시 연결하고 있습니다.');
+      setOffline(true);
       clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, reconnectDelay);
+      reconnectTimer = setTimeout(connect, nextDelay());
       reconnectDelay = Math.min(reconnectDelay * 2, 5000);
     };
   }
