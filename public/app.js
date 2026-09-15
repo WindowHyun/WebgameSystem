@@ -389,7 +389,9 @@ profileMenu.id = 'profile-menu';
 profileMenu.className = 'hidden';
 profileMenu.setAttribute('role', 'menu');
 document.body.appendChild(profileMenu);
-function closeProfileMenu() { profileMenu.classList.add('hidden'); profileMenu.innerHTML = ''; }
+// 지금 메뉴가 누구를 향해 열려 있는가. 상태가 갱신될 때 닫을지 말지를 이걸로 정한다.
+var profileMenuTargetId = null;
+function closeProfileMenu() { profileMenuTargetId = null; profileMenu.classList.add('hidden'); profileMenu.innerHTML = ''; }
 /** 우클릭(데스크톱)과 롱프레스(모바일)가 함께 쓰는 강퇴 메뉴 열기 */
 function openKickMenu(profile, x, y) {
   closeProfileMenu();
@@ -403,6 +405,7 @@ function openKickMenu(profile, x, y) {
   button.disabled = !!(state.moderation && state.moderation.proposal);
   button.onclick = function () { sendMessage({ type: 'kick', targetId: target.id }); closeProfileMenu(); };
   profileMenu.appendChild(button);
+  profileMenuTargetId = target.id;
   profileMenu.classList.remove('hidden');
   profileMenu.style.left = Math.max(0, Math.min(x, window.innerWidth - profileMenu.offsetWidth)) + 'px';
   profileMenu.style.top = Math.max(0, Math.min(y, window.innerHeight - profileMenu.offsetHeight)) + 'px';
@@ -450,7 +453,14 @@ $('participant-list').addEventListener('touchcancel', cancelLongPress);
 document.addEventListener('click', function (ev) { if (!profileMenu.contains(ev.target)) closeProfileMenu(); });
 document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeProfileMenu(); });
 window.addEventListener('resize', closeProfileMenu);
-document.addEventListener('scroll', closeProfileMenu, true);
+// 메뉴는 참가자 줄에 붙어 뜨므로 그 줄이 움직일 때만 닫는다. 대화창이 새 글에 맞춰
+// 저절로 내려가는 것까지 받아 닫으면, 누가 한 마디 하기만 해도 메뉴가 사라진다.
+document.addEventListener('scroll', function (ev) {
+  if (!profileMenuTargetId) return;
+  var list = $('participant-list');
+  var scrolled = ev.target;
+  if (scrolled === document || scrolled === list || (scrolled.contains && scrolled.contains(list))) closeProfileMenu();
+}, true);
 $('moderation-panel').addEventListener('click', function (ev) {
   var button = ev.target.closest('button[data-kick-vote]');
   if (button && state && state.moderation && state.moderation.proposal) {
@@ -469,7 +479,18 @@ $('send-btn').onclick = function () {
   if (sendMessage({ type: 'chat', text: text })) { $('chat-input').value = ''; autoGrowComposer(); }
 };
 
-$('nickname-input').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') $('join-btn').click(); });
+/**
+ * 한글·일본어 입력기(IME)는 글자를 조합하는 중에도 Enter를 쓴다. "안녕하세요"를 치고
+ * Enter로 조합을 확정하면 keydown이 먼저 오는데, 그걸 전송으로 받으면 조합 중이던
+ * 글자가 잘린 채 나가고 곧이어 진짜 Enter가 한 번 더 전송한다. 조합 중에는 무시한다.
+ * (isComposing을 안 주는 낡은 브라우저를 위해 keyCode 229도 함께 본다)
+ */
+function composing(ev) { return ev.isComposing || ev.keyCode === 229; }
+
+$('nickname-input').addEventListener('keydown', function (ev) {
+  if (composing(ev)) return;
+  if (ev.key === 'Enter') $('join-btn').click();
+});
 
 // [요청] 입력창이 여러 줄로 늘어난다. Shift+Enter는 줄바꿈, Enter만 누르면 전송한다.
 var COMPOSER_MAX_HEIGHT = 160;
@@ -479,6 +500,7 @@ function autoGrowComposer() {
   el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT) + 'px';
 }
 $('chat-input').addEventListener('keydown', function (ev) {
+  if (composing(ev)) return;
   if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('send-btn').click(); }
 });
 $('chat-input').addEventListener('input', autoGrowComposer);
@@ -522,6 +544,7 @@ $('live-block').addEventListener('click', function (ev) {
   if (ev.target.closest('#guess-btn')) submitGuess();
 });
 $('live-block').addEventListener('keydown', function (ev) {
+  if (composing(ev)) return;
   if (ev.key === 'Enter' && ev.target.id === 'guess-input') submitGuess();
 });
 function submitGuess() {
@@ -1233,7 +1256,13 @@ function refreshLiveTimers(s) {
 }
 
 function renderParticipants(s) {
-  closeProfileMenu();
+  // 예전에는 여기서 무조건 닫았다. 상태는 누가 한 마디만 해도 다시 오므로, 방금 연
+  // 강퇴 메뉴가 그 자리에서 사라져 실제 게임 중에는 누를 수가 없었다.
+  // 지목한 사람이 목록에서 사라졌을 때만 닫는다(메뉴 자체는 body에 있어 목록을 다시
+  // 그려도 살아남는다).
+  if (profileMenuTargetId && !s.players.some(function (p) { return p.id === profileMenuTargetId && p.connected; })) {
+    closeProfileMenu();
+  }
   var list = $('participant-list');
   list.innerHTML = '';
   var online = s.players.filter(function (p) { return p.connected; }).length;

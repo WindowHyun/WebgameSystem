@@ -1,5 +1,5 @@
 'use strict';
-/* global ws, state, myId */
+/* global ws, state, myId, sendMessage */
 
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
@@ -26,7 +26,7 @@ async function main() {
       await page.waitForFunction(() => state && state.you);
       pages.push(page);
     }
-    const [a, b] = pages; // Gamma just needs to be present so the kick vote meets its minimum-voter rule.
+    const [a, b, c] = pages; // Gamma keeps the kick vote above its minimum-voter rule, and chats to force a re-render.
     const idB = await b.evaluate(() => myId);
     const sel = `[data-player-id="${idB}"]`;
 
@@ -46,6 +46,32 @@ async function main() {
       const t = new Touch({ identifier: 1, target: el, clientX: rect.left + rect.width / 2 + 40, clientY: rect.top + rect.height / 2 });
       el.dispatchEvent(new TouchEvent('touchmove', { touches: [t], targetTouches: [t], changedTouches: [t], bubbles: true, cancelable: true }));
     });
+
+    // Korean/Japanese IMEs send Enter to commit a composition. Treating that as "send"
+    // ships the half-composed text and then sends again on the real Enter.
+    const duringComposition = await a.evaluate(() => {
+      const el = document.getElementById('chat-input');
+      el.value = '안녕하세';
+      let sent = 0;
+      const real = window.sendMessage;
+      window.sendMessage = (m) => { if (m.type === 'chat') sent += 1; };
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
+      window.sendMessage = real;
+      return sent;
+    });
+    assert.equal(duringComposition, 0);
+    const afterComposition = await a.evaluate(() => {
+      const el = document.getElementById('chat-input');
+      el.value = '안녕하세요';
+      let sent = 0;
+      const real = window.sendMessage;
+      window.sendMessage = (m) => { if (m.type === 'chat') sent += 1; };
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: false, bubbles: true, cancelable: true }));
+      window.sendMessage = real;
+      return sent;
+    });
+    assert.equal(afterComposition, 1);
+    console.log('PASS Enter while the IME is composing does not send; Enter after it does');
 
     // A quick tap must not open the kick menu (only a sustained long-press should).
     await touch(a, sel, 'touchstart');
@@ -71,6 +97,13 @@ async function main() {
     await touch(a, sel, 'touchend');
     assert.equal(await a.isVisible('#profile-menu'), true);
     console.log('PASS releasing the finger after a long-press does not close the menu');
+
+    // A state update must not close the menu: the room re-broadcasts on every chat line,
+    // and closing on each one made the menu impossible to actually click in a live game.
+    await c.evaluate(() => sendMessage({ type: 'chat', text: '안녕하세요' }));
+    await a.waitForTimeout(400);
+    assert.equal(await a.isVisible('#profile-menu'), true);
+    console.log('PASS the kick menu survives an unrelated chat message');
 
     await a.click('#profile-menu button[data-kick]');
     await b.waitForSelector('#moderation-panel button[data-kick-vote="yes"]');

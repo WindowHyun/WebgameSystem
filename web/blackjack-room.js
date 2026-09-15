@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { error: logError } = require('../logger');
 
 const INITIAL_CHIPS = 86000;
 const MIN_PLAYERS = 2;
@@ -25,6 +26,8 @@ function createBlackjackRoom(options) {
   let actionTimer = null;
   let proposalTimer = null;
   const dropTimers = new Map();
+  // 포커 방과 같은 이유로 나간 사람의 칩을 토큰에 묶어 둔다(web/poker-room.js의 chipBank 참고).
+  const chipBank = new Map(); // token -> chips
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
@@ -36,15 +39,20 @@ function createBlackjackRoom(options) {
   const inRound = () => contenders.map((id) => players.find((p) => p.id === id)).filter(Boolean);
   const bettingPlayers = () => inRound().filter((p) => !p.isFolded);
   const currentBetPlayer = () => bettingPlayers()[turn % Math.max(bettingPlayers().length, 1)];
+  // 포커 방과 같은 이유로 타이머 콜백을 직접 감싼다(web/poker-room.js의 safeTimeout 참고).
+  const safeTimeout = (fn, ms) => setTimeout(() => {
+    try { fn(); } catch (err) { logError(`[블랙잭 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
+  }, ms);
   const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
   const cancelDrop = (playerId) => { const timer = dropTimers.get(playerId); if (timer) clearTimeout(timer); dropTimers.delete(playerId); };
   function scheduleDrop(playerId) {
     cancelDrop(playerId);
-    const timer = setTimeout(() => {
+    const timer = safeTimeout(() => {
       dropTimers.delete(playerId);
       const index = players.findIndex((p) => p.id === playerId && !p.connected);
       if (index < 0) return;
+      chipBank.set(players[index].token, players[index].chips);
       players.splice(index, 1);
       contenders = contenders.filter((id) => id !== playerId);
       changed();
@@ -93,10 +101,10 @@ function createBlackjackRoom(options) {
     if (actionTimeoutMs <= 0) return;
     if (phase === 'playing') {
       const player = currentPlayingPlayer();
-      if (player) actionTimer = setTimeout(() => stand(player.id, true), actionTimeoutMs);
+      if (player) actionTimer = safeTimeout(() => stand(player.id, true), actionTimeoutMs);
     } else if (phase === 'betting') {
       const player = currentBetPlayer();
-      if (player) actionTimer = setTimeout(() => fold(player.id, true), actionTimeoutMs);
+      if (player) actionTimer = safeTimeout(() => fold(player.id, true), actionTimeoutMs);
     }
     if (actionTimer && actionTimer.unref) actionTimer.unref();
   }
@@ -125,6 +133,7 @@ function createBlackjackRoom(options) {
     clearActionTimer(); clearProposalTimer();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
+    chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
     baseBetProposal = null; pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0;
     allInCap = null; acted = new Set(); result = null;
@@ -142,7 +151,10 @@ function createBlackjackRoom(options) {
     }
     if (players.length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
     const waiting = phase === 'playing' || phase === 'betting';
-    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), chips: INITIAL_CHIPS, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: waiting, isFolded: waiting, isAllIn: false, roundBet: 0 };
+    // 같은 토큰으로 돌아왔다면 나갈 때 들고 있던 칩을 그대로 돌려준다.
+    const kept = chipBank.get(oldToken);
+    if (oldToken) chipBank.delete(oldToken);
+    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), chips: kept === undefined ? INITIAL_CHIPS : kept, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: waiting, isFolded: waiting, isAllIn: false, roundBet: 0 };
     players.push(player);
     if (!hostId) hostId = player.id;
     changed();
@@ -178,6 +190,7 @@ function createBlackjackRoom(options) {
     cancelDrop(playerId);
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false; forceFold(player);
+    chipBank.set(player.token, player.chips);
     players.splice(players.indexOf(player), 1);
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
@@ -206,7 +219,7 @@ function createBlackjackRoom(options) {
     }
     baseBetProposal = { id: makeId(), proposerId: playerId, proposerName: player.nickname, amount: value, votes: new Map() };
     note(`${player.nickname}님이 기본 배팅금 ${value.toLocaleString()}원을 제안했습니다.`);
-    proposalTimer = setTimeout(() => {
+    proposalTimer = safeTimeout(() => {
       if (!baseBetProposal) return;
       note('기본 배팅금 투표 시간이 끝나 변경이 취소되었습니다.'); baseBetProposal = null; proposalTimer = null; changed();
     }, proposalTimeoutMs);
@@ -401,7 +414,14 @@ function createBlackjackRoom(options) {
     };
   }
 
-  return { join, disconnect, leave, setReady, proposeBaseBet, voteBaseBet, begin, hit, stand, call, raise, allin, fold, donate, stateFor, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  function dispose() {
+    clearActionTimer();
+    clearProposalTimer();
+    for (const timer of dropTimers.values()) clearTimeout(timer);
+    dropTimers.clear();
+  }
+
+  return { join, disconnect, leave, setReady, proposeBaseBet, voteBaseBet, begin, hit, stand, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createBlackjackRoom, INITIAL_CHIPS };
