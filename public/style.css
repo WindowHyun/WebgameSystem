@@ -45,7 +45,7 @@ body { margin:0; font-family: "Lato", -apple-system, "Apple SD Gothic Neo", "Mal
 #sidebar .sub { font-size:12px; color:#D1B3D6; margin:0 0 20px; }
 #sidebar .label { font-size:12px; color:#D1B3D6; margin:16px 0 6px; }
 #participant-list { list-style:none; padding:0; margin:0; font-size:14px; }
-#participant-list li { display:flex; align-items:center; gap:8px; padding:5px 0; }
+#participant-list li { display:flex; align-items:center; gap:8px; padding:5px 0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 #participant-list .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #participant-list li.offline .name { color:#B695BC; text-decoration:line-through; }
 #participant-list li.spectator .name { color:#C5AECA; font-style:italic; }
@@ -69,7 +69,15 @@ li.offline .p-avatar { opacity:.5; }
   border:1px solid rgba(255,255,255,.16); border-radius:6px; background:transparent;
   color:#C5AECA; font-size:12px; font-family:inherit; cursor:pointer;
 }
-#leave-btn:hover { background:rgba(255,255,255,.07); color:#fff; }
+@media (hover:hover) { #leave-btn:hover { background:rgba(255,255,255,.07); color:#fff; } }
+/* 라운드 사이에만 뜨는 관전⇄참가 전환 버튼. 나가기와 같은 모양이지만 덜 위험하니
+   살짝 밝은 색을 준다. */
+#mode-toggle-btn {
+  display:block; width:100%; margin-bottom:10px; padding:6px 0;
+  border:1px solid rgba(255,255,255,.16); border-radius:6px; background:transparent;
+  color:#E4CDE8; font-size:12px; font-family:inherit; cursor:pointer;
+}
+@media (hover:hover) { #mode-toggle-btn:hover { background:rgba(255,255,255,.07); color:#fff; } }
 #sidebar-foot p { margin:0; font-size:11px; color:#9B7CA1; line-height:1.6; }
 #tally-label { font-variant-numeric:tabular-nums; }
 #tally-label:empty { display:none; }
@@ -89,11 +97,11 @@ li.offline .p-avatar { opacity:.5; }
 /* 슬랙 허들 버튼처럼 */
 #vote-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px; border:1px solid #D8D8DA; border-radius:14px; background:#fff; cursor:pointer; padding:0; }
 #vote-btn .em { font-size:16px; line-height:1; }
-#vote-btn:not(:disabled):hover { background:#F0EFF1; }
+@media (hover:hover) { #vote-btn:not(:disabled):hover { background:#F0EFF1; } }
 /* [요청] 게임 시작/다음 라운드 버튼도 돋보기 아이콘만 있는 원형 버튼으로 - 투표 버튼과 같은 모양 */
 #start-btn { display:inline-flex; align-items:center; justify-content:center; width:34px; height:30px; border:1px solid #D8D8DA; border-radius:14px; background:#fff; cursor:pointer; padding:0; color:#1D1C1D; }
 #start-btn svg { width:16px; height:16px; }
-#start-btn:not(:disabled):hover { background:#F0EFF1; }
+@media (hover:hover) { #start-btn:not(:disabled):hover { background:#F0EFF1; } }
 button:disabled { opacity:.45; cursor:default; }
 input:disabled { opacity:.5; }
 
@@ -103,7 +111,7 @@ input:disabled { opacity:.5; }
 #role-card { margin:14px 20px 0; padding:12px 16px; border-radius:8px; font-size:13px; cursor:pointer; user-select:none; }
 #role-card.citizen { background:#EAF3DE; color:#27500A; }
 #role-card.liar { background:#EAF3DE; color:#27500A; }
-#role-card.liar:hover, #role-card.citizen:hover { filter:brightness(0.97); }
+@media (hover:hover) { #role-card.liar:hover, #role-card.citizen:hover { filter:brightness(0.97); } }
 #role-card.pending { background:#EDEDF0; color:#5B5B60; cursor:default; }
 #role-card .role-head { display:flex; align-items:center; gap:7px; }
 #role-card .chev { display:inline-flex; width:12px; flex-shrink:0; font-size:11px; opacity:.65; }
@@ -175,16 +183,18 @@ input:disabled { opacity:.5; }
 .chip { display:inline-flex; align-items:center; gap:6px; border:1px solid #D8D8DA; background:#fff; border-radius:14px; padding:4px 11px 4px 9px; font-size:13px; cursor:pointer; line-height:1.5; font-family:inherit; }
 .chip .em { font-size:15px; line-height:1; }
 .chip .n { color:#616061; font-size:12.5px; font-variant-numeric:tabular-nums; }
-.chip:hover { background:#F8F8F9; }
+@media (hover:hover) { .chip:hover { background:#F8F8F9; } }
 .chip.picked { border-color:#1264A3; background:#E8F5FA; }
 .chip.picked .n { color:#1264A3; font-weight:700; }
 
 /* 투표 - 들여쓴 세로 목록 */
 .opts { display:flex; flex-direction:column; gap:6px; margin-top:9px; max-width:340px; }
 .opt { display:flex; align-items:center; gap:9px; border:1px solid #D8D8DA; background:#fff; border-radius:6px; padding:7px 11px; font-size:13.5px; cursor:pointer; text-align:left; font-family:inherit; color:inherit; }
-.opt:hover { background:#F8F8F9; }
+@media (hover:hover) { .opt:hover { background:#F8F8F9; } }
 .opt .mini { width:20px; height:20px; border-radius:4px; background:#7F77DD; color:#fff; font-size:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .opt .cnt { margin-left:auto; font-size:12px; color:#8A8A8E; font-variant-numeric:tabular-nums; }
+.opt.offline { opacity:.6; }
+.opt.offline .mini { opacity:.7; }
 
 /* 정답 입력 */
 .guess-row { display:flex; gap:6px; margin-top:9px; max-width:340px; }
@@ -202,7 +212,7 @@ input:disabled { opacity:.5; }
   border:none; border-radius:14px; background:#1264A3; color:#fff;
   font-size:12.5px; font-family:inherit; cursor:pointer; text-align:center;
 }
-#jump-bar:hover { background:#0F5388; }
+@media (hover:hover) { #jump-bar:hover { background:#0F5388; } }
 #jump-bar .arrow { margin-right:4px; }
 
 /* ───────────────── 입력창 ───────────────── */
@@ -225,7 +235,7 @@ input:disabled { opacity:.5; }
   display:inline-flex; align-items:center; justify-content:center; padding:0;
 }
 .fmt-btn svg { width:14px; height:14px; }
-.fmt-btn:not(:disabled):hover { background:#F0EFF1; color:#1D1C1D; }
+@media (hover:hover) { .fmt-btn:not(:disabled):hover { background:#F0EFF1; color:#1D1C1D; } }
 .fmt-btn:disabled { opacity:.35; cursor:default; }
 #chat-input {
   display:block; width:100%; max-height:160px; min-height:36px;
@@ -236,14 +246,14 @@ input:disabled { opacity:.5; }
 /* 슬랙 전송 버튼처럼 초록 원형 + 종이비행기 */
 #send-btn { width:26px; height:26px; flex-shrink:0; border:none; border-radius:6px; background:#007A5A; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0; }
 #send-btn svg { width:14px; height:14px; fill:#fff; }
-#send-btn:not(:disabled):hover { background:#00603F; }
+@media (hover:hover) { #send-btn:not(:disabled):hover { background:#00603F; } }
 #send-btn:disabled { background:#D8D8DA; }
 /* 내 설명 차례에는 입력창이 스스로 알린다 */
 #composer.my-turn #composer-box { background:#FFFBF0; border-color:#ECB22E; box-shadow:0 0 0 2px rgba(236,178,46,.22); }
 
 /* ───────────────── 좁은 화면 [S-4] ───────────────── */
 @media (max-width: 720px) {
-  #screen-game { flex-direction: column; height: 100dvh; }
+  #screen-game { flex-direction: column; height: 100svh; }
 
   #sidebar { width:100%; flex-shrink:0; padding:8px 12px; max-height:none; overflow:visible; }
   #sidebar h2, #sidebar .sub { display:none; }
@@ -251,19 +261,20 @@ input:disabled { opacity:.5; }
   #participant-list { display:flex; flex-wrap:nowrap; gap:6px 14px; overflow-x:auto; scrollbar-width:none; }
   #participant-list li { min-width:max-content; padding:2px 0; }
   #participant-list .tag { margin-left:6px; }
-  #sidebar-foot { position:absolute; right:12px; top:7px; margin:0; padding:0; border:0; }
-  #leave-btn { width:auto; margin:0; padding:4px 10px; flex-shrink:0; }
+  #sidebar-foot { position:absolute; right:12px; top:7px; margin:0; padding:0; border:0; display:flex; gap:6px; }
+  #leave-btn, #mode-toggle-btn { width:auto; margin:0; padding:4px 10px; flex-shrink:0; }
   #sidebar-foot p { display:none; }
 
   #main { flex:1; min-height:0; }
   #topbar { padding:10px 14px; }
   #topbar h2 { font-size:14px; }
   #topbar-actions { gap:6px; }
+  #vote-btn, #start-btn, #send-btn { width:40px; height:40px; }
 
   #role-card { margin:10px 14px 0; padding:10px 12px; }
   #chat { padding:10px 14px; }
   #jump-bar { width:calc(100% - 28px); margin:0 14px 8px; }
-  #composer { padding:8px 12px; }
+  #composer { padding:8px 12px; padding-bottom:max(8px, env(safe-area-inset-bottom)); }
   #composer-toolbar { display:none; }
   #composer-actions .fmt-btn:disabled { display:none; }
 
@@ -296,5 +307,5 @@ input:disabled { opacity:.5; }
 
 #profile-menu { position: fixed; z-index: 1000; padding: 4px; border: 1px solid #ddd; border-radius: 6px; background: white; box-shadow: 0 4px 16px #0003; }
 #profile-menu button { padding: 8px 16px; border: 0; background: white; color: #a32020; cursor: pointer; }
-#profile-menu button:hover { background: #f5f5f5; }
+@media (hover:hover) { #profile-menu button:hover { background: #f5f5f5; } }
 #profile-menu button:disabled { color: #999; cursor: default; }

@@ -64,6 +64,10 @@ assert.equal(bluffRoom.fold(opponent.playerId), null);
 bluffState = bluffRoom.stateFor(bluffer.playerId);
 assert.equal(bluffState.result.winnerId, bluffer.playerId);
 assert.ok(bluffState.players.find((p) => p.id === bluffer.playerId).score > 21);
+// [이슈] 폴드했다고 라운드가 끝난 뒤까지 카드가 영원히 가려지면 안 된다.
+const foldedAtResult = bluffState.players.find((p) => p.id === opponent.playerId);
+assert.ok(foldedAtResult.score !== null, '폴드한 사람도 라운드가 끝나면 점수가 보여야 한다');
+assert.ok(foldedAtResult.cards.every((card) => !card.hidden), '폴드한 사람의 카드도 라운드가 끝나면 공개되어야 한다');
 
 room.disconnect(a.playerId);
 room.disconnect(b.playerId);

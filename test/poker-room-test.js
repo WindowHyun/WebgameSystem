@@ -56,4 +56,32 @@ voteRoom.voteBaseBet(v2.playerId, proposal.id, false);
 assert.equal(voteRoom.stateFor(v3.playerId).baseBet, 500);
 assert.equal(voteRoom.stateFor(v3.playerId).baseBetProposal, null);
 
-console.log('포커 규칙: 배팅·카드 공개·정산·배팅금 투표·빈 방 초기화 통과');
+// [이슈] 폴드해도 이번 라운드 참가자였다면 계속 테이블을 볼 수 있어야 하고,
+// 라운드가 끝나면 폴드했던 사람의 카드도 결국 공개되어야 한다.
+const foldRoom = createPokerRoom({ onChange() {} });
+const fx = foldRoom.join({ nickname: 'X' });
+const fy = foldRoom.join({ nickname: 'Y' });
+const fz = foldRoom.join({ nickname: 'Z' });
+[fx, fy, fz].forEach((p) => foldRoom.setReady(p.playerId, true));
+assert.equal(foldRoom.begin(fx.playerId), null);
+assert.equal(foldRoom.stateFor(fx.playerId).turnPlayerId, fx.playerId);
+assert.equal(foldRoom.fold(fx.playerId), null);
+
+const afterFold = foldRoom.stateFor(fx.playerId);
+assert.equal(afterFold.phase, 'betting', '두 명이 남았으니 라운드는 계속된다');
+const yCard = afterFold.players.find((p) => p.id === fy.playerId).card;
+const zCard = afterFold.players.find((p) => p.id === fz.playerId).card;
+assert.ok(yCard && !yCard.hidden, '폴드해도 아직 뛰고 있는 다른 사람의 카드는 계속 보여야 한다');
+assert.ok(zCard && !zCard.hidden, '폴드해도 아직 뛰고 있는 다른 사람의 카드는 계속 보여야 한다');
+
+let foldState = foldRoom.stateFor(fy.playerId);
+for (let guard = 0; guard < 20 && foldState.phase === 'betting'; guard += 1) {
+  assert.equal(foldRoom.call(foldState.turnPlayerId), null);
+  foldState = foldRoom.stateFor(fy.playerId);
+}
+assert.equal(foldState.phase, 'result');
+const foldedAtResult = foldState.players.find((p) => p.id === fx.playerId);
+assert.ok(foldedAtResult.card && !foldedAtResult.card.hidden,
+  '폴드한 사람의 카드도 라운드가 끝나면 다른 사람에게 공개되어야 한다');
+
+console.log('포커 규칙: 배팅·카드 공개·정산·배팅금 투표·폴드 후 관전·빈 방 초기화 통과');

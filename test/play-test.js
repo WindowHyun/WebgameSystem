@@ -101,7 +101,7 @@ async function speaker(ps) { for (const p of ps) if (await p.page.locator('#comp
     const page = await ctx.newPage();
     page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
-    await page.goto(URL);
+    await page.goto(`${URL}/liar.html`);
     await page.fill('#nickname-input', name);
     await page.click('#join-btn');
     players.push({ name, page });

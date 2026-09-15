@@ -119,7 +119,7 @@ async function finishRound(ps, starter) {
       if (/ERR_CONNECTION_REFUSED|WebSocket connection to/.test(m.text())) return;
       errors.push(`${name}: ${m.text()}`);
     });
-    await page.goto(URL);
+    await page.goto(`${URL}/liar.html`);
     await page.fill('#nickname-input', name);
     await page.click('#join-btn');
     return { name, page, ctx: c };
@@ -184,6 +184,9 @@ async function finishRound(ps, starter) {
   if (OUT) await rest[0].page.screenshot({ path: `${OUT}/c2-liar-left.png` });
 
   log(`  ${liar2.name}님이 다시 들어옵니다`);
+  // 나가기는 게임 포털(/)로 돌려보낸다 - 라이어 게임 화면으로 되짚어가 다시 참가한다.
+  await liar2.page.waitForURL((url) => url.pathname === '/', { timeout: 3000 }).catch(() => {});
+  await liar2.page.goto(`${URL}/liar.html`);
   await liar2.page.fill('#nickname-input', liar2.name);
   await liar2.page.click('#join-btn');
   await rest[0].page.waitForFunction(() => document.querySelectorAll('#participant-list li').length === 5, null, { timeout: 8000 });

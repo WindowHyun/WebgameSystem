@@ -16,6 +16,7 @@
   }
 
   function connect() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=portal');
     ws.onopen = function () { reconnectDelay = 500; };
@@ -55,6 +56,13 @@
 
   var saved = sessionStorage.getItem(KEY);
   if (saved) { input.value = saved; showGames(saved); }
+  // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
+  // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    reconnectDelay = 500;
+    connect();
+  });
   setInterval(function () {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
   }, 20000);

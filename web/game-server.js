@@ -278,6 +278,10 @@ function createGameServer(options) {
         sendTo(ws, { type: 'error', message: joined.error });
         return;
       }
+      // 같은 토큰을 들고 있던 이전 연결(모바일 백그라운드로 조용히 죽었거나, 정말로
+      // 다른 창)이 있다면 여기서 끊어 낸다. room.join()은 이제 연결 상태와 관계없이
+      // 토큰이 같으면 같은 자리를 내주므로, 자리를 안 뺏기려는 판단은 소켓 쪽에서 한다.
+      replaceConnection(clients, client, joined.playerId);
       client.playerId = joined.playerId;
       // 토큰은 브라우저가 저장해 두었다가 새로고침·재접속 때 같은 자리로 돌아오는 데 쓴다.
       sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
@@ -381,7 +385,7 @@ function createGameServer(options) {
           if (client.playerId) return;
           const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
           if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
-          replaceCardConnection(pokerClients, client, joined.playerId);
+          replaceConnection(pokerClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
           sendTo(ws, pokerRoom.stateFor(joined.playerId));
@@ -426,7 +430,7 @@ function createGameServer(options) {
           if (client.playerId) return;
           const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });
           if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
-          replaceCardConnection(blackjackClients, client, joined.playerId);
+          replaceConnection(blackjackClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
           sendTo(ws, blackjackRoom.stateFor(joined.playerId));
@@ -455,7 +459,7 @@ function createGameServer(options) {
     });
   }
 
-  function replaceCardConnection(gameClients, incoming, playerId) {
+  function replaceConnection(gameClients, incoming, playerId) {
     for (const existing of gameClients) {
       if (existing === incoming || existing.playerId !== playerId) continue;
       // close 이벤트가 새로 복구된 자리를 다시 끊김 처리하지 않게 먼저 연결을 떼어 낸다.

@@ -357,7 +357,9 @@ function createPokerRoom(options) {
 
   function stateFor(pid) {
     const me = players.find((p) => p.id === pid);
-    const viewerInRound = !!me && contenders.includes(pid) && !me.isFolded;
+    // 폴드해도 이번 라운드 참가자였다면 계속 테이블을 볼 수 있어야 한다. 배팅을
+    // 그만뒀다고 구경까지 막을 이유는 없다.
+    const viewerInRound = !!me && contenders.includes(pid);
     return {
       type: 'pokerState', phase, baseBet, pot, currentBet, allInCap, hostId, turnPlayerId: current() && current().id,
       result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
@@ -373,7 +375,8 @@ function createPokerRoom(options) {
         const inRound = contenders.includes(p.id);
         let reveal = false;
         if (phase === 'betting') reveal = viewerInRound && p.id !== pid && !p.isFolded;
-        else if (phase === 'result') reveal = !!(result && result.revealed) && !p.isFolded;
+        // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
+        else if (phase === 'result') reveal = !!(result && result.revealed);
         return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, inRound, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? (reveal ? p.currentCard : { hidden: true }) : null };
       }),
     };

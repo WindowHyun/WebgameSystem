@@ -88,5 +88,9 @@
   $('call').onclick = function () { send('call'); }; $('raise').onclick = function () { send('raise', { amount: Number($('raise-amount').value) }); }; $('allin').onclick = function () { send('allin'); }; $('fold').onclick = function () { send('fold'); };
   $('donate-send').onclick = function () { send('donate', { targetId: donationTarget, amount: Number($('donate-amount').value) }); $('donate').classList.add('hidden'); };
   document.querySelectorAll('button[data-help]').forEach(function (button) { function showHelp() { $('action-help').textContent = button.dataset.help; } button.addEventListener('mouseenter', showHelp); button.addEventListener('focus', showHelp); button.addEventListener('touchstart', showHelp, { passive: true }); });
-  document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); }); setInterval(function () { send('ping'); }, 20000); connect();
+  document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
+  // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
+  // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { reconnectDelay = 500; connect(); } });
+  setInterval(function () { send('ping'); }, 20000); connect();
 }());
