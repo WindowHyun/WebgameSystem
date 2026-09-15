@@ -376,6 +376,10 @@ function createBlackjackRoom(options) {
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     player.isFolded = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 폴드되었습니다.` : `${player.nickname}님이 폴드했습니다.`);
     if (bettingPlayers().length === 1) { settle(bettingPlayers()[0]); return null; }
+    // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다(call()과 같은
+    // 판정). 이게 없으면 마지막 차례인 사람이 폴드했을 때 차례가 처음으로 돌아가,
+    // 이미 콜을 맞춘 사람이 또 내야 하는 상황이 된다.
+    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
     turn %= bettingPlayers().length; armActionTimer(); changed(); return null;
   }
 

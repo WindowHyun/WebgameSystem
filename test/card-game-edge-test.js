@@ -1,5 +1,28 @@
 'use strict';
 
+// 마지막 차례인 사람이 폴드하면 배팅이 끝나야 한다. 예전에는 차례가 처음으로 돌아가서,
+// 이미 콜을 맞춘 사람이 또 내야 하는 상황이 됐다(레이즈까지 다시 열렸다).
+{
+  const { createPokerRoom } = require('../web/poker-room');
+  const { createBlackjackRoom } = require('../web/blackjack-room');
+  for (const [label, make] of [['포커', createPokerRoom], ['블랙잭', createBlackjackRoom]]) {
+    const room = make({ actionTimeoutMs: 0 });
+    const seats = ['A', 'B', 'C'].map((name) => room.join({ nickname: name }).playerId);
+    seats.forEach((id) => room.setReady(id, true));
+    room.begin(seats[0]);
+    const now = () => room.stateFor(seats[0]);
+    let guard = 0;
+    while (now().phase === 'playing' && guard++ < 20) room.stand(now().turnPlayerId);
+    guard = 0;
+    while (now().phase === 'betting' && guard++ < 10) {
+      const turnId = now().turnPlayerId;
+      if (turnId === seats[2]) { room.fold(turnId); break; }
+      room.call(turnId);
+    }
+    require('assert').notEqual(now().phase, 'betting', `${label}: 남은 사람이 모두 맞춘 뒤의 폴드는 배팅을 끝내야 합니다`);
+  }
+}
+
 const assert = require('assert');
 const { createPokerRoom } = require('../web/poker-room');
 const { createBlackjackRoom } = require('../web/blackjack-room');

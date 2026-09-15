@@ -331,6 +331,10 @@ function createPokerRoom(options) {
     const p = current(); p.isFolded = true; acted.add(pid); note(timedOut ? `${p.nickname}님의 제한시간이 지나 자동 폴드되었습니다.` : `${p.nickname}님이 폴드했습니다.`);
     const left = active();
     if (left.length === 1) return settle(left[0], false);
+    // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다. 예전에는
+    // 이 판정이 call()에만 있어서, 마지막 차례인 사람이 폴드하면 차례가 처음으로 돌아가
+    // 이미 콜을 맞춘 사람이 또 내야 하는 상황이 됐다.
+    if (left.every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
     turn %= left.length; armActionTimer(); changed(); return null;
   }
 
