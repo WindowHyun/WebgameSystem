@@ -45,7 +45,7 @@ body { margin:0; font-family: "Lato", -apple-system, "Apple SD Gothic Neo", "Mal
 #sidebar .sub { font-size:12px; color:#D1B3D6; margin:0 0 20px; }
 #sidebar .label { font-size:12px; color:#D1B3D6; margin:16px 0 6px; }
 #participant-list { list-style:none; padding:0; margin:0; font-size:14px; }
-#participant-list li { display:flex; align-items:center; gap:8px; padding:5px 0; }
+#participant-list li { display:flex; align-items:center; gap:8px; padding:5px 0; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }
 #participant-list .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #participant-list li.offline .name { color:#B695BC; text-decoration:line-through; }
 #participant-list li.spectator .name { color:#C5AECA; font-style:italic; }

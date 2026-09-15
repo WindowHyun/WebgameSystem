@@ -19,7 +19,7 @@ async function main() {
     for (const [i, name] of ['Alpha', 'Beta', 'Gamma', 'Watcher'].entries()) {
       const page = await context.newPage();
       page.on('pageerror', (error) => errors.push(error.message));
-      await page.goto('http://127.0.0.1:4198');
+      await page.goto('http://127.0.0.1:4198/liar.html');
       await page.waitForFunction(() => ws && ws.readyState === WebSocket.OPEN);
       await page.fill('#nickname-input', name);
       if (i === 3) await page.check('#spectator-input');

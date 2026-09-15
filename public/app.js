@@ -390,13 +390,12 @@ profileMenu.className = 'hidden';
 profileMenu.setAttribute('role', 'menu');
 document.body.appendChild(profileMenu);
 function closeProfileMenu() { profileMenu.classList.add('hidden'); profileMenu.innerHTML = ''; }
-$('participant-list').addEventListener('contextmenu', function (ev) {
+/** 우클릭(데스크톱)과 롱프레스(모바일)가 함께 쓰는 강퇴 메뉴 열기 */
+function openKickMenu(profile, x, y) {
   closeProfileMenu();
-  var profile = ev.target.closest('[data-player-id]');
   if (!profile || !state || !state.you || !state.you.canKick) return;
   var target = state.players.find(function (p) { return p.id === profile.getAttribute('data-player-id'); });
   if (!target || !target.connected || target.id === myId) return;
-  ev.preventDefault();
   var button = document.createElement('button');
   button.textContent = '강퇴 제안';
   button.setAttribute('role', 'menuitem');
@@ -405,10 +404,49 @@ $('participant-list').addEventListener('contextmenu', function (ev) {
   button.onclick = function () { sendMessage({ type: 'kick', targetId: target.id }); closeProfileMenu(); };
   profileMenu.appendChild(button);
   profileMenu.classList.remove('hidden');
-  profileMenu.style.left = Math.max(0, Math.min(ev.clientX, window.innerWidth - profileMenu.offsetWidth)) + 'px';
-  profileMenu.style.top = Math.max(0, Math.min(ev.clientY, window.innerHeight - profileMenu.offsetHeight)) + 'px';
+  profileMenu.style.left = Math.max(0, Math.min(x, window.innerWidth - profileMenu.offsetWidth)) + 'px';
+  profileMenu.style.top = Math.max(0, Math.min(y, window.innerHeight - profileMenu.offsetHeight)) + 'px';
   button.focus();
+}
+$('participant-list').addEventListener('contextmenu', function (ev) {
+  var profile = ev.target.closest('[data-player-id]');
+  if (!profile) { closeProfileMenu(); return; }
+  ev.preventDefault();
+  openKickMenu(profile, ev.clientX, ev.clientY);
 });
+
+/** iOS Safari는 일반 요소에서 contextmenu 이벤트를 주지 않으므로 롱프레스를 직접 만든다. */
+var longPressTimer = null;
+var longPressProfile = null;
+var longPressStart = null;
+var longPressFired = false;
+function cancelLongPress() { clearTimeout(longPressTimer); longPressTimer = null; longPressProfile = null; longPressStart = null; }
+$('participant-list').addEventListener('touchstart', function (ev) {
+  if (ev.touches.length !== 1) { cancelLongPress(); return; }
+  var profile = ev.target.closest('[data-player-id]');
+  if (!profile) return;
+  longPressFired = false;
+  longPressProfile = profile;
+  longPressStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY };
+  longPressTimer = setTimeout(function () {
+    longPressFired = true;
+    openKickMenu(longPressProfile, longPressStart.x, longPressStart.y);
+    longPressTimer = null;
+  }, 500);
+}, { passive: true });
+$('participant-list').addEventListener('touchmove', function (ev) {
+  if (!longPressStart) return;
+  var dx = ev.touches[0].clientX - longPressStart.x;
+  var dy = ev.touches[0].clientY - longPressStart.y;
+  if (Math.hypot(dx, dy) > 10) cancelLongPress();
+}, { passive: true });
+$('participant-list').addEventListener('touchend', function (ev) {
+  // 롱프레스로 메뉴를 이미 열었다면 뒤이어 오는 합성 click이 메뉴를 바로 닫지 못하게 막는다.
+  if (longPressFired) { ev.preventDefault(); longPressFired = false; }
+  cancelLongPress();
+}, { passive: false });
+$('participant-list').addEventListener('touchcancel', cancelLongPress);
+
 document.addEventListener('click', function (ev) { if (!profileMenu.contains(ev.target)) closeProfileMenu(); });
 document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeProfileMenu(); });
 window.addEventListener('resize', closeProfileMenu);
