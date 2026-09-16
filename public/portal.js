@@ -35,7 +35,8 @@
     };
     ws.onerror = function () { /* onclose에서 재연결한다. */ };
     ws.onclose = function () {
-      setTimeout(connect, reconnectDelay);
+      // 지터를 섞어, 한꺼번에 끊긴 사람들이 같은 순간에 다시 두드리지 않게 한다.
+      setTimeout(connect, Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)));
       reconnectDelay = Math.min(reconnectDelay * 2, 5000);
     };
   }

@@ -10,3 +10,8 @@ main{grid-area:main;min-width:0;display:flex;min-height:0;flex-direction:column;
 @media(max-width:760px){.controls{padding-bottom:max(10px, env(safe-area-inset-bottom))}}
 #cards{border-color:#350d36;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a}
 #cards:empty:after{content:"준비가 끝나면 카드가 여기에 놓입니다";color:#f4e8f5;font-size:14px}
+/* 연결이 끊긴 동안. 화면이 살아 있는 척하면 콜·폴드를 눌러도 아무 일이 없는 것처럼 보인다. */
+body[data-offline] .controls{position:relative;opacity:.55}
+body[data-offline] .controls button,body[data-offline] .controls input{pointer-events:none}
+body[data-offline] .topbar:after{content:"서버와 다시 연결하는 중...";margin-left:auto;padding:4px 10px;border-radius:12px;background:#fcebeb;color:#791f1f;font-size:11px;font-weight:700;white-space:nowrap}
+body[data-offline] .pot{display:none}

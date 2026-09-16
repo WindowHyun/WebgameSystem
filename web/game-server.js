@@ -365,6 +365,12 @@ function createGameServer(options) {
       // 상태 메시지가 작고 빈도가 낮아 per-message 압축 협상 비용이 이득보다 크다.
       wss = new WebSocketServer({ server, verifyClient: allowOrigin, maxPayload: 16 * 1024, perMessageDeflate: false });
       wss.on('connection', handleConnection);
+
+      // 'error'는 듣는 사람이 없으면 그대로 던져져 프로세스를 죽인다. start()도 자기 몫의
+      // 리스너를 달지만, Vercel은 start() 대신 getHttpServer()로 들어오므로 그 경로에는
+      // 아무도 없었다. 기본 안전망은 여기(두 경로가 반드시 지나는 곳)에 둔다.
+      server.on('error', (err) => warn(`[HTTP 서버 오류] ${err.message}`));
+      wss.on('error', (err) => warn(`[WebSocket 서버 오류] ${err.message}`));
   }
 
   function handlePokerConnection(ws) {
@@ -497,6 +503,8 @@ function createGameServer(options) {
 
   function cleanup() {
     if (room) room.dispose();
+    if (pokerRoom) pokerRoom.dispose();
+    if (blackjackRoom) blackjackRoom.dispose();
     if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     for (const client of clients) {
       try { client.ws.terminate(); } catch { /* 이미 끊김 */ }

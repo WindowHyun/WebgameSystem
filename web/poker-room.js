@@ -1,8 +1,9 @@
 'use strict';
 
 const crypto = require('crypto');
+const { error: logError } = require('../logger');
 
-const INITIAL_CHIPS = 86000;
+const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 5;
 
@@ -25,6 +26,10 @@ function createPokerRoom(options) {
   let actionTimer = null;
   let proposalTimer = null;
   const dropTimers = new Map();
+  // 자리를 잃은 사람의 칩을 토큰에 묶어 둔다. 이게 없으면 나갔다 다시 들어오는 것만으로
+  // 칩이 INITIAL_CHIPS로 되살아나서, 지고 있으면 나갔다 오면 그만인 게임이 된다.
+  // (방이 완전히 비면 새 방이므로 함께 지운다 - resetEmptyRoom 참고)
+  const chipBank = new Map(); // token -> chips
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
@@ -34,15 +39,22 @@ function createPokerRoom(options) {
   const active = () => contenders.map((pid) => players.find((p) => p.id === pid)).filter((p) => p && !p.isFolded);
   const current = () => active()[turn % Math.max(active().length, 1)];
   const note = (text) => { history.push({ text, timestamp: Date.now() }); if (history.length > 40) history.shift(); };
+  // 타이머 콜백에서 난 예외는 붙잡아 줄 호출자가 없어 프로세스까지 올라간다. Render는
+  // 전역 핸들러가 받아 주지만 Vercel 인스턴스는 그대로 죽어 붙어 있던 사람이 전부 튕긴다.
+  // 라이어 방은 서버가 감싼 타이머를 주입받는데, 카드 방은 스스로 감싼다.
+  const safeTimeout = (fn, ms) => setTimeout(() => {
+    try { fn(); } catch (err) { logError(`[포커 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
+  }, ms);
   const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
   const cancelDrop = (pid) => { const timer = dropTimers.get(pid); if (timer) clearTimeout(timer); dropTimers.delete(pid); };
   function scheduleDrop(pid) {
     cancelDrop(pid);
-    const timer = setTimeout(() => {
+    const timer = safeTimeout(() => {
       dropTimers.delete(pid);
       const index = players.findIndex((p) => p.id === pid && !p.connected);
       if (index < 0) return;
+      chipBank.set(players[index].token, players[index].chips);
       players.splice(index, 1);
       contenders = contenders.filter((id) => id !== pid);
       changed();
@@ -77,7 +89,7 @@ function createPokerRoom(options) {
     if (phase !== 'betting' || actionTimeoutMs <= 0) return;
     const player = current();
     if (!player) return;
-    actionTimer = setTimeout(() => fold(player.id, true), actionTimeoutMs);
+    actionTimer = safeTimeout(() => fold(player.id, true), actionTimeoutMs);
     if (actionTimer.unref) actionTimer.unref();
   }
 
@@ -86,6 +98,7 @@ function createPokerRoom(options) {
     clearActionTimer(); clearProposalTimer();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
+    chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
     pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; allInCap = null;
     acted = new Set(); result = null; baseBetProposal = null;
@@ -126,7 +139,10 @@ function createPokerRoom(options) {
     }
     if (players.length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
     const waiting = phase === 'betting' || phase === 'showdown';
-    const p = { id: id(), token: token(), nickname: uniqueNickname(clean), chips: INITIAL_CHIPS, connected: true, ready: false, currentCard: null, isAllIn: false, isFolded: waiting, roundBet: 0, roundContribution: 0 };
+    // 같은 토큰으로 돌아왔다면 나갈 때 들고 있던 칩을 그대로 돌려준다.
+    const kept = chipBank.get(oldToken);
+    if (oldToken) chipBank.delete(oldToken);
+    const p = { id: id(), token: token(), nickname: uniqueNickname(clean), chips: kept === undefined ? INITIAL_CHIPS : kept, connected: true, ready: false, currentCard: null, isAllIn: false, isFolded: waiting, roundBet: 0, roundContribution: 0 };
     players.push(p);
     if (!hostId) hostId = p.id;
     changed();
@@ -164,6 +180,7 @@ function createPokerRoom(options) {
       players[index].isFolded = true;
       note(`${players[index].nickname}님이 방을 나가 폴드 처리되었습니다.`);
     }
+    chipBank.set(players[index].token, players[index].chips);
     players.splice(index, 1);
     if (hostId === pid) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'betting') {
@@ -199,7 +216,7 @@ function createPokerRoom(options) {
     }
     baseBetProposal = { id: id(), proposerId: pid, proposerName: proposer.nickname, amount: value, votes: new Map() };
     note(`${proposer.nickname}님이 기본 배팅금 ${value.toLocaleString()}원을 제안했습니다.`);
-    proposalTimer = setTimeout(() => {
+    proposalTimer = safeTimeout(() => {
       if (!baseBetProposal) return;
       note('기본 배팅금 투표 시간이 끝나 변경이 취소되었습니다.'); baseBetProposal = null; proposalTimer = null; changed();
     }, proposalTimeoutMs);
@@ -314,6 +331,10 @@ function createPokerRoom(options) {
     const p = current(); p.isFolded = true; acted.add(pid); note(timedOut ? `${p.nickname}님의 제한시간이 지나 자동 폴드되었습니다.` : `${p.nickname}님이 폴드했습니다.`);
     const left = active();
     if (left.length === 1) return settle(left[0], false);
+    // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다. 예전에는
+    // 이 판정이 call()에만 있어서, 마지막 차례인 사람이 폴드하면 차례가 처음으로 돌아가
+    // 이미 콜을 맞춘 사람이 또 내야 하는 상황이 됐다.
+    if (left.every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
     turn %= left.length; armActionTimer(); changed(); return null;
   }
 
@@ -382,7 +403,14 @@ function createPokerRoom(options) {
     };
   }
 
-  return { join, disconnect, leave, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  function dispose() {
+    clearActionTimer();
+    clearProposalTimer();
+    for (const timer of dropTimers.values()) clearTimeout(timer);
+    dropTimers.clear();
+  }
+
+  return { join, disconnect, leave, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createPokerRoom, INITIAL_CHIPS };

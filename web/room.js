@@ -767,6 +767,13 @@ function createRoom(options) {
     let disagree = 0;
     // 자유 채팅 시간이 다 되면 찬반 없이 곧바로 투표로 간다. 그때는 셀 것이 없다.
     if (!round || !round.proposal) return { agree: 0, disagree: 0, total: activeRoster().length };
+    // [의도된 규칙] 투표 개표(tally)와 달리 여기는 접속 중인 사람만 센다.
+    // 투표는 "누가 라이어였나"라는 이미 끝난 판단이라 던진 표를 살려야 하지만, 찬반은
+    // "다음을 같이 할까"라는 앞으로의 이야기다. 끊긴 사람의 답이 남은 사람들의 과반을
+    // 밀어붙이면, 답만 던지고 나간 사람이 남은 사람의 진행을 정해 버린다.
+    // (test/moderation-test.js의 'disconnected proposal answers cannot pass a
+    //  connected-player majority'가 이 규칙을 지킨다. 끊겼다 10초 안에 돌아오면
+    //  답은 그대로 살아 있으므로 잠깐 튕긴 사람이 손해 보지도 않는다.)
     for (const player of activeRoster()) {
       if (!round.proposal.answers.has(player.id)) continue;
       const yes = round.proposal.answers.get(player.id);

@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { createBlackjackRoom, INITIAL_CHIPS } = require('../web/blackjack-room');
+const { createBlackjackRoom, scoreHand, INITIAL_CHIPS } = require('../web/blackjack-room');
 
 const room = createBlackjackRoom({ onChange() {} });
 const a = room.join({ nickname: 'A' });
@@ -75,4 +75,17 @@ const fresh = room.join({ nickname: '새 참가자' });
 assert.equal(room.stateFor(fresh.playerId).you.chips, INITIAL_CHIPS);
 assert.equal(room.stateFor(fresh.playerId).baseBet, 100);
 
-console.log('블랙잭 규칙: 21 초과 블러핑·배팅·쇼다운·투표·빈 방 초기화 통과');
+// 에이스는 21을 넘지 않는 한 11로 센다. 예전에는 무조건 1이어서 A+K가 11점이었고,
+// 그래서 이 게임에는 내추럴 21이 존재할 수 없었다.
+for (const [ranks, want, label] of [
+  [[1, 13], 21, 'A + K (내추럴 21)'],
+  [[1, 1], 12, 'A + A (에이스 하나만 11)'],
+  [[1, 5, 9], 15, 'A + 5 + 9 (11로 올리면 버스트라 1)'],
+  [[1, 6], 17, 'A + 6'],
+  [[1, 2, 8], 21, 'A + 2 + 8'],
+  [[10, 9, 5], 24, '10 + 9 + 5 (버스트)'],
+]) {
+  assert.equal(scoreHand(ranks.map((rank) => ({ rank, suit: '♠' }))), want, `${label}는 ${want}점이어야 합니다`);
+}
+
+console.log('블랙잭 규칙: 21 초과 블러핑·배팅·쇼다운·투표·에이스 1/11·빈 방 초기화 통과');
