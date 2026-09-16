@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
 
-const INITIAL_CHIPS = 86000;
+const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 5;
 
