@@ -28,6 +28,11 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const RATE_WINDOW_MS = 5000;
 const RATE_MAX = 60;
 
+// [S-4] 같은 IP가 소켓을 계속 열어 정원(방 8명·관전 16명, 카드게임 5명)을 독점하거나
+// 하트비트 순회 비용을 불필요하게 늘리는 것을 막는다. 사내망 공유 IP나 같은 사람이
+// 탭을 여러 개 여는 정상적인 경우까지 막지 않도록 넉넉하게 잡는다.
+const MAX_CONNECTIONS_PER_IP = 30;
+
 // [E-3] 연결 유지 확인. 두 가지를 한꺼번에 해결한다.
 //   1) 사내망 방화벽/프록시는 조용한 TCP 연결을 1분 안팎에 끊어 버린다. 이 게임은
 //      남의 설명을 듣는 60초 동안 아무 데이터도 오가지 않아서 딱 그 시간에 끊겼다.
@@ -66,11 +71,13 @@ function createGameServer(options) {
   const port = opts.port;
   const bindHost = opts.host || '0.0.0.0';
   const pingMs = opts.pingMs || PING_MS; // 테스트에서 짧게 잡으려고 주입받는다
+  const maxConnectionsPerIp = opts.maxConnectionsPerIp || MAX_CONNECTIONS_PER_IP; // 테스트에서 낮춰 잡으려고 주입받는다
 
   const clients = new Set(); // { ws, playerId }
   const pokerClients = new Set();
   const blackjackClients = new Set();
   const portalClients = new Set();
+  const ipConnectionCounts = new Map(); // ip -> 현재 열려 있는 소켓 수
   let server = null;
   let wss = null;
   let room = null;
@@ -191,24 +198,47 @@ function createGameServer(options) {
   function handleConnection(ws, req) {
     // 작은 턴 메시지를 즉시 전송해 Nagle 지연을 피한다.
     if (ws._socket && typeof ws._socket.setNoDelay === 'function') ws._socket.setNoDelay(true);
+
+    const ip = remoteIp(req);
+    const openFromIp = ipConnectionCounts.get(ip) || 0;
+    if (openFromIp >= maxConnectionsPerIp) {
+      warn(`[연결 거절] ${ip} 동시 연결 ${openFromIp}개로 정원(${maxConnectionsPerIp}) 초과`);
+      ws.close(1013, '연결이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    ipConnectionCounts.set(ip, openFromIp + 1);
+    ws.on('close', () => {
+      const left = (ipConnectionCounts.get(ip) || 1) - 1;
+      if (left <= 0) ipConnectionCounts.delete(ip); else ipConnectionCounts.set(ip, left);
+    });
+
     const game = new URL(req.url || '/', 'http://localhost').searchParams.get('game') || 'liar';
     if (game === 'portal') {
-      const client = { ws, playerId: null, missedPongs: 0 };
+      const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
       portalClients.add(client);
       ws.on('error', () => {});
       ws.on('pong', () => { client.missedPongs = 0; });
       ws.on('close', () => portalClients.delete(client));
-      ws.on('message', (raw) => { try { if (JSON.parse(raw).type === 'ping') sendTo(ws, { type: 'pong' }); } catch {} });
+      // 포털 소켓은 join이 없어 다른 경로의 속도 제한을 안 탄다 - ping만 받는 용도라
+      // 별도로 없어도 된다고 생각했는데, 그래서 여기만 빠르게 프레임을 퍼부어도 막을 게
+      // 없었다. 다른 경로와 같은 기준(5초에 60개)을 그대로 적용한다.
+      ws.on('message', (raw) => {
+        const now = Date.now();
+        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
+        client.count += 1;
+        if (client.count > RATE_MAX) return;
+        try { if (JSON.parse(raw).type === 'ping') sendTo(ws, { type: 'pong' }); } catch {}
+      });
       broadcastPortal();
       return;
     }
-    if (game === 'poker') { handlePokerConnection(ws); return; }
-    if (game === 'blackjack') { handleBlackjackConnection(ws); return; }
-    const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+    if (game === 'poker') { handlePokerConnection(ws, ip); return; }
+    if (game === 'blackjack') { handleBlackjackConnection(ws, ip); return; }
+    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     clients.add(client);
 
     // 듣는 사람이 없으면 소켓 오류 하나로 프로세스 전체가 죽는다.
-    ws.on('error', (err) => { warn(`[연결 오류] ${err.message}`); });
+    ws.on('error', (err) => { warn(`[연결 오류] ${ip} ${err.message}`); });
     ws.on('pong', () => { client.missedPongs = 0; });
     ws.on('close', () => {
       clients.delete(client);
@@ -224,7 +254,7 @@ function createGameServer(options) {
       try {
         handleMessage(client, ws, raw);
       } catch (err) {
-        error(`[요청 처리 실패] ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
+        error(`[요청 처리 실패] ${client.ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
         sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다. 다시 시도해 주세요.' });
       }
     });
@@ -243,7 +273,7 @@ function createGameServer(options) {
     client.count += 1;
     if (client.count > RATE_MAX) {
       if (client.count === RATE_MAX + 1) {
-        warn(`[속도 제한] ${client.playerId || '미참가'} 연결이 너무 많이 보냅니다 - 잠시 무시합니다`);
+        warn(`[속도 제한] ${client.ip} ${client.playerId || '미참가'} 연결이 너무 많이 보냅니다 - 잠시 무시합니다`);
         sendTo(ws, { type: 'error', message: '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.' });
       }
       return;
@@ -274,7 +304,7 @@ function createGameServer(options) {
       const joined = room.join({ nickname: msg.nickname, token: msg.token, spectator: msg.spectator });
       // 정원이 찬 경우. 자리를 잡지 못했으므로 playerId를 붙이지 않는다.
       if (joined.error) {
-        warn(`[참가 거절] ${joined.error}`);
+        warn(`[참가 거절] ${client.ip} ${joined.error}`);
         sendTo(ws, { type: 'error', message: joined.error });
         return;
       }
@@ -286,7 +316,7 @@ function createGameServer(options) {
       // 토큰은 브라우저가 저장해 두었다가 새로고침·재접속 때 같은 자리로 돌아오는 데 쓴다.
       sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
       sendTo(ws, room.stateFor(joined.playerId));
-      log(`[참가] ${joined.restored ? '재접속' : '신규'} ${joined.playerId}`);
+      log(`[참가] ${joined.restored ? '재접속' : '신규'} ${joined.playerId} ${client.ip}`);
       return;
     }
 
@@ -332,6 +362,18 @@ function createGameServer(options) {
     return allowed;
   }
 
+  /**
+   * [S-4] Render 같은 리버스 프록시 뒤에서는 req.socket.remoteAddress가 프록시 자신의
+   * 주소라 X-Forwarded-For를 봐야 실제 클라이언트 IP가 나온다. 이 값은 인가 판단이
+   * 아니라 동시 연결 수를 세는 용도일 뿐이라, 스푸핑돼도 이 카운터 하나만 무력화될
+   * 뿐이지 다른 보안 경계를 넘지 못한다.
+   */
+  function remoteIp(req) {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) return forwarded.split(',')[0].trim();
+    return (req.socket && req.socket.remoteAddress) || 'unknown';
+  }
+
   function initialize() {
       if (initialized) return;
       initialized = true;
@@ -373,10 +415,10 @@ function createGameServer(options) {
       wss.on('error', (err) => warn(`[WebSocket 서버 오류] ${err.message}`));
   }
 
-  function handlePokerConnection(ws) {
-    const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+  function handlePokerConnection(ws, ip) {
+    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     pokerClients.add(client);
-    ws.on('error', (err) => warn(`[포커 연결 오류] ${err.message}`));
+    ws.on('error', (err) => warn(`[포커 연결 오류] ${ip} ${err.message}`));
     ws.on('pong', () => { client.missedPongs = 0; });
     ws.on('close', () => { pokerClients.delete(client); if (pokerRoom && client.playerId) pokerRoom.disconnect(client.playerId); });
     ws.on('message', (raw) => {
@@ -390,7 +432,7 @@ function createGameServer(options) {
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
-          if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          if (joined.error) { warn(`[포커 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
           replaceConnection(pokerClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
@@ -412,16 +454,16 @@ function createGameServer(options) {
         else reason = '지원하지 않는 요청입니다.';
         if (reason) sendTo(ws, { type: 'error', message: reason });
       } catch (err) {
-        error(`[포커 요청 실패] ${err && err.stack ? err.stack : err}`);
+        error(`[포커 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
         sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
       }
     });
   }
 
-  function handleBlackjackConnection(ws) {
-    const client = { ws, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+  function handleBlackjackConnection(ws, ip) {
+    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     blackjackClients.add(client);
-    ws.on('error', (err) => warn(`[블랙잭 연결 오류] ${err.message}`));
+    ws.on('error', (err) => warn(`[블랙잭 연결 오류] ${ip} ${err.message}`));
     ws.on('pong', () => { client.missedPongs = 0; });
     ws.on('close', () => { blackjackClients.delete(client); if (blackjackRoom && client.playerId) blackjackRoom.disconnect(client.playerId); });
     ws.on('message', (raw) => {
@@ -435,7 +477,7 @@ function createGameServer(options) {
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });
-          if (joined.error) return sendTo(ws, { type: 'error', message: joined.error });
+          if (joined.error) { warn(`[블랙잭 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
           replaceConnection(blackjackClients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
@@ -459,7 +501,7 @@ function createGameServer(options) {
         else reason = '지원하지 않는 요청입니다.';
         if (reason) sendTo(ws, { type: 'error', message: reason });
       } catch (err) {
-        error(`[블랙잭 요청 실패] ${err && err.stack ? err.stack : err}`);
+        error(`[블랙잭 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
         sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
       }
     });
