@@ -3,7 +3,10 @@
 // Direct web clients must use this request's origin. Reverse proxies may supply
 // an explicit allowlist; do not trust arbitrary forwarded headers.
 function isAllowedOrigin(info, allowedOrigins = []) {
-  if (!info.origin) return true; // non-browser clients; not authentication
+  // Origin이 없는 건 브라우저가 아닌 클라이언트다(테스트의 raw ws 클라이언트, Node 스크립트).
+  // 로컬 테스트에서는 통과시켜야 하지만, 운영에서 이 문을 열어 두면 Origin 검사 자체가
+  // 스크립트 한 줄로 우회된다 - 실제 배포(NODE_ENV=production, render.yaml 참고)에서는 막는다.
+  if (!info.origin) return process.env.NODE_ENV !== 'production';
   try {
     const origin = new URL(info.origin);
     if (!['http:', 'https:'].includes(origin.protocol) || origin.origin !== info.origin) return false;
