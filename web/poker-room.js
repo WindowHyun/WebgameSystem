@@ -278,7 +278,11 @@ function createPokerRoom(options) {
       p.isFolded = !ids.includes(p.id);
       p.isAllIn = false;
       p.roundBet = 0;
-      if (!ids.includes(p.id)) p.currentCard = null;
+      // 새 판을 시작할 때는 지난 판 카드가 남아 있으면 안 되므로 지운다. 그런데 동점
+      // 재대결은 같은 판의 연장이다. 그때까지 지우면 이번 판에 폴드했던 사람의 카드가
+      // 사라져, 라운드가 끝나고 전원 카드를 공개할 때 그 자리만 텅 비었다.
+      // (폴드해도 결과에서는 카드가 공개되는 게 이 게임의 규칙이다 - stateFor 참고)
+      if (!tie && !ids.includes(p.id)) p.currentCard = null;
     }
     if (!draw(ids)) { refundAndFinish('남은 카드가 부족해 배팅금을 돌려드립니다.'); return; }
     if (tie) note(`동점자 ${ids.length}명이 재대결합니다. 팟은 유지됩니다.`);
