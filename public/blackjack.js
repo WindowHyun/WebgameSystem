@@ -31,6 +31,18 @@
 
   function send(type, extra) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {}))); }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
+  // 참가자 줄에 쓰는 짧은 금액(public/poker.js의 같은 주석 참고). 폰의 한 칸에
+  // "1,000,000원 · 배팅 100원"이 안 들어가 배팅액이 잘려 사라졌다.
+  function shortMoney(value) {
+    var won = Number(value || 0);
+    if (won < 10000) return won.toLocaleString();
+    var man = won / 10000;
+    return (man >= 100 ? Math.round(man) : Math.round(man * 10) / 10) + '만';
+  }
+  function chipLine(player) {
+    var chips = shortMoney(player.chips);
+    return player.roundBet > 0 ? chips + ' · +' + shortMoney(player.roundBet) : chips;
+  }
   // 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 반영한다(public/poker.js의 같은 주석 참고).
   var lastRaiseFloor = null;
   function syncRaiseFloor(floor) {
@@ -143,7 +155,7 @@
     if (!lobby && !state.you.inRound) message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.';
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
     $('message').textContent = message;
-    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>'; }).join('');
+    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
     $('cards').innerHTML = state.players.filter(function (player) { return player.cards.length; }).map(function (player) {
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');

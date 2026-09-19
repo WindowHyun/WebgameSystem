@@ -309,3 +309,32 @@ input:disabled { opacity:.5; }
 #profile-menu button { padding: 8px 16px; border: 0; background: white; color: #a32020; cursor: pointer; }
 @media (hover:hover) { #profile-menu button:hover { background: #f5f5f5; } }
 #profile-menu button:disabled { color: #999; cursor: default; }
+
+/* ── [모바일] 참가자 줄과 방 나가기 버튼 ─────────────────────────────
+   두 가지가 겹쳐 있었다.
+   1) #sidebar-foot이 절대배치라 버튼이 참가자 줄 위로 흘러내려 사람을 가렸다.
+      제목 줄 오른쪽에 정식으로 자리를 잡아 준다.
+   2) 이름이 14px에 "대기" 태그까지 붙어, 세 명이면 320px 화면을 넘겼다.
+      글자를 조금 줄이고 상태를 알려 주지 않는 기본 태그는 감춘다. 뜻이 있는
+      태그(투표함·말하는 중)와 관전자 표시(이름 기울임)는 그대로 남는다. */
+@media (max-width: 720px) {
+  #sidebar { display:grid; grid-template-columns:1fr auto; align-items:center; }
+  #sidebar .label { grid-column:1; grid-row:1; margin:0; }
+  #sidebar-foot { position:static; grid-column:2; grid-row:1; }
+  #participant-list { grid-column:1 / -1; grid-row:2; margin-top:7px; gap:6px 10px; font-size:13px; }
+  #participant-list li { gap:6px; }
+  #participant-list .tag { font-size:9px; padding:1px 5px; margin-left:4px; }
+  #participant-list .tag:not(.voted):not(.speaking) { display:none; }
+
+  /* 다섯 명이 넘으면 여전히 넘친다. 스크롤바를 숨겨 놨으므로 가장자리로 알린다. */
+  #sidebar { position:relative; }
+  #sidebar::after {
+    content:""; position:absolute; right:0; bottom:0; width:18px; height:34px;
+    background:linear-gradient(90deg, #3f0e4000, #3f0e40); pointer-events:none;
+  }
+
+  /* 손가락으로 누르는 것들을 권장 최소 크기(44px)에 맞춘다. */
+  #vote-btn, #start-btn, #send-btn, #mention-btn { width:44px; height:44px; }
+  #leave-btn, #mode-toggle-btn { min-height:44px; padding:0 12px; }
+  .chip { min-height:44px; }
+}

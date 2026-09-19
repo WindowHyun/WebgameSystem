@@ -685,7 +685,10 @@ async function oldServerCheck(browser) {
 
   let rejected = 0;
   const srv = http.createServer((req, res) => {
-    const name = (req.url || '/').split('?')[0] === '/' ? 'index.html' : path.basename(req.url);
+    // 실제 서버(web/game-server.js)와 같은 순서로 판단한다. 쿼리를 먼저 떼지 않으면
+    // 캐시 무효화용 "app.js?v=2" 같은 주소가 그대로 파일명이 되어 404가 난다.
+    const requested = (req.url || '/').split('?')[0];
+    const name = requested === '/' ? 'index.html' : path.basename(requested);
     fs.readFile(path.join(PUBLIC_DIR, name), (err, data) => {
       if (err) { res.writeHead(404); res.end('없음'); return; }
       res.writeHead(200, { 'Content-Type': MIME[path.extname(name)] || 'application/octet-stream' });

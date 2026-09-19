@@ -43,6 +43,22 @@
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
 
   /**
+   * 참가자 줄에 쓰는 짧은 금액. 폰에서는 한 칸이 100px 남짓이라
+   * "1,000,000원 · 배팅 100원"이 "1,000,000원 · 배..."로 잘렸다 - 정작 봐야 할
+   * 배팅액이 사라졌다. 만 단위로 줄이고, 배팅이 없으면 그 구절 자체를 뺀다.
+   */
+  function shortMoney(value) {
+    var won = Number(value || 0);
+    if (won < 10000) return won.toLocaleString();
+    var man = won / 10000;
+    return (man >= 100 ? Math.round(man) : Math.round(man * 10) / 10) + '만';
+  }
+  function chipLine(player) {
+    var chips = shortMoney(player.chips);
+    return player.roundBet > 0 ? chips + ' · +' + shortMoney(player.roundBet) : chips;
+  }
+
+  /**
    * 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 그대로 반영한다.
    *
    * 서버가 거절하긴 하지만, 그것만으로는 얼마부터 되는지 알 수가 없어서 눌러 보고
@@ -200,7 +216,7 @@
       var waiting = state.phase === 'betting' && !player.inRound;
       var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
       var initial = Array.from(player.nickname)[0] || '나';
-      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
+      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
     var canSeeTable = state.phase !== 'betting' || (state.you.inRound && !you.isFolded);
