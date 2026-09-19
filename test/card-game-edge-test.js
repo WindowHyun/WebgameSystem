@@ -19,7 +19,12 @@
       if (turnId === seats[2]) { room.fold(turnId); break; }
       room.call(turnId);
     }
-    require('assert').notEqual(now().phase, 'betting', `${label}: 남은 사람이 모두 맞춘 뒤의 폴드는 배팅을 끝내야 합니다`);
+    // 남은 둘이 같은 숫자를 뽑으면 동점 재대결이 시작돼 phase가 다시 betting이 된다.
+    // 그건 이 배팅이 끝나고 새 배팅이 열린 것이지 안 끝난 게 아니다 - 진행 기록으로 가른다.
+    // (이 구분이 없어서 20판에 한 번꼴로 애먼 실패가 났다)
+    const rematched = now().history.some((item) => item.text.includes('재대결'));
+    require('assert').ok(now().phase !== 'betting' || rematched,
+      `${label}: 남은 사람이 모두 맞춘 뒤의 폴드는 배팅을 끝내야 합니다`);
   }
 }
 
