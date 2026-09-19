@@ -298,7 +298,13 @@ function createPokerRoom(options) {
     if (list.length <= 1) return settle(list[0], false);
     const cur = current();
     const idx = list.findIndex((p) => p.id === (cur && cur.id));
-    turn = (idx + 1) % list.length;
+    // 올인한 사람은 더 낼 것도 정할 것도 없다. 차례를 넘길 때 건너뛴다. 건너뛰지 않으면
+    // 그 사람 앞에서 제한시간이 흘러 자동 폴드되고, 이미 낸 칩을 그대로 잃는다.
+    for (let step = 1; step <= list.length; step += 1) {
+      const next = list[(idx + step) % list.length];
+      if (!next.isAllIn) { turn = list.indexOf(next); return; }
+    }
+    turn = (idx + 1) % list.length; // 전원 올인 - 배팅 종료 판정이 처리한다
   }
 
   function call(pid) {
@@ -328,17 +334,38 @@ function createPokerRoom(options) {
     note(`${p.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
   }
 
+  /**
+   * 올인. 상대가 먼저 올인했더라도, 그보다 적은 칩으로도 올인할 수 있다.
+   *
+   * 예전에는 이 판에 올인이 한 번이라도 있으면 두 번째 올인을 막았다. 그런데 콜은
+   * "칩이 모자라면 올인하라"며 거절하고 올인은 "이미 올인이 있었다"며 거절해서,
+   * 칩이 적은 사람에게 남는 선택지가 폴드뿐이었다. 올인으로 동점을 내 칩이 0이 되면
+   * 그다음 판부터는 확정적으로 그 상태였다.
+   *
+   * 사이드 팟이 없으므로 규칙은 하나로 정리한다: 올인이 여럿이면 그중 가장 적은
+   * 금액이 이 판의 상한이 되고, 그보다 많이 낸 사람에게는 넘치는 몫을 돌려준다.
+   * 아무도 맞출 수 없는 돈이 팟에 남지 않으니 모두가 끝까지 겨룰 수 있다.
+   * (폴드한 사람이 이미 낸 칩은 그대로 팟에 남는다 - 포기한 돈이다)
+   */
   function allin(pid) {
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
-    if (allInCap !== null) return '이 판에서는 이미 올인이 발생했습니다.';
     const p = current();
     if (p.chips <= 0) return '올인할 칩이 없습니다.';
     const cap = p.roundBet + p.chips;
-    pay(p, p.chips); p.isAllIn = true; allInCap = cap; currentBet = cap;
+    pay(p, p.chips);
+    p.isAllIn = true;
+    allInCap = allInCap === null ? cap : Math.min(allInCap, cap);
+    currentBet = allInCap;
     for (const x of active()) {
-      if (x.roundBet > cap) { const refund = x.roundBet - cap; x.roundBet -= refund; x.roundContribution -= refund; x.chips += refund; pot -= refund; }
+      if (x.roundBet <= allInCap) continue;
+      const refund = x.roundBet - allInCap;
+      x.roundBet -= refund; x.roundContribution -= refund; x.chips += refund; pot -= refund;
     }
-    acted.add(pid); note(`${p.nickname}님이 ${cap.toLocaleString()}원에 올인했습니다.`);
+    acted.add(pid);
+    note(`${p.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`);
+    // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다. 이 판정이 없으면
+    // 전원이 올인한 뒤에도 차례가 계속 돌아, 더 낼 것도 없는 사람이 제한시간에 걸린다.
+    if (active().every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
     advance(); armActionTimer(); changed(); return null;
   }
 

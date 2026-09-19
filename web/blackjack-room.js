@@ -341,7 +341,14 @@ function createBlackjackRoom(options) {
     const list = bettingPlayers();
     if (list.length <= 1) { settle(list[0]); return; }
     const player = currentBetPlayer();
-    turn = (list.findIndex((p) => p.id === player.id) + 1) % list.length;
+    const idx = list.findIndex((p) => p.id === player.id);
+    // 올인한 사람은 건너뛴다. 그러지 않으면 더 낼 것도 없는 사람 앞에서 제한시간이
+    // 흘러 자동 폴드되고, 이미 낸 칩을 그대로 잃는다.
+    for (let step = 1; step <= list.length; step += 1) {
+      const next = list[(idx + step) % list.length];
+      if (!next.isAllIn) { turn = list.indexOf(next); return; }
+    }
+    turn = (idx + 1) % list.length; // 전원 올인 - 배팅 종료 판정이 처리한다
   }
 
   function call(playerId) {
@@ -367,14 +374,30 @@ function createBlackjackRoom(options) {
     note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
   }
 
+  /**
+   * 올인. 상대가 먼저 올인했어도 그보다 적은 칩으로 올인할 수 있다.
+   * 규칙과 이유는 web/poker-room.js의 allin() 주석 참고 - 올인이 여럿이면 가장 적은
+   * 금액이 이 판의 상한이 되고, 넘치는 몫은 주인에게 돌려준다.
+   */
   function allin(playerId) {
     const player = currentBetPlayer();
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
-    if (allInCap !== null) return '이 판에서는 이미 올인이 발생했습니다.';
     if (player.chips <= 0) return '올인할 칩이 없습니다.';
-    const cap = player.roundBet + player.chips; pay(player, player.chips); player.isAllIn = true; allInCap = cap; currentBet = cap;
-    for (const other of bettingPlayers()) if (other.roundBet > cap) { const refund = other.roundBet - cap; other.roundBet -= refund; other.chips += refund; pot -= refund; }
-    acted.add(playerId); note(`${player.nickname}님이 ${cap.toLocaleString()}원에 올인했습니다.`); advanceBet(); armActionTimer(); changed(); return null;
+    const cap = player.roundBet + player.chips;
+    pay(player, player.chips);
+    player.isAllIn = true;
+    allInCap = allInCap === null ? cap : Math.min(allInCap, cap);
+    currentBet = allInCap;
+    for (const other of bettingPlayers()) {
+      if (other.roundBet <= allInCap) continue;
+      const refund = other.roundBet - allInCap;
+      other.roundBet -= refund; other.chips += refund; pot -= refund;
+    }
+    acted.add(playerId);
+    note(`${player.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`);
+    // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다(call()과 같은 판정).
+    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
+    advanceBet(); armActionTimer(); changed(); return null;
   }
 
   function fold(playerId, timedOut) {
