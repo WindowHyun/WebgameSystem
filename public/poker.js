@@ -16,10 +16,65 @@
   var leaving = false;
 
   function $(id) { return document.getElementById(id); }
+
+  /**
+   * 참가 토큰은 "이 창이 누구인가"를 말하는 값이다. localStorage에 두면 같은 기기의
+   * 모든 탭이 같은 값을 공유해서, 탭을 두 개 열거나 포털을 거쳐 다시 들어오기만 해도
+   * 두 창이 같은 참가자로 붙는다. 그러면 서버가 먼저 붙어 있던 창을 replaced로 끊고,
+   * 그 창은 영영 재접속을 포기한다(사용자에겐 "오류가 뜨고 목록에서 사라짐"으로 보인다).
+   * 닉네임과 마찬가지로 탭 단위인 sessionStorage에 둔다(라이어 게임 public/app.js와 동일).
+   */
+  var memoryToken = null;
+  function readToken() {
+    if (memoryToken) return memoryToken;
+    try { return sessionStorage.getItem(TOKEN_KEY); } catch (error) { return null; }
+  }
+  function saveToken(value) {
+    memoryToken = value;
+    try {
+      if (value) sessionStorage.setItem(TOKEN_KEY, value);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch (error) { /* 사생활 보호 모드 - memoryToken으로 버틴다 */ }
+  }
+
   function send(type, extra) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
   }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
+
+  /**
+   * 참가자 줄에 쓰는 짧은 금액. 폰에서는 한 칸이 100px 남짓이라
+   * "1,000,000원 · 배팅 100원"이 "1,000,000원 · 배..."로 잘렸다 - 정작 봐야 할
+   * 배팅액이 사라졌다. 만 단위로 줄이고, 배팅이 없으면 그 구절 자체를 뺀다.
+   */
+  function shortMoney(value) {
+    var won = Number(value || 0);
+    if (won < 10000) return won.toLocaleString();
+    var man = won / 10000;
+    return (man >= 100 ? Math.round(man) : Math.round(man * 10) / 10) + '만';
+  }
+  function chipLine(player) {
+    var chips = shortMoney(player.chips);
+    return player.roundBet > 0 ? chips + ' · +' + shortMoney(player.roundBet) : chips;
+  }
+
+  /**
+   * 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 그대로 반영한다.
+   *
+   * 서버가 거절하긴 하지만, 그것만으로는 얼마부터 되는지 알 수가 없어서 눌러 보고
+   * 빨간 토스트를 보는 수밖에 없었다. 하한이 올라가면 기본값도 같이 끌어올린다.
+   * 사용자가 하한보다 큰 값을 직접 적어 뒀다면 그건 건드리지 않는다.
+   */
+  var lastRaiseFloor = null;
+  function syncRaiseFloor(floor) {
+    var input = $('raise-amount');
+    var min = Number(floor) > 0 ? Number(floor) : 100;
+    input.min = String(min);
+    input.step = '100';
+    input.setAttribute('aria-label', '레이즈 금액 (최소 ' + money(min) + ')');
+    if (lastRaiseFloor !== min || Number(input.value) < min) input.value = String(min);
+    lastRaiseFloor = min;
+  }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
   var errorTimer = null;
   function showError(text) {
@@ -27,6 +82,35 @@
     $('error').style.display = 'block';
     clearTimeout(errorTimer); // 앞의 토스트가 뒤에 온 것까지 같이 지우지 않게 한다
     errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
+  }
+
+  /**
+   * 스스로 회복할 수 없는 상태(같은 참가자로 다른 창이 붙어 이 창이 밀려난 경우).
+   * 예전에는 3초짜리 토스트만 띄우고 끝이라, 사용자는 왜 아무것도 안 되는지 모른 채
+   * 죽은 화면을 보고 있어야 했다. 사라지지 않는 안내와 되돌아갈 버튼을 같이 준다.
+   */
+  var fatalShown = false;
+  function showFatal(text) {
+    if (fatalShown) return;
+    fatalShown = true;
+    var box = document.createElement('div');
+    box.id = 'fatal';
+    box.setAttribute('role', 'alert');
+    var line = document.createElement('p');
+    line.textContent = text;
+    var again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = '이 창에서 다시 접속';
+    again.onclick = function () { location.reload(); };
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'secondary';
+    back.textContent = '목록으로';
+    back.onclick = function () { location.href = '/'; };
+    box.appendChild(line);
+    box.appendChild(again);
+    box.appendChild(back);
+    document.body.appendChild(box);
   }
   /**
    * 끊긴 동안 화면이 살아 있는 척하지 않게 한다. 예전에는 3초짜리 토스트가 사라지고 나면
@@ -43,20 +127,109 @@
    */
   function nextDelay() { return Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)); }
 
+  // ── 연결이 진짜 살아 있는지 스스로 확인한다 ──────────────────────────
+  //
+  // 폰을 잠그거나 다른 앱을 보다 돌아오면 OS는 소켓을 닫아 주지 않고 그냥 얼린다.
+  // 그래서 돌아왔을 때 ws.readyState는 OPEN인데 실제로는 아무것도 오가지 않는
+  // "좀비" 상태가 된다. 예전에는 이걸 알아채는 게 없어서, 서버가 하트비트로 죽여
+  // 줄 때까지 화면만 멀쩡하고 아무것도 안 되는 상태로 기다려야 했다.
+  // (재 봤더니 30초 자리비움에 9.6초, 95초에 54.7초가 걸렸다)
+  var PING_MS = 10000;      // 살아 있는지 물어보는 주기
+  var SILENCE_MS = 25000;   // 이만큼 아무 소식이 없으면 죽은 연결로 본다
+  var PROBE_HINT_MS = 600;  // 확인 요청에 이만큼 답이 없으면 "다시 연결하는 중"을 보여 준다
+  var PROBE_FAIL_MS = 2500; // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
+  var CONNECT_TIMEOUT_MS = 8000; // 이만큼 열리지 않는 연결은 버린다
+  var lastSeenAt = 0;
+  var connectingSince = 0;
+  var probeHintTimer = null;
+  var probeFailTimer = null;
+
+  function clearProbe() {
+    if (probeHintTimer) { clearTimeout(probeHintTimer); probeHintTimer = null; }
+    if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
+  }
+
+  function abandonSocket() {
+    var dead = ws;
+    ws = null;
+    if (dead) {
+      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
+    }
+  }
+
+  /**
+   * 통신이 끊긴 채로 연 소켓은 열리지도 닫히지도 않고 CONNECTING에 멈춘다.
+   * 그러면 connect()는 "이미 연결 중"이라며 돌아가고 감시기는 OPEN이 아니라고
+   * 건너뛰어서, 아무도 그 소켓을 되살리지 않는 막다른 길이 된다. 오래 걸린 연결은
+   * 실패로 보고 버린다.
+   */
+  function dropStuckSocket() {
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) return false;
+    if (Date.now() - connectingSince <= CONNECT_TIMEOUT_MS) return false;
+    abandonSocket();
+    return true;
+  }
+
+  /**
+   * 죽은 소켓을 버리고 그 자리에서 새로 붙는다.
+   *
+   * close()만 부르고 onclose를 기다리면 안 된다 - 좀비 소켓은 서버의 닫기 응답이
+   * 영영 오지 않아 브라우저가 한참 뒤에야 onclose를 준다. 그게 예전에 55초씩
+   * 걸리던 이유다. 핸들러를 먼저 떼어 내고 바로 새 연결을 연다.
+   * 떼어 내는 건 또 다른 이유로도 중요하다: 나중에 살아난 옛 소켓이 서버가 보낸
+   * replaced를 뒤늦게 전해 주면, 멀쩡히 붙어 있는 이 창이 영구 중단된다.
+   */
+  function forceReconnect() {
+    clearProbe();
+    abandonSocket();
+    setOffline(true);
+    clearTimeout(reconnectTimer);
+    reconnectDelay = 500;
+    connect();
+  }
+
+  /** 화면이 다시 보일 때 부른다. OPEN이라는 말을 믿지 않고 실제로 물어본다. */
+  function verifyConnection() {
+    if (leaving || superseded) return;
+    reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+    dropStuckSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      clearTimeout(reconnectTimer);
+      connect();
+      return;
+    }
+    if (probeFailTimer) return; // 이미 확인 중
+    send('ping');
+    probeHintTimer = setTimeout(function () { probeHintTimer = null; setOffline(true); }, PROBE_HINT_MS);
+    probeFailTimer = setTimeout(forceReconnect, PROBE_FAIL_MS);
+  }
+
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
+    connectingSince = Date.now();
     ws.onopen = function () {
       reconnectDelay = 500;
+      lastSeenAt = Date.now();
       setOffline(false);
-      send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) });
+      send('join', { nickname: nickname, token: readToken() });
     };
     ws.onmessage = function (event) {
+      // 무엇이 오든 연결이 살아 있다는 뜻이다. 확인 중이었다면 여기서 끝난다.
+      lastSeenAt = Date.now();
+      if (probeHintTimer || probeFailTimer) { clearProbe(); setOffline(false); }
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
-      if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
-      if (data.type === 'replaced') { superseded = true; showError('다른 창에서 같은 참가자로 접속했습니다.'); return; }
-      if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
+      if (data.type === 'pong') return;
+      if (data.type === 'welcome') { saveToken(data.token); return; }
+      if (data.type === 'replaced') {
+        superseded = true;
+        setOffline(true);
+        showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
+        return;
+      }
+      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'pokerState') { state = data; render(); }
     };
@@ -103,8 +276,17 @@
     $('allin').disabled = !myTurn || state.allInCap !== null;
     $('raise').disabled = !myTurn || state.allInCap !== null;
     $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
+    syncRaiseFloor(state.minRaise);
 
+    // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다. 예전에는 "방장만 시작"이라는
+    // 숨은 규칙 때문에 회색 버튼만 보이고 이유를 알 수 없었다(이제 아무나 시작할 수 있다).
     var message = '참가자들이 준비하면 시작할 수 있습니다.';
+    if (lobby) {
+      message = state.canStart
+        ? '준비한 ' + state.readyCount + '명으로 새 판을 시작할 수 있습니다.'
+        : '준비한 참가자가 ' + state.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. (현재 '
+          + state.readyCount + '명)';
+    }
     if (state.phase === 'betting') {
       var turnPlayer = state.players.find(function (player) { return player.id === state.turnPlayerId; });
       message = turnPlayer ? '현재 ' + turnPlayer.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 상대 카드와 배팅을 확인하세요.' : '') : '배팅을 진행하고 있습니다.';
@@ -118,7 +300,7 @@
       var waiting = state.phase === 'betting' && !player.inRound;
       var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
       var initial = Array.from(player.nickname)[0] || '나';
-      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + money(player.chips) + ' · 배팅 ' + money(player.roundBet) + '</small><span class="status">' + status + '</span></div>';
+      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
     var canSeeTable = state.phase !== 'betting' || (state.you.inRound && !you.isFolded);
@@ -158,7 +340,7 @@
       send('leave');
       setTimeout(function () { location.href = '/'; }, 1200);
     } else {
-      localStorage.removeItem(TOKEN_KEY);
+      saveToken(null);
       location.href = '/';
     }
   };
@@ -178,13 +360,32 @@
     button.addEventListener('touchstart', showHelp, { passive: true });
   });
   document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
-  // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
-  // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
+  // 돌아오는 길은 하나가 아니다. iOS는 앱 전환기에서 돌아올 때 화면 복원이면
+  // pageshow만 쏘고 visibilitychange는 안 쏘는 경로가 있고, 끊겼던 통신이 돌아온 건
+  // online으로만 알 수 있다. 하나라도 놓치면 좀비 연결이 그대로 남는다.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState !== 'visible') return;
-    reconnectDelay = 500;
-    connect();
+    if (document.visibilityState === 'visible') verifyConnection();
   });
-  setInterval(function () { send('ping'); }, 20000);
+  window.addEventListener('pageshow', verifyConnection);
+  window.addEventListener('online', verifyConnection);
+  window.addEventListener('focus', verifyConnection);
+
+  // 복귀 신호가 하나도 안 와도 스스로 알아챈다. 예전에는 답이 오는지 보지도 않고
+  // 20초마다 ping만 던지고 있어서, 좀비가 되면 서버가 죽여 줄 때까지 몰랐다.
+  setInterval(function () {
+    if (leaving || superseded) return;
+    // 열리다 만 소켓을 먼저 치운다. 이게 없으면 통신이 끊긴 동안 연 연결이
+    // CONNECTING에 멈춘 채 영영 남아, 통신이 돌아와도 아무 일도 일어나지 않는다.
+    if (dropStuckSocket()) {
+      setOffline(true);
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, nextDelay());
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+      return;
+    }
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
+    send('ping');
+  }, PING_MS);
   connect();
 }());

@@ -1,5 +1,54 @@
 /* 페이지별 스타일 뒤에서 적용되는 공통 안전 보정 */
 .portal-page h1{word-break:keep-all}
 .poker-page .seat>b,.blackjack-page .seat>b{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* 참가자 칸의 세 칸 배치(아바타 / 이름·칩 / 상태). 넓은 화면 전용이다 -
+   좁은 화면은 아래에서 두 줄로 다시 짠다. */
+@media(min-width:761px){
 .poker-page .player:before,.blackjack-page .player:before{grid-row:1/3}.poker-page .player b,.blackjack-page .player b{grid-column:2;grid-row:1;min-width:0}.poker-page .player small,.blackjack-page .player small{grid-column:2/4;grid-row:2}.poker-page .player .status,.blackjack-page .player .status{grid-column:3;grid-row:1;justify-self:end}
-@media(max-width:760px){.poker-page #players,.blackjack-page #players{scroll-snap-type:x proximity}.poker-page .player,.blackjack-page .player{scroll-snap-align:start}.portal-page .name-copy h1{font-size:clamp(30px,8.5vw,36px)}}
+}
+
+/* [모바일] 참가자 칸을 나눠 갖게 하고 두 줄로 세운다.
+     1줄: [아바타] 이름
+     2줄: 칩                 상태
+   예전에는 칸이 138px(작은 폰 126px) 고정이라 세 명째부터 무조건 화면 밖으로
+   밀려났다 - 가로 스크롤이 걸려 있긴 했지만 스크롤바를 숨겨 놔서, 사용자에게는
+   그냥 "세 번째 사람이 반쯤 잘린 채 멈춰 있는" 화면으로만 보였다.
+   한 줄 배치를 유지한 채 폭만 나누면 이번엔 이름이 "김하..."로 잘린다. 그래서
+   줄을 하나 늘렸다. 높이는 45px → 51px로 거의 그대로다. */
+@media(max-width:760px){
+  .poker-page #players,.blackjack-page #players{scroll-snap-type:x proximity}
+  .poker-page .player,.blackjack-page .player{
+    scroll-snap-align:start;
+    flex:1 1 0;min-width:0;
+    display:grid;grid-template-columns:22px minmax(0,1fr) auto;
+    align-items:center;gap:2px 4px;padding:5px 4px;
+  }
+  .poker-page .player:before,.blackjack-page .player:before{
+    grid-area:1/1/2/2;width:22px;height:22px;font-size:10px;
+  }
+  .poker-page .player b,.blackjack-page .player b{
+    grid-area:1/2/2/4;min-width:0;padding-left:0;align-self:center;font-size:11px;
+  }
+  .poker-page .player small,.blackjack-page .player small{
+    grid-area:2/1/3/3;padding-left:0;margin-top:0;align-self:center;font-size:10px;
+  }
+  .poker-page .player .status,.blackjack-page .player .status{
+    grid-area:2/3/3/4;align-self:center;justify-self:end;font-size:8px;padding:1px 4px;
+  }
+  /* "차례" 배지. 예전에는 오른쪽 아래 절대배치라 칩 금액과 같은 자리를 써서
+     "1,000,000원차례"처럼 붙어 보였다. 상태 배지 자리에 정식으로 앉힌다. */
+  .poker-page .player.turn:after,.blackjack-page .player.turn:after{
+    content:"차례";position:static;grid-area:2/3/3/4;
+    align-self:center;justify-self:end;
+    padding:1px 5px;border-radius:9px;background:#dcecff;color:#1164a3;
+    font-size:8px;font-weight:700;
+  }
+  /* 네 명 이상이면 여전히 넘친다. 스크롤바가 없으니 "더 있다"를 가장자리로 알린다. */
+  .poker-page .players-panel,.blackjack-page .players-panel{position:relative}
+  .poker-page .players-panel:after,.blackjack-page .players-panel:after{
+    content:"";position:absolute;top:0;right:0;bottom:0;width:22px;
+    background:linear-gradient(90deg,#3f0e4000,#3f0e40);pointer-events:none;
+  }
+  .portal-page .name-copy h1{font-size:clamp(30px,8.5vw,36px)}
+}
