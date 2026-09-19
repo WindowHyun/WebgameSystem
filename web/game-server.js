@@ -134,14 +134,14 @@ function createGameServer(options) {
   function handleHttp(req, res) {
     const requested = (req.url || '/').split('?')[0];
     if (requested === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.writeHead(200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
       res.end('{"ok":true}');
       return;
     }
     const name = requested === '/' ? 'index.html' : path.basename(requested);
     const asset = STATIC_FILES.get(name);
     if (!asset) {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
       res.end('없는 파일입니다.');
       return;
     }
@@ -149,24 +149,59 @@ function createGameServer(options) {
     // HTML은 항상 재검증하고, 이름이 고정된 JS/CSS도 짧게만 캐시한다. 폰트와 이미지는
     // 내용 변경이 드물어 오래 캐시한다. ETag가 같으면 본문을 다시 보내지 않는다.
     if (req.headers['if-none-match'] === asset.etag) {
-      res.writeHead(304, { ETag: asset.etag, 'Cache-Control': cacheControl(name) });
+      res.writeHead(304, Object.assign({ ETag: asset.etag, 'Cache-Control': cacheControl(name) }, securityHeaders(req)));
       res.end();
       return;
     }
     const useGzip = asset.gzip && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-    const headers = {
+    const headers = Object.assign({
       'Content-Type': asset.type,
       'Content-Length': useGzip ? asset.gzip.length : asset.body.length,
       'Cache-Control': cacheControl(name),
       ETag: asset.etag,
-      'X-Content-Type-Options': 'nosniff',
-    };
+    }, securityHeaders(req));
     if (useGzip) {
       headers['Content-Encoding'] = 'gzip';
       headers.Vary = 'Accept-Encoding';
     }
     res.writeHead(200, headers);
     res.end(req.method === 'HEAD' ? undefined : (useGzip ? asset.gzip : asset.body));
+  }
+
+  /**
+   * [S-7] 모든 응답에 붙는 보안 헤더.
+   *
+   * CSP를 이렇게 빡빡하게 걸 수 있는 건 이 앱의 화면에 인라인 <script>도, style="..."도,
+   * onclick="..."도 하나도 없기 때문이다(전부 외부 .js에서 addEventListener/.onclick으로
+   * 붙인다). 나중에 인라인을 하나라도 추가하면 그 자리에서 크게 깨지므로 바로 눈치챈다.
+   *
+   * frame-ancestors 'none' - 이 게임은 업무 화면으로 위장하는 게 목적인데, 남의 페이지가
+   * iframe으로 이걸 품으면 클릭재킹으로 남의 차례를 대신 눌러 줄 수 있다.
+   * connect-src 'self' - 같은 출처의 wss:도 여기에 포함된다(WebSocket 주소가 이 서버뿐).
+   */
+  function securityHeaders(req) {
+    const headers = {
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self'",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+        "frame-ancestors 'none'",
+      ].join('; '),
+    };
+    // HSTS는 평문 HTTP에서는 브라우저가 무시하고, LAN/Electron 실행은 http라 걸면 안 된다.
+    // Render는 x-forwarded-proto로 원래 프로토콜을 알려 준다.
+    if (req.headers['x-forwarded-proto'] === 'https') {
+      headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+    }
+    return headers;
   }
 
   function cacheControl(name) {
@@ -203,6 +238,10 @@ function createGameServer(options) {
     const openFromIp = ipConnectionCounts.get(ip) || 0;
     if (openFromIp >= maxConnectionsPerIp) {
       warn(`[연결 거절] ${ip} 동시 연결 ${openFromIp}개로 정원(${maxConnectionsPerIp}) 초과`);
+      // 아래의 정상 경로와 달리 여기는 'error' 리스너를 달 기회가 없다. 듣는 사람이 없는
+      // 'error'는 ws가 그대로 던져 uncaughtException까지 올라가므로, 끊는 소켓에도 반드시
+      // 하나 달아 둔다(끊는 중에 상대가 먼저 죽으면 ECONNRESET이 흔히 올라온다).
+      ws.on('error', () => {});
       ws.close(1013, '연결이 너무 많습니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
@@ -364,14 +403,35 @@ function createGameServer(options) {
 
   /**
    * [S-4] Render 같은 리버스 프록시 뒤에서는 req.socket.remoteAddress가 프록시 자신의
-   * 주소라 X-Forwarded-For를 봐야 실제 클라이언트 IP가 나온다. 이 값은 인가 판단이
-   * 아니라 동시 연결 수를 세는 용도일 뿐이라, 스푸핑돼도 이 카운터 하나만 무력화될
-   * 뿐이지 다른 보안 경계를 넘지 못한다.
+   * 주소라, 실제 클라이언트를 구분하려면 프록시가 붙여 준 헤더를 봐야 한다.
+   *
+   * 순서가 중요하다. Render(*.onrender.com)는 Cloudflare 뒤에 있고, Cloudflare는 진짜
+   * 클라이언트 IP를 CF-Connecting-IP에 넣는다. 반면 X-Forwarded-For는 "클라이언트가
+   * 먼저 채워 보내면 그 값이 맨 앞에 남는" 헤더라, 맨 앞만 읽으면 브라우저가 부르는
+   * 대로 믿게 된다. 그래서 CF-Connecting-IP를 먼저 본다.
+   *
+   * 다만 어느 쪽도 인증된 값은 아니다(오리진에 직접 붙으면 둘 다 위조할 수 있다).
+   * 이 값은 인가 판단이 아니라 동시 연결 수를 세고 로그에 남기는 용도일 뿐이므로,
+   * 위조되더라도 그 카운터 하나가 무력화될 뿐 다른 보안 경계를 넘지 못한다.
    */
   function remoteIp(req) {
     const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) return forwarded.split(',')[0].trim();
-    return (req.socket && req.socket.remoteAddress) || 'unknown';
+    return sanitizeIp(req.headers['cf-connecting-ip']
+      || (forwarded ? forwarded.split(',')[0] : null)
+      || (req.socket && req.socket.remoteAddress));
+  }
+
+  /**
+   * [S-4] 위 헤더들은 전부 클라이언트가 적어 보낼 수 있는 문자열이다. 그대로 쓰면 두 가지가
+   * 샌다. (1) 로그 - `[참가] ... ${ip}` 줄에 임의의 글자가 그대로 들어가 로그를 위조할 수
+   * 있다. (2) ipConnectionCounts의 키 - 아무 길이의 문자열이 키가 된다. IP 모양이 아닌
+   * 값은 전부 'unknown' 한 칸으로 몰아넣는다.
+   */
+  function sanitizeIp(value) {
+    const text = String(value == null ? '' : value).trim();
+    // IPv4/IPv6 최대 길이(::ffff:255.255.255.255 포함)는 45자다.
+    if (!text || text.length > 45 || !/^[0-9a-fA-F.:]+$/.test(text)) return 'unknown';
+    return text;
   }
 
   function initialize() {

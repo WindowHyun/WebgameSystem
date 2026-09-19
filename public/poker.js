@@ -16,10 +16,49 @@
   var leaving = false;
 
   function $(id) { return document.getElementById(id); }
+
+  /**
+   * 참가 토큰은 "이 창이 누구인가"를 말하는 값이다. localStorage에 두면 같은 기기의
+   * 모든 탭이 같은 값을 공유해서, 탭을 두 개 열거나 포털을 거쳐 다시 들어오기만 해도
+   * 두 창이 같은 참가자로 붙는다. 그러면 서버가 먼저 붙어 있던 창을 replaced로 끊고,
+   * 그 창은 영영 재접속을 포기한다(사용자에겐 "오류가 뜨고 목록에서 사라짐"으로 보인다).
+   * 닉네임과 마찬가지로 탭 단위인 sessionStorage에 둔다(라이어 게임 public/app.js와 동일).
+   */
+  var memoryToken = null;
+  function readToken() {
+    if (memoryToken) return memoryToken;
+    try { return sessionStorage.getItem(TOKEN_KEY); } catch (error) { return null; }
+  }
+  function saveToken(value) {
+    memoryToken = value;
+    try {
+      if (value) sessionStorage.setItem(TOKEN_KEY, value);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch (error) { /* 사생활 보호 모드 - memoryToken으로 버틴다 */ }
+  }
+
   function send(type, extra) {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
   }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
+
+  /**
+   * 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 그대로 반영한다.
+   *
+   * 서버가 거절하긴 하지만, 그것만으로는 얼마부터 되는지 알 수가 없어서 눌러 보고
+   * 빨간 토스트를 보는 수밖에 없었다. 하한이 올라가면 기본값도 같이 끌어올린다.
+   * 사용자가 하한보다 큰 값을 직접 적어 뒀다면 그건 건드리지 않는다.
+   */
+  var lastRaiseFloor = null;
+  function syncRaiseFloor(floor) {
+    var input = $('raise-amount');
+    var min = Number(floor) > 0 ? Number(floor) : 100;
+    input.min = String(min);
+    input.step = '100';
+    input.setAttribute('aria-label', '레이즈 금액 (최소 ' + money(min) + ')');
+    if (lastRaiseFloor !== min || Number(input.value) < min) input.value = String(min);
+    lastRaiseFloor = min;
+  }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
   var errorTimer = null;
   function showError(text) {
@@ -27,6 +66,35 @@
     $('error').style.display = 'block';
     clearTimeout(errorTimer); // 앞의 토스트가 뒤에 온 것까지 같이 지우지 않게 한다
     errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
+  }
+
+  /**
+   * 스스로 회복할 수 없는 상태(같은 참가자로 다른 창이 붙어 이 창이 밀려난 경우).
+   * 예전에는 3초짜리 토스트만 띄우고 끝이라, 사용자는 왜 아무것도 안 되는지 모른 채
+   * 죽은 화면을 보고 있어야 했다. 사라지지 않는 안내와 되돌아갈 버튼을 같이 준다.
+   */
+  var fatalShown = false;
+  function showFatal(text) {
+    if (fatalShown) return;
+    fatalShown = true;
+    var box = document.createElement('div');
+    box.id = 'fatal';
+    box.setAttribute('role', 'alert');
+    var line = document.createElement('p');
+    line.textContent = text;
+    var again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = '이 창에서 다시 접속';
+    again.onclick = function () { location.reload(); };
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'secondary';
+    back.textContent = '목록으로';
+    back.onclick = function () { location.href = '/'; };
+    box.appendChild(line);
+    box.appendChild(again);
+    box.appendChild(back);
+    document.body.appendChild(box);
   }
   /**
    * 끊긴 동안 화면이 살아 있는 척하지 않게 한다. 예전에는 3초짜리 토스트가 사라지고 나면
@@ -49,14 +117,19 @@
     ws.onopen = function () {
       reconnectDelay = 500;
       setOffline(false);
-      send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) });
+      send('join', { nickname: nickname, token: readToken() });
     };
     ws.onmessage = function (event) {
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
-      if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
-      if (data.type === 'replaced') { superseded = true; showError('다른 창에서 같은 참가자로 접속했습니다.'); return; }
-      if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
+      if (data.type === 'welcome') { saveToken(data.token); return; }
+      if (data.type === 'replaced') {
+        superseded = true;
+        setOffline(true);
+        showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
+        return;
+      }
+      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'pokerState') { state = data; render(); }
     };
@@ -103,8 +176,17 @@
     $('allin').disabled = !myTurn || state.allInCap !== null;
     $('raise').disabled = !myTurn || state.allInCap !== null;
     $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
+    syncRaiseFloor(state.minRaise);
 
+    // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다. 예전에는 "방장만 시작"이라는
+    // 숨은 규칙 때문에 회색 버튼만 보이고 이유를 알 수 없었다(이제 아무나 시작할 수 있다).
     var message = '참가자들이 준비하면 시작할 수 있습니다.';
+    if (lobby) {
+      message = state.canStart
+        ? '준비한 ' + state.readyCount + '명으로 새 판을 시작할 수 있습니다.'
+        : '준비한 참가자가 ' + state.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. (현재 '
+          + state.readyCount + '명)';
+    }
     if (state.phase === 'betting') {
       var turnPlayer = state.players.find(function (player) { return player.id === state.turnPlayerId; });
       message = turnPlayer ? '현재 ' + turnPlayer.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 상대 카드와 배팅을 확인하세요.' : '') : '배팅을 진행하고 있습니다.';
@@ -158,7 +240,7 @@
       send('leave');
       setTimeout(function () { location.href = '/'; }, 1200);
     } else {
-      localStorage.removeItem(TOKEN_KEY);
+      saveToken(null);
       location.href = '/';
     }
   };

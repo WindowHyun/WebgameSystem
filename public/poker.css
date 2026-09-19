@@ -15,3 +15,9 @@ body[data-offline] .controls{position:relative;opacity:.55}
 body[data-offline] .controls button,body[data-offline] .controls input{pointer-events:none}
 body[data-offline] .topbar:after{content:"서버와 다시 연결하는 중...";margin-left:auto;padding:4px 10px;border-radius:12px;background:#fcebeb;color:#791f1f;font-size:11px;font-weight:700;white-space:nowrap}
 body[data-offline] .pot{display:none}
+
+/* 스스로 회복할 수 없는 상태(다른 창이 같은 참가자로 붙어 이 창이 밀려남)를 알린다.
+   예전에는 3초 토스트만 뜨고 사라져서, 남은 화면이 왜 먹통인지 알 방법이 없었다. */
+#fatal{position:fixed;inset:auto 0 0;z-index:40;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;padding:14px 18px max(14px,env(safe-area-inset-bottom));background:#1d1c1d;color:#fff;box-shadow:0 -6px 24px #0004}
+#fatal p{margin:0 6px 0 0;font-size:13px;line-height:1.5}
+@media(max-width:760px){#fatal{flex-direction:column;align-items:stretch;text-align:center}#fatal button{width:100%}}

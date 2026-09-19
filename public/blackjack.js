@@ -13,14 +13,65 @@
   var donationTarget = null;
   var leaving = false;
   function $(id) { return document.getElementById(id); }
+
+  // 참가 토큰을 탭 단위(sessionStorage)로 둔다. 이유는 public/poker.js의 같은 주석 참고 -
+  // localStorage에 두면 같은 기기의 두 탭이 같은 참가자로 붙어 한쪽이 강제로 끊긴다.
+  var memoryToken = null;
+  function readToken() {
+    if (memoryToken) return memoryToken;
+    try { return sessionStorage.getItem(TOKEN_KEY); } catch (error) { return null; }
+  }
+  function saveToken(value) {
+    memoryToken = value;
+    try {
+      if (value) sessionStorage.setItem(TOKEN_KEY, value);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch (error) { /* 사생활 보호 모드 - memoryToken으로 버틴다 */ }
+  }
+
   function send(type, extra) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {}))); }
   function money(value) { return Number(value || 0).toLocaleString() + '원'; }
+  // 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 반영한다(public/poker.js의 같은 주석 참고).
+  var lastRaiseFloor = null;
+  function syncRaiseFloor(floor) {
+    var input = $('raise-amount');
+    var min = Number(floor) > 0 ? Number(floor) : 100;
+    input.min = String(min);
+    input.step = '100';
+    input.setAttribute('aria-label', '레이즈 금액 (최소 ' + money(min) + ')');
+    if (lastRaiseFloor !== min || Number(input.value) < min) input.value = String(min);
+    lastRaiseFloor = min;
+  }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
   var errorTimer = null;
   function showError(text) {
     $('error').textContent = text; $('error').style.display = 'block';
     clearTimeout(errorTimer); // 앞의 토스트가 뒤에 온 것까지 같이 지우지 않게 한다
     errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
+  }
+  // 스스로 회복할 수 없는 상태를 사라지지 않는 안내로 알린다(public/poker.js와 동일).
+  var fatalShown = false;
+  function showFatal(text) {
+    if (fatalShown) return;
+    fatalShown = true;
+    var box = document.createElement('div');
+    box.id = 'fatal';
+    box.setAttribute('role', 'alert');
+    var line = document.createElement('p');
+    line.textContent = text;
+    var again = document.createElement('button');
+    again.type = 'button';
+    again.textContent = '이 창에서 다시 접속';
+    again.onclick = function () { location.reload(); };
+    var back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'secondary';
+    back.textContent = '목록으로';
+    back.onclick = function () { location.href = '/'; };
+    box.appendChild(line);
+    box.appendChild(again);
+    box.appendChild(back);
+    document.body.appendChild(box);
   }
   // 끊긴 동안 버튼이 눌리는 채로 남아 "눌러도 아무 일이 없는" 상태를 만들지 않는다.
   function setOffline(offline) {
@@ -32,13 +83,18 @@
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=blackjack');
-    ws.onopen = function () { reconnectDelay = 500; setOffline(false); send('join', { nickname: nickname, token: localStorage.getItem(TOKEN_KEY) }); };
+    ws.onopen = function () { reconnectDelay = 500; setOffline(false); send('join', { nickname: nickname, token: readToken() }); };
     ws.onmessage = function (event) {
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
-      if (data.type === 'welcome') { localStorage.setItem(TOKEN_KEY, data.token); return; }
-      if (data.type === 'replaced') { superseded = true; showError('다른 창에서 같은 참가자로 접속했습니다.'); return; }
-      if (data.type === 'left') { localStorage.removeItem(TOKEN_KEY); location.href = '/'; return; }
+      if (data.type === 'welcome') { saveToken(data.token); return; }
+      if (data.type === 'replaced') {
+        superseded = true;
+        setOffline(true);
+        showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
+        return;
+      }
+      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'blackjackState') { state = data; render(); }
     };
@@ -73,7 +129,15 @@
     $('betting').querySelectorAll('button').forEach(function (button) { button.disabled = !myTurn; });
     $('allin').disabled = !myTurn || state.allInCap !== null; $('raise').disabled = !myTurn || state.allInCap !== null;
     $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
+    syncRaiseFloor(state.minRaise);
+    // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다(public/poker.js와 동일).
     var message = '참가자들이 준비하면 시작할 수 있습니다.';
+    if (lobby) {
+      message = state.canStart
+        ? '준비한 ' + state.readyCount + '명으로 새 판을 시작할 수 있습니다.'
+        : '준비한 참가자가 ' + state.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. (현재 '
+          + state.readyCount + '명)';
+    }
     if (state.phase === 'playing') { var turn = state.players.find(function (p) { return p.id === state.turnPlayerId; }); message = turn ? '현재 ' + turn.nickname + '님의 카드 선택 차례입니다.' + (myTurn ? ' 히트 또는 스탠드를 선택하세요.' : '') : '카드를 선택하고 있습니다.'; }
     if (state.phase === 'betting') { var bettor = state.players.find(function (p) { return p.id === state.turnPlayerId; }); message = bettor ? '현재 ' + bettor.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 배팅 액션을 선택하세요.' : '') : '배팅을 진행하고 있습니다.'; }
     if (!lobby && !state.you.inRound) message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.';
@@ -92,7 +156,7 @@
     renderProposal();
   }
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
-  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { localStorage.removeItem(TOKEN_KEY); location.href = '/'; } };
+  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { saveToken(null); location.href = '/'; } };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };

@@ -19,6 +19,9 @@ function createPokerRoom(options) {
   let contenders = [];
   let turn = 0;
   let currentBet = 0;
+  // 이번 배팅에서 다음 레이즈가 최소한 올려야 하는 금액. 직전에 누군가 올린 폭이 곧
+  // 기준이 되고(포커의 일반 규칙), 아무도 안 올렸으면 기본 배팅금이 기준이다.
+  let minRaise = 100;
   let allInCap = null;
   let acted = new Set();
   let result = null;
@@ -100,7 +103,7 @@ function createPokerRoom(options) {
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
-    pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; allInCap = null;
+    pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; minRaise = 100; allInCap = null;
     acted = new Set(); result = null; baseBetProposal = null;
     return true;
   }
@@ -250,8 +253,13 @@ function createPokerRoom(options) {
     return null;
   }
 
+  // 예전에는 방장만 시작할 수 있었다. 그런데 방장은 "처음 들어온 사람"으로 한 번 정해지면
+  // 연결이 살아 있는 한 넘어가지 않는다. 그 사람이 폰을 잠그거나 자리를 비우면 서버는
+  // 최대 75초(하트비트) 동안 그걸 모르고, 그동안 남은 사람들은 회색 시작 버튼만 보며
+  // 다음 판을 영영 시작하지 못했다. 화면이 방장이 누군지 알려 주지도 않아 원인도 몰랐다.
+  // 라이어 게임(web/room.js)은 원래부터 아무나 시작할 수 있었다 - 규칙을 그쪽에 맞춘다.
   function begin(pid) {
-    if (pid !== hostId) return '방장만 시작할 수 있습니다.';
+    if (!players.some((p) => p.id === pid && p.connected)) return '방에 참가한 뒤 시작할 수 있습니다.';
     if (phase !== 'lobby' && phase !== 'result') return '이미 게임이 진행 중입니다.';
     if (baseBetProposal) return '기본 배팅금 투표가 끝난 뒤 시작해 주세요.';
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
@@ -265,7 +273,7 @@ function createPokerRoom(options) {
   }
 
   function startBetting(ids, tie) {
-    contenders = ids.slice(); turn = 0; currentBet = baseBet; allInCap = null; acted = new Set(); phase = 'betting';
+    contenders = ids.slice(); turn = 0; currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set(); phase = 'betting';
     for (const p of players) {
       p.isFolded = !ids.includes(p.id);
       p.isAllIn = false;
@@ -306,8 +314,12 @@ function createPokerRoom(options) {
     const p = current();
     const need = currentBet - p.roundBet + value;
     if (!Number.isInteger(value) || value < 100 || value % 100 !== 0) return '레이즈는 100원 단위로 입력해 주세요.';
+    // [규칙] 레이즈 폭은 직전 레이즈 폭 이상이어야 한다. 이게 없으면 100원씩 올리는 것만
+    // 반복해서 앞사람이 크게 올린 판을 사실상 없던 일로 만들 수 있고, 배팅이 끝나지 않는다.
+    // 첫 레이즈의 기준은 기본 배팅금이다(startBetting에서 minRaise를 그렇게 잡는다).
+    if (value < minRaise) return `레이즈는 직전 레이즈 금액인 ${minRaise.toLocaleString()}원 이상이어야 합니다.`;
     if (need >= p.chips) return '레이즈 후 칩이 남아야 합니다. 전액은 올인을 사용하세요.';
-    pay(p, need); currentBet += value; acted = new Set([pid]);
+    pay(p, need); currentBet += value; minRaise = value; acted = new Set([pid]);
     advance();
     note(`${p.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
   }
@@ -382,7 +394,7 @@ function createPokerRoom(options) {
     // 그만뒀다고 구경까지 막을 이유는 없다.
     const viewerInRound = !!me && contenders.includes(pid);
     return {
-      type: 'pokerState', phase, baseBet, pot, currentBet, allInCap, hostId, turnPlayerId: current() && current().id,
+      type: 'pokerState', phase, baseBet, pot, currentBet, minRaise, allInCap, hostId, turnPlayerId: current() && current().id,
       result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
       baseBetProposal: baseBetProposal ? {
         id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount,
@@ -391,7 +403,10 @@ function createPokerRoom(options) {
         total: players.filter((p) => p.connected && p.id !== baseBetProposal.proposerId).length,
         yourVote: pid === baseBetProposal.proposerId || baseBetProposal.votes.has(pid),
       } : null,
-      canStart: pid === hostId && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
+      canStart: !!me && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
+      // 시작 버튼이 왜 꺼져 있는지 화면이 그대로 말해 줄 수 있게 서버가 사유를 내려 준다.
+      readyCount: players.filter((p) => p.connected && p.ready && p.chips > 0).length,
+      minPlayers: MIN_PLAYERS,
       players: players.filter((p) => p.connected).map((p) => {
         const inRound = contenders.includes(p.id);
         let reveal = false;

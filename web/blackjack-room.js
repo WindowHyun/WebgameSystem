@@ -39,6 +39,8 @@ function createBlackjackRoom(options) {
   let contenders = [];
   let turn = 0;
   let currentBet = 0;
+  // 다음 레이즈가 최소한 올려야 하는 금액(web/poker-room.js의 minRaise와 같은 규칙).
+  let minRaise = 100;
   let allInCap = null;
   let acted = new Set();
   let result = null;
@@ -161,7 +163,7 @@ function createBlackjackRoom(options) {
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
-    baseBetProposal = null; pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0;
+    baseBetProposal = null; pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; minRaise = 100;
     allInCap = null; acted = new Set(); result = null;
   }
 
@@ -272,8 +274,10 @@ function createBlackjackRoom(options) {
     changed(); return null;
   }
 
+  // 방장 독점 해제. 이유는 web/poker-room.js의 begin() 주석 참고 - 자리를 비운 방장이
+  // 남은 사람 전원의 다음 판을 막아 버리는 문제가 있었다.
   function begin(playerId) {
-    if (playerId !== hostId) return '방장만 시작할 수 있습니다.';
+    if (!players.some((p) => p.id === playerId && p.connected)) return '방에 참가한 뒤 시작할 수 있습니다.';
     if (phase !== 'lobby' && phase !== 'result') return '이미 게임이 진행 중입니다.';
     if (baseBetProposal) return '기본 배팅금 투표가 끝난 뒤 시작해 주세요.';
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
@@ -327,7 +331,7 @@ function createBlackjackRoom(options) {
     const survivors = inRound().filter((p) => !p.isFolded);
     if (survivors.length === 0) { refundAndFinish('진행 가능한 참가자가 없어 이번 판을 종료합니다.'); return; }
     if (survivors.length === 1) { settle(survivors[0]); return; }
-    phase = 'betting'; turn = 0; currentBet = baseBet; allInCap = null; acted = new Set();
+    phase = 'betting'; turn = 0; currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set();
     note('카드 선택이 끝났습니다. 배팅을 시작합니다.');
     armActionTimer();
   }
@@ -356,8 +360,10 @@ function createBlackjackRoom(options) {
     if (allInCap !== null) return '올인 이후에는 레이즈할 수 없습니다.';
     const value = Number(amount); const needed = currentBet - player.roundBet + value;
     if (!Number.isInteger(value) || value < 100 || value % 100 !== 0) return '레이즈는 100원 단위로 입력해 주세요.';
+    // [규칙] 레이즈 폭은 직전 레이즈 폭 이상(web/poker-room.js의 raise() 주석 참고).
+    if (value < minRaise) return `레이즈는 직전 레이즈 금액인 ${minRaise.toLocaleString()}원 이상이어야 합니다.`;
     if (needed >= player.chips) return '레이즈 후 칩이 남아야 합니다. 전액은 올인을 사용하세요.';
-    pay(player, needed); currentBet += value; acted = new Set([playerId]); advanceBet();
+    pay(player, needed); currentBet += value; minRaise = value; acted = new Set([playerId]); advanceBet();
     note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
   }
 
@@ -430,10 +436,13 @@ function createBlackjackRoom(options) {
     const playingTurn = currentPlayingPlayer();
     const bettingTurn = currentBetPlayer();
     return {
-      type: 'blackjackState', phase, hostId, baseBet, pot, currentBet, allInCap, result,
+      type: 'blackjackState', phase, hostId, baseBet, pot, currentBet, minRaise, allInCap, result,
       turnPlayerId: phase === 'playing' ? playingTurn && playingTurn.id : phase === 'betting' ? bettingTurn && bettingTurn.id : null,
       you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
-      canStart: playerId === hostId && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
+      canStart: !!me && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
+      // 시작 버튼이 왜 꺼져 있는지 화면이 그대로 말해 줄 수 있게 서버가 사유를 내려 준다.
+      readyCount: players.filter((p) => p.connected && p.ready && p.chips > 0).length,
+      minPlayers: MIN_PLAYERS,
       baseBetProposal: baseBetProposal ? { id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount, agreed: [...baseBetProposal.votes.values()].filter(Boolean).length, voted: baseBetProposal.votes.size, total: players.filter((p) => p.connected && p.id !== baseBetProposal.proposerId).length, yourVote: playerId === baseBetProposal.proposerId || baseBetProposal.votes.has(playerId) } : null,
       history: history.slice(-12),
       players: players.filter((p) => p.connected).map((p) => {
