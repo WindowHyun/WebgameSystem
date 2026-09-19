@@ -100,7 +100,9 @@
   var SILENCE_MS = 25000;
   var PROBE_HINT_MS = 600;
   var PROBE_FAIL_MS = 2500;
+  var CONNECT_TIMEOUT_MS = 8000;
   var lastSeenAt = 0;
+  var connectingSince = 0;
   var probeHintTimer = null;
   var probeFailTimer = null;
 
@@ -109,15 +111,28 @@
     if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
   }
 
-  /** 죽은 소켓을 버리고 그 자리에서 새로 붙는다(public/poker.js의 같은 함수 참고). */
-  function forceReconnect() {
-    clearProbe();
+  function abandonSocket() {
     var dead = ws;
     ws = null;
     if (dead) {
       dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
       try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
     }
+  }
+
+  // 통신이 끊긴 채로 연 소켓은 CONNECTING에 멈춰 아무도 되살리지 않는 막다른 길이
+  // 된다(public/poker.js의 같은 함수 주석 참고).
+  function dropStuckSocket() {
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) return false;
+    if (Date.now() - connectingSince <= CONNECT_TIMEOUT_MS) return false;
+    abandonSocket();
+    return true;
+  }
+
+  /** 죽은 소켓을 버리고 그 자리에서 새로 붙는다(public/poker.js의 같은 함수 참고). */
+  function forceReconnect() {
+    clearProbe();
+    abandonSocket();
     setOffline(true);
     clearTimeout(reconnectTimer);
     reconnectDelay = 500;
@@ -128,6 +143,7 @@
   function verifyConnection() {
     if (leaving || superseded) return;
     reconnectDelay = 500;
+    dropStuckSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       clearTimeout(reconnectTimer);
       connect();
@@ -141,6 +157,7 @@
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=blackjack');
+    connectingSince = Date.now();
     ws.onopen = function () { reconnectDelay = 500; lastSeenAt = Date.now(); setOffline(false); send('join', { nickname: nickname, token: readToken() }); };
     ws.onmessage = function (event) {
       // 무엇이 오든 연결이 살아 있다는 뜻이다. 확인 중이었다면 여기서 끝난다.
@@ -240,6 +257,14 @@
   // 복귀 신호가 하나도 안 와도 스스로 알아챈다.
   setInterval(function () {
     if (leaving || superseded) return;
+    // 열리다 만 소켓을 먼저 치운다(public/poker.js의 같은 자리 주석 참고).
+    if (dropStuckSocket()) {
+      setOffline(true);
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, nextDelay());
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+      return;
+    }
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
     send('ping');

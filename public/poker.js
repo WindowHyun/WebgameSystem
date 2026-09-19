@@ -138,13 +138,37 @@
   var SILENCE_MS = 25000;   // 이만큼 아무 소식이 없으면 죽은 연결로 본다
   var PROBE_HINT_MS = 600;  // 확인 요청에 이만큼 답이 없으면 "다시 연결하는 중"을 보여 준다
   var PROBE_FAIL_MS = 2500; // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
+  var CONNECT_TIMEOUT_MS = 8000; // 이만큼 열리지 않는 연결은 버린다
   var lastSeenAt = 0;
+  var connectingSince = 0;
   var probeHintTimer = null;
   var probeFailTimer = null;
 
   function clearProbe() {
     if (probeHintTimer) { clearTimeout(probeHintTimer); probeHintTimer = null; }
     if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
+  }
+
+  function abandonSocket() {
+    var dead = ws;
+    ws = null;
+    if (dead) {
+      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
+    }
+  }
+
+  /**
+   * 통신이 끊긴 채로 연 소켓은 열리지도 닫히지도 않고 CONNECTING에 멈춘다.
+   * 그러면 connect()는 "이미 연결 중"이라며 돌아가고 감시기는 OPEN이 아니라고
+   * 건너뛰어서, 아무도 그 소켓을 되살리지 않는 막다른 길이 된다. 오래 걸린 연결은
+   * 실패로 보고 버린다.
+   */
+  function dropStuckSocket() {
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) return false;
+    if (Date.now() - connectingSince <= CONNECT_TIMEOUT_MS) return false;
+    abandonSocket();
+    return true;
   }
 
   /**
@@ -158,12 +182,7 @@
    */
   function forceReconnect() {
     clearProbe();
-    var dead = ws;
-    ws = null;
-    if (dead) {
-      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
-      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
-    }
+    abandonSocket();
     setOffline(true);
     clearTimeout(reconnectTimer);
     reconnectDelay = 500;
@@ -174,6 +193,7 @@
   function verifyConnection() {
     if (leaving || superseded) return;
     reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+    dropStuckSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       clearTimeout(reconnectTimer);
       connect();
@@ -188,6 +208,7 @@
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
+    connectingSince = Date.now();
     ws.onopen = function () {
       reconnectDelay = 500;
       lastSeenAt = Date.now();
@@ -353,6 +374,15 @@
   // 20초마다 ping만 던지고 있어서, 좀비가 되면 서버가 죽여 줄 때까지 몰랐다.
   setInterval(function () {
     if (leaving || superseded) return;
+    // 열리다 만 소켓을 먼저 치운다. 이게 없으면 통신이 끊긴 동안 연 연결이
+    // CONNECTING에 멈춘 채 영영 남아, 통신이 돌아와도 아무 일도 일어나지 않는다.
+    if (dropStuckSocket()) {
+      setOffline(true);
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, nextDelay());
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+      return;
+    }
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
     send('ping');

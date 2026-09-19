@@ -54,6 +54,8 @@ var PING_MS = 10000;       // 살아 있는지 물어보는 주기
 var SILENCE_MS = 25000;    // 이만큼 아무 소식이 없으면 죽은 연결로 보고 다시 붙는다
 var PROBE_HINT_MS = 600;   // 확인 요청에 이만큼 답이 없으면 "확인 중"을 보여 준다
 var PROBE_FAIL_MS = 2500;  // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
+var CONNECT_TIMEOUT_MS = 8000; // 이만큼 열리지 않는 연결은 실패로 보고 버린다
+var connectingSince = 0;
 var probeHintTimer = null;
 var probeFailTimer = null;
 var pingTimer = null;
@@ -192,6 +194,7 @@ function connect() {
     return;
   }
   ws = new WebSocket(url);
+  connectingSince = Date.now();
 
   ws.onopen = function () {
     everConnected = true;
@@ -318,15 +321,31 @@ function clearProbe() {
  * 떼어 내는 건 또 다른 이유로도 중요하다: 나중에 살아난 옛 소켓이 서버가 보낸
  * replaced를 뒤늦게 전해 주면, 멀쩡히 붙어 있는 이 창이 영구 중단된다.
  */
-function forceReconnect() {
-  clearProbe();
-  stopWatchdog();
+function abandonSocket() {
   var dead = ws;
   ws = null;
   if (dead) {
     dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
     try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
   }
+}
+
+/**
+ * 통신이 끊긴 채로 연 소켓은 열리지도 닫히지도 않고 CONNECTING에 멈춘다. 그러면
+ * connect()는 "이미 연결 중"이라며 돌아가고 감시기는 OPEN이 아니라고 건너뛰어서,
+ * 아무도 그 소켓을 되살리지 않는 막다른 길이 된다. 오래 걸린 연결은 실패로 본다.
+ */
+function dropStuckSocket() {
+  if (!ws || ws.readyState !== WebSocket.CONNECTING) return false;
+  if (Date.now() - connectingSince <= CONNECT_TIMEOUT_MS) return false;
+  abandonSocket();
+  return true;
+}
+
+function forceReconnect() {
+  clearProbe();
+  stopWatchdog();
+  abandonSocket();
   $('conn-hint').textContent = '연결이 끊어진 것 같아 다시 붙는 중...';
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   reconnectDelay = 500;
@@ -340,6 +359,7 @@ function forceReconnect() {
 function verifyConnection() {
   if (kicked || superseded) return;
   reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+  dropStuckSocket();
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     connect();
@@ -1701,6 +1721,15 @@ document.addEventListener('visibilitychange', function () {
 window.addEventListener('pageshow', verifyConnection);
 window.addEventListener('online', verifyConnection);
 window.addEventListener('focus', verifyConnection);
+
+// 열리다 만 소켓을 치우는 일은 소켓 상태와 상관없이 늘 돌아야 한다. 위의 감시기는
+// 연결이 열린 뒤에야 시작하는데(startWatchdog은 onopen에서 부른다), 정작 막히는 건
+// 열리지 못한 소켓이다. 통신이 끊긴 동안 연 연결이 CONNECTING에 멈춘 채 남으면
+// 통신이 돌아와도 아무 일도 일어나지 않는다.
+setInterval(function () {
+  if (kicked || superseded) return;
+  if (dropStuckSocket()) scheduleReconnect();
+}, 2000);
 
 // 새로고침해도 접속 화면으로 되돌아가지 않게, 닉네임과 토큰을 저장해 두고 다시 참가한다.
 $('spectator-input').checked = spectatorMode;

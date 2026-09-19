@@ -8,7 +8,9 @@
   var reconnectDelay = 500;
   var PING_MS = 10000;
   var SILENCE_MS = 25000;
+  var CONNECT_TIMEOUT_MS = 8000;
   var lastSeenAt = 0;
+  var connectingSince = 0;
 
   function showGames(name) {
     sessionStorage.setItem(KEY, name);
@@ -22,6 +24,7 @@
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=portal');
+    connectingSince = Date.now();
     ws.onopen = function () { reconnectDelay = 500; lastSeenAt = Date.now(); };
     ws.onmessage = function (event) {
       lastSeenAt = Date.now(); // 무엇이 오든 연결이 살아 있다는 뜻이다
@@ -68,18 +71,30 @@
    * connect()가 "이미 붙어 있다"며 그냥 돌아가 버려 인원수가 영영 안 바뀐다.
    * (게임 화면 쪽 사정은 public/poker.js의 forceReconnect 주석 참고)
    */
-  function forceReconnect() {
+  function abandonSocket() {
     var dead = ws;
     ws = null;
     if (dead) {
       dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
       try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
     }
+  }
+  // 통신이 끊긴 채로 연 소켓은 CONNECTING에 멈춰 아무도 되살리지 않는 막다른 길이
+  // 된다(public/poker.js의 같은 함수 주석 참고).
+  function dropStuckSocket() {
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) return false;
+    if (Date.now() - connectingSince <= CONNECT_TIMEOUT_MS) return false;
+    abandonSocket();
+    return true;
+  }
+  function forceReconnect() {
+    abandonSocket();
     reconnectDelay = 500;
     connect();
   }
   function verifyConnection() {
     reconnectDelay = 500;
+    dropStuckSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
     // 포털은 보여 주는 게 인원수뿐이라 따로 확인 절차를 두지 않는다. 오래 조용했으면
     // 그냥 새로 붙는 편이 싸고 확실하다.
@@ -94,6 +109,7 @@
   window.addEventListener('focus', verifyConnection);
 
   setInterval(function () {
+    if (dropStuckSocket()) { connect(); return; }
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
     ws.send(JSON.stringify({ type: 'ping' }));
