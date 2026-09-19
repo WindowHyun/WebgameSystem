@@ -29,18 +29,15 @@ function playUntilTie() {
   const foldedId = view().turnPlayerId;
   assert.equal(room.fold(foldedId), null);
 
-  // 남은 두 사람이 콜로 맞춰 쇼다운까지 간다.
+  // 남은 두 사람이 콜로 맞춰 쇼다운까지 간다. 동점이면 방이 "재대결" 기록을 남긴다.
+  const rematched = () => view().history.some((item) => item.text.includes('재대결'));
   for (let guard = 0; guard < 12 && view().phase === 'betting'; guard += 1) {
     const turnId = view().turnPlayerId;
     if (!turnId || turnId === foldedId) break;
     if (room.call(turnId) !== null) break;
-    // 쇼다운에서 동점이면 phase가 betting 그대로다 - 재대결이 시작됐다는 뜻이다.
-    if (view().phase === 'betting' && view().players.filter((p) => p.inRound).length === 2
-      && !view().players.find((p) => p.id === turnId).roundBet) {
-      return { room, seats, foldedId, view };
-    }
+    if (rematched()) return { room, seats, foldedId, view };
   }
-  return null;
+  return rematched() ? { room, seats, foldedId, view } : null;
 }
 
 function main() {
@@ -54,6 +51,19 @@ function main() {
   const during = view().players.find((p) => p.id === foldedId);
   assert.ok(during.card, '동점 재대결 중에 폴드한 사람의 카드가 사라졌습니다.');
   assert.equal(during.isFolded, true, '폴드한 사람은 재대결 참가자가 아니어야 합니다.');
+
+  // 폴드한 사람도 이 판의 참가자였으므로 재대결 테이블을 계속 볼 수 있어야 한다.
+  // 예전에는 재대결이 시작되는 순간 참가자 명단이 동점자 둘로 줄면서, 폴드한 사람의
+  // 화면에서 남의 카드가 전부 가려졌다(자기 카드만 빼고 보이는 게 이 게임의 규칙이다).
+  const foldedView = room.stateFor(foldedId);
+  assert.equal(foldedView.you.inRound, true,
+    '폴드해도 이번 판 참가자이므로 중도 입장자("다음 판 대기")로 취급하면 안 됩니다.');
+  const others = foldedView.players.filter((p) => p.id !== foldedId && p.card);
+  assert.ok(others.length >= 2, '재대결 중인 두 사람의 카드가 자리에 있어야 합니다.');
+  assert.ok(others.every((p) => !p.card.hidden),
+    '폴드한 사람에게도 재대결 중인 사람들의 카드가 보여야 합니다.');
+  assert.equal(foldedView.players.find((p) => p.id === foldedId).card.hidden, true,
+    '자기 카드는 라운드가 끝나기 전까지 자신에게 보이면 안 됩니다.');
 
   // 재대결을 끝까지 굴린다.
   for (let guard = 0; guard < 24 && view().phase === 'betting'; guard += 1) {

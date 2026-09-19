@@ -17,6 +17,10 @@ function createPokerRoom(options) {
   let pot = 0;
   let deck = [];
   let contenders = [];
+  // 이번 판에 카드를 받은 사람들. contenders와 달리 동점 재대결이 일어나도 줄어들지
+  // 않는다. 폴드한 사람도 이 판의 참가자였으므로 테이블을 계속 볼 수 있어야 하는데,
+  // contenders로 판단하면 재대결 순간 동점자 둘만 남아 폴드한 사람 화면이 캄캄해졌다.
+  let dealtIn = [];
   let turn = 0;
   let currentBet = 0;
   // 이번 배팅에서 다음 레이즈가 최소한 올려야 하는 금액. 직전에 누군가 올린 폭이 곧
@@ -103,7 +107,7 @@ function createPokerRoom(options) {
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
-    pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; minRaise = 100; allInCap = null;
+    pot = 0; deck = []; contenders = []; dealtIn = []; turn = 0; currentBet = 0; minRaise = 100; allInCap = null;
     acted = new Set(); result = null; baseBetProposal = null;
     return true;
   }
@@ -265,6 +269,7 @@ function createPokerRoom(options) {
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
     if (ready.length < MIN_PLAYERS) return '준비한 참가자가 2명 이상이어야 합니다.';
     pot = 0; result = null; deck = freshDeck(); contenders = ready.map((p) => p.id);
+    dealtIn = contenders.slice(); // 이 판의 참가자 명단. 재대결이 와도 그대로 둔다.
     players.forEach((p) => { p.roundContribution = 0; });
     startBetting(contenders, false);
     note('새 라운드가 시작되었습니다.');
@@ -423,10 +428,10 @@ function createPokerRoom(options) {
     const me = players.find((p) => p.id === pid);
     // 폴드해도 이번 라운드 참가자였다면 계속 테이블을 볼 수 있어야 한다. 배팅을
     // 그만뒀다고 구경까지 막을 이유는 없다.
-    const viewerInRound = !!me && contenders.includes(pid);
+    const viewerInRound = !!me && dealtIn.includes(pid);
     return {
       type: 'pokerState', phase, baseBet, pot, currentBet, minRaise, allInCap, hostId, turnPlayerId: current() && current().id,
-      result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
+      result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: dealtIn.includes(me.id) } : null,
       baseBetProposal: baseBetProposal ? {
         id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount,
         agreed: [...baseBetProposal.votes.values()].filter(Boolean).length,
@@ -439,7 +444,9 @@ function createPokerRoom(options) {
       readyCount: players.filter((p) => p.connected && p.ready && p.chips > 0).length,
       minPlayers: MIN_PLAYERS,
       players: players.filter((p) => p.connected).map((p) => {
-        const inRound = contenders.includes(p.id);
+        // "이번 판에 카드를 받았는가". 화면은 이걸로 중도 입장자("다음 판 대기")와
+        // 이 판에 뛰다 폴드한 사람("폴드")을 가른다.
+        const inRound = dealtIn.includes(p.id);
         let reveal = false;
         if (phase === 'betting') reveal = viewerInRound && p.id !== pid && !p.isFolded;
         // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
