@@ -46,8 +46,16 @@ var lastChatKey = '';       // 대화를 다시 그릴지 판단하는 지문
 var lastNotifiedSeq = null;
 var wasMyTurn = false;
 // [E-3] 연결 감시. 사내망에서 조용한 연결이 끊기거나, 끊긴 줄도 모르고 있는 것을 막는다.
-var PING_MS = 20000;       // 살아 있는지 물어보는 주기
-var SILENCE_MS = 50000;    // 이만큼 아무 소식이 없으면 죽은 연결로 보고 다시 붙는다
+// 예전에는 주기 20초에 침묵 50초라, 판정이 실제로 떨어지는 건 60초 지점이었다.
+// 서버가 죽은 연결을 걷어내는 데 최대 75초가 걸리므로 둘이 거의 동시에 움직였고,
+// 그래서 이 감시가 있으나 마나였다(재 보니 라이어 55.0초, 감시가 아예 없는
+// 포커 54.7초로 차이가 없었다). 주기를 줄여 확실히 먼저 알아채게 한다.
+var PING_MS = 10000;       // 살아 있는지 물어보는 주기
+var SILENCE_MS = 25000;    // 이만큼 아무 소식이 없으면 죽은 연결로 보고 다시 붙는다
+var PROBE_HINT_MS = 600;   // 확인 요청에 이만큼 답이 없으면 "확인 중"을 보여 준다
+var PROBE_FAIL_MS = 2500;  // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
+var probeHintTimer = null;
+var probeFailTimer = null;
 var pingTimer = null;
 var lastSeenAt = 0;
 // 예전 버전(v0.8.0 이하) 서버는 이 확인 요청을 모른다. 그런 서버에 붙으면 20초마다
@@ -196,6 +204,11 @@ function connect() {
 
   ws.onmessage = function (ev) {
     lastSeenAt = Date.now(); // 무엇이 오든 연결이 살아 있다는 뜻이다
+    // 연결을 확인하던 중이었다면 여기서 끝난다 - 답이 왔으니 살아 있는 소켓이다.
+    if (probeHintTimer || probeFailTimer) {
+      clearProbe();
+      $('conn-hint').textContent = '';
+    }
     var msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (msg.type === 'pong') { pongSeen = true; return; }
@@ -275,8 +288,9 @@ function startWatchdog() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     // 조용하다고 곧바로 끊지 않는다. 확인 요청에 답이 오는 서버일 때만 판단할 수 있다.
     if (pongSeen && Date.now() - lastSeenAt > SILENCE_MS) {
-      $('conn-hint').textContent = '연결이 끊어진 것 같아 다시 붙는 중...';
-      try { ws.close(); } catch (e) { /* 이미 닫힘 */ } // onclose가 재연결을 맡는다
+      // 예전에는 close()만 부르고 onclose를 기다렸는데, 좀비 소켓은 onclose가
+      // 한참 뒤에야 와서 그동안 화면이 먹통이었다. 기다리지 않고 바로 새로 붙는다.
+      forceReconnect();
       return;
     }
     pingSentAt = Date.now();
@@ -288,6 +302,57 @@ function stopWatchdog() {
   if (!pingTimer) return;
   clearInterval(pingTimer);
   pingTimer = null;
+}
+
+function clearProbe() {
+  if (probeHintTimer) { clearTimeout(probeHintTimer); probeHintTimer = null; }
+  if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
+}
+
+/**
+ * 죽은 소켓을 버리고 그 자리에서 새로 붙는다.
+ *
+ * close()만 부르고 onclose를 기다리면 안 된다 - 좀비 소켓은 서버의 닫기 응답이
+ * 영영 오지 않아 브라우저가 한참 뒤에야 onclose를 준다. 그게 돌아왔을 때 50초씩
+ * 먹통이던 이유다. 핸들러를 먼저 떼어 내고 바로 새 연결을 연다.
+ * 떼어 내는 건 또 다른 이유로도 중요하다: 나중에 살아난 옛 소켓이 서버가 보낸
+ * replaced를 뒤늦게 전해 주면, 멀쩡히 붙어 있는 이 창이 영구 중단된다.
+ */
+function forceReconnect() {
+  clearProbe();
+  stopWatchdog();
+  var dead = ws;
+  ws = null;
+  if (dead) {
+    dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+    try { dead.close(); } catch (e) { /* 이미 닫힘 */ }
+  }
+  $('conn-hint').textContent = '연결이 끊어진 것 같아 다시 붙는 중...';
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  reconnectDelay = 500;
+  connect();
+}
+
+/**
+ * 화면이 다시 보일 때 부른다. readyState가 OPEN이라는 말을 믿지 않고 실제로 물어본다.
+ * 폰이 잠들었다 깨면 소켓은 OPEN인데 아무것도 오가지 않는 상태가 되기 때문이다.
+ */
+function verifyConnection() {
+  if (kicked || superseded) return;
+  reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    connect();
+    return;
+  }
+  if (!pingSupported) return; // 예전 버전 서버 - 물어봐야 거절만 당한다
+  if (probeFailTimer) return; // 이미 확인 중
+  try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) { forceReconnect(); return; }
+  probeHintTimer = setTimeout(function () {
+    probeHintTimer = null;
+    $('conn-hint').textContent = '연결을 확인하는 중...';
+  }, PROBE_HINT_MS);
+  probeFailTimer = setTimeout(forceReconnect, PROBE_FAIL_MS);
 }
 
 function scheduleReconnect() {
@@ -1625,13 +1690,17 @@ if (window.liar && typeof window.liar.onServerChange === 'function') {
 // [모바일] 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다.
 // 타이머 기반 감시(watchdog)는 백그라운드 탭에서 함께 느려지거나 멈추므로, 화면이
 // 다시 보이는 순간을 직접 잡아 재시도 대기를 건너뛰고 바로 다시 붙는다.
+// 돌아오는 길은 하나가 아니다. iOS는 앱 전환기에서 돌아올 때 화면 복원이면
+// pageshow만 쏘고 visibilitychange는 안 쏘는 경로가 있고, 끊겼던 통신이 돌아온 건
+// online으로만 알 수 있다. 하나라도 놓치면 좀비 연결이 그대로 남는다.
+// 예전에는 여기서 readyState가 OPEN이면 그냥 돌아갔는데, 좀비 소켓이 바로 그
+// OPEN 상태라서 아무 일도 하지 않고 넘어가는 게 문제였다.
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState !== 'visible' || kicked || superseded) return;
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  reconnectDelay = 500;
-  connect();
+  if (document.visibilityState === 'visible') verifyConnection();
 });
+window.addEventListener('pageshow', verifyConnection);
+window.addEventListener('online', verifyConnection);
+window.addEventListener('focus', verifyConnection);
 
 // 새로고침해도 접속 화면으로 되돌아가지 않게, 닉네임과 토큰을 저장해 두고 다시 참가한다.
 $('spectator-input').checked = spectatorMode;

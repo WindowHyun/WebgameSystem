@@ -6,6 +6,9 @@
   var input = document.getElementById('nickname');
   var ws = null;
   var reconnectDelay = 500;
+  var PING_MS = 10000;
+  var SILENCE_MS = 25000;
+  var lastSeenAt = 0;
 
   function showGames(name) {
     sessionStorage.setItem(KEY, name);
@@ -19,8 +22,9 @@
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
     var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=portal');
-    ws.onopen = function () { reconnectDelay = 500; };
+    ws.onopen = function () { reconnectDelay = 500; lastSeenAt = Date.now(); };
     ws.onmessage = function (event) {
+      lastSeenAt = Date.now(); // 무엇이 오든 연결이 살아 있다는 뜻이다
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
       if (data.type !== 'games') return;
@@ -57,15 +61,42 @@
 
   var saved = sessionStorage.getItem(KEY);
   if (saved) { input.value = saved; showGames(saved); }
-  // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
-  // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
-  document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState !== 'visible') return;
+
+  /**
+   * 죽은 소켓을 버리고 새로 붙는다. 폰이 잠들면 소켓이 닫히는 게 아니라 얼어서,
+   * 돌아왔을 때 readyState는 OPEN인데 아무것도 오가지 않는다. 그 상태로는
+   * connect()가 "이미 붙어 있다"며 그냥 돌아가 버려 인원수가 영영 안 바뀐다.
+   * (게임 화면 쪽 사정은 public/poker.js의 forceReconnect 주석 참고)
+   */
+  function forceReconnect() {
+    var dead = ws;
+    ws = null;
+    if (dead) {
+      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
+    }
     reconnectDelay = 500;
     connect();
+  }
+  function verifyConnection() {
+    reconnectDelay = 500;
+    if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
+    // 포털은 보여 주는 게 인원수뿐이라 따로 확인 절차를 두지 않는다. 오래 조용했으면
+    // 그냥 새로 붙는 편이 싸고 확실하다.
+    if (Date.now() - lastSeenAt > SILENCE_MS) forceReconnect();
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') verifyConnection();
   });
+  window.addEventListener('pageshow', verifyConnection);
+  window.addEventListener('online', verifyConnection);
+  window.addEventListener('focus', verifyConnection);
+
   setInterval(function () {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
-  }, 20000);
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
+    ws.send(JSON.stringify({ type: 'ping' }));
+  }, PING_MS);
   connect();
 }());

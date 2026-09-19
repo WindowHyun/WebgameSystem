@@ -92,13 +92,63 @@
   }
   // 재시도 간격을 흩뜨려, 한꺼번에 끊긴 사람들이 동시에 다시 두드리지 않게 한다.
   function nextDelay() { return Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)); }
+
+  // 연결이 진짜 살아 있는지 스스로 확인한다. 자세한 이유는 public/poker.js의
+  // 같은 자리 주석 참고 - 폰이 잠들면 소켓이 닫히지 않고 얼어붙어, OPEN인데
+  // 아무것도 오가지 않는 "좀비" 상태가 된다.
+  var PING_MS = 10000;
+  var SILENCE_MS = 25000;
+  var PROBE_HINT_MS = 600;
+  var PROBE_FAIL_MS = 2500;
+  var lastSeenAt = 0;
+  var probeHintTimer = null;
+  var probeFailTimer = null;
+
+  function clearProbe() {
+    if (probeHintTimer) { clearTimeout(probeHintTimer); probeHintTimer = null; }
+    if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
+  }
+
+  /** 죽은 소켓을 버리고 그 자리에서 새로 붙는다(public/poker.js의 같은 함수 참고). */
+  function forceReconnect() {
+    clearProbe();
+    var dead = ws;
+    ws = null;
+    if (dead) {
+      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
+    }
+    setOffline(true);
+    clearTimeout(reconnectTimer);
+    reconnectDelay = 500;
+    connect();
+  }
+
+  /** 화면이 다시 보일 때 부른다. OPEN이라는 말을 믿지 않고 실제로 물어본다. */
+  function verifyConnection() {
+    if (leaving || superseded) return;
+    reconnectDelay = 500;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      clearTimeout(reconnectTimer);
+      connect();
+      return;
+    }
+    if (probeFailTimer) return;
+    send('ping');
+    probeHintTimer = setTimeout(function () { probeHintTimer = null; setOffline(true); }, PROBE_HINT_MS);
+    probeFailTimer = setTimeout(forceReconnect, PROBE_FAIL_MS);
+  }
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=blackjack');
-    ws.onopen = function () { reconnectDelay = 500; setOffline(false); send('join', { nickname: nickname, token: readToken() }); };
+    ws.onopen = function () { reconnectDelay = 500; lastSeenAt = Date.now(); setOffline(false); send('join', { nickname: nickname, token: readToken() }); };
     ws.onmessage = function (event) {
+      // 무엇이 오든 연결이 살아 있다는 뜻이다. 확인 중이었다면 여기서 끝난다.
+      lastSeenAt = Date.now();
+      if (probeHintTimer || probeFailTimer) { clearProbe(); setOffline(false); }
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
+      if (data.type === 'pong') return;
       if (data.type === 'welcome') { saveToken(data.token); return; }
       if (data.type === 'replaced') {
         superseded = true;
@@ -179,6 +229,20 @@
   document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
   // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
   // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
-  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') { reconnectDelay = 500; connect(); } });
-  setInterval(function () { send('ping'); }, 20000); connect();
+  // 돌아오는 길은 하나가 아니다(public/poker.js의 같은 자리 주석 참고).
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') verifyConnection();
+  });
+  window.addEventListener('pageshow', verifyConnection);
+  window.addEventListener('online', verifyConnection);
+  window.addEventListener('focus', verifyConnection);
+
+  // 복귀 신호가 하나도 안 와도 스스로 알아챈다.
+  setInterval(function () {
+    if (leaving || superseded) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
+    send('ping');
+  }, PING_MS);
+  connect();
 }());

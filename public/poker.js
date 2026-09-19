@@ -127,17 +127,80 @@
    */
   function nextDelay() { return Math.round(reconnectDelay * (0.7 + Math.random() * 0.6)); }
 
+  // ── 연결이 진짜 살아 있는지 스스로 확인한다 ──────────────────────────
+  //
+  // 폰을 잠그거나 다른 앱을 보다 돌아오면 OS는 소켓을 닫아 주지 않고 그냥 얼린다.
+  // 그래서 돌아왔을 때 ws.readyState는 OPEN인데 실제로는 아무것도 오가지 않는
+  // "좀비" 상태가 된다. 예전에는 이걸 알아채는 게 없어서, 서버가 하트비트로 죽여
+  // 줄 때까지 화면만 멀쩡하고 아무것도 안 되는 상태로 기다려야 했다.
+  // (재 봤더니 30초 자리비움에 9.6초, 95초에 54.7초가 걸렸다)
+  var PING_MS = 10000;      // 살아 있는지 물어보는 주기
+  var SILENCE_MS = 25000;   // 이만큼 아무 소식이 없으면 죽은 연결로 본다
+  var PROBE_HINT_MS = 600;  // 확인 요청에 이만큼 답이 없으면 "다시 연결하는 중"을 보여 준다
+  var PROBE_FAIL_MS = 2500; // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
+  var lastSeenAt = 0;
+  var probeHintTimer = null;
+  var probeFailTimer = null;
+
+  function clearProbe() {
+    if (probeHintTimer) { clearTimeout(probeHintTimer); probeHintTimer = null; }
+    if (probeFailTimer) { clearTimeout(probeFailTimer); probeFailTimer = null; }
+  }
+
+  /**
+   * 죽은 소켓을 버리고 그 자리에서 새로 붙는다.
+   *
+   * close()만 부르고 onclose를 기다리면 안 된다 - 좀비 소켓은 서버의 닫기 응답이
+   * 영영 오지 않아 브라우저가 한참 뒤에야 onclose를 준다. 그게 예전에 55초씩
+   * 걸리던 이유다. 핸들러를 먼저 떼어 내고 바로 새 연결을 연다.
+   * 떼어 내는 건 또 다른 이유로도 중요하다: 나중에 살아난 옛 소켓이 서버가 보낸
+   * replaced를 뒤늦게 전해 주면, 멀쩡히 붙어 있는 이 창이 영구 중단된다.
+   */
+  function forceReconnect() {
+    clearProbe();
+    var dead = ws;
+    ws = null;
+    if (dead) {
+      dead.onopen = null; dead.onmessage = null; dead.onerror = null; dead.onclose = null;
+      try { dead.close(); } catch (error) { /* 이미 닫힘 */ }
+    }
+    setOffline(true);
+    clearTimeout(reconnectTimer);
+    reconnectDelay = 500;
+    connect();
+  }
+
+  /** 화면이 다시 보일 때 부른다. OPEN이라는 말을 믿지 않고 실제로 물어본다. */
+  function verifyConnection() {
+    if (leaving || superseded) return;
+    reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      clearTimeout(reconnectTimer);
+      connect();
+      return;
+    }
+    if (probeFailTimer) return; // 이미 확인 중
+    send('ping');
+    probeHintTimer = setTimeout(function () { probeHintTimer = null; setOffline(true); }, PROBE_HINT_MS);
+    probeFailTimer = setTimeout(forceReconnect, PROBE_FAIL_MS);
+  }
+
   function connect() {
     if (leaving || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
     ws = new WebSocket(protocol + '//' + location.host + '/api/ws?game=poker');
     ws.onopen = function () {
       reconnectDelay = 500;
+      lastSeenAt = Date.now();
       setOffline(false);
       send('join', { nickname: nickname, token: readToken() });
     };
     ws.onmessage = function (event) {
+      // 무엇이 오든 연결이 살아 있다는 뜻이다. 확인 중이었다면 여기서 끝난다.
+      lastSeenAt = Date.now();
+      if (probeHintTimer || probeFailTimer) { clearProbe(); setOffline(false); }
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
+      if (data.type === 'pong') return;
       if (data.type === 'welcome') { saveToken(data.token); return; }
       if (data.type === 'replaced') {
         superseded = true;
@@ -276,13 +339,23 @@
     button.addEventListener('touchstart', showHelp, { passive: true });
   });
   document.addEventListener('click', function (event) { if (!$('donate').contains(event.target)) $('donate').classList.add('hidden'); });
-  // 화면을 전환하거나 백그라운드로 내리면 브라우저가 조용히 소켓을 끊는다. 다시
-  // 보이는 순간 재시도 대기를 건너뛰고 바로 다시 붙는다.
+  // 돌아오는 길은 하나가 아니다. iOS는 앱 전환기에서 돌아올 때 화면 복원이면
+  // pageshow만 쏘고 visibilitychange는 안 쏘는 경로가 있고, 끊겼던 통신이 돌아온 건
+  // online으로만 알 수 있다. 하나라도 놓치면 좀비 연결이 그대로 남는다.
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState !== 'visible') return;
-    reconnectDelay = 500;
-    connect();
+    if (document.visibilityState === 'visible') verifyConnection();
   });
-  setInterval(function () { send('ping'); }, 20000);
+  window.addEventListener('pageshow', verifyConnection);
+  window.addEventListener('online', verifyConnection);
+  window.addEventListener('focus', verifyConnection);
+
+  // 복귀 신호가 하나도 안 와도 스스로 알아챈다. 예전에는 답이 오는지 보지도 않고
+  // 20초마다 ping만 던지고 있어서, 좀비가 되면 서버가 죽여 줄 때까지 몰랐다.
+  setInterval(function () {
+    if (leaving || superseded) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (lastSeenAt && Date.now() - lastSeenAt > SILENCE_MS) { forceReconnect(); return; }
+    send('ping');
+  }, PING_MS);
   connect();
 }());
