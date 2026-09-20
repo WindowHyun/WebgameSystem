@@ -56,6 +56,8 @@ var PROBE_HINT_MS = 600;   // 확인 요청에 이만큼 답이 없으면 "확�
 var PROBE_FAIL_MS = 2500;  // 이만큼 답이 없으면 죽은 것으로 보고 새로 붙는다
 var CONNECT_TIMEOUT_MS = 8000; // 이만큼 열리지 않는 연결은 실패로 보고 버린다
 var connectingSince = 0;
+// 화면이 숨겨졌거나 통신이 끊긴 것을 확인했다는 표시. 돌아왔을 때 한 번만 본다.
+var wasAway = false;
 var probeHintTimer = null;
 var probeFailTimer = null;
 var pingTimer = null;
@@ -359,6 +361,15 @@ function forceReconnect() {
 function verifyConnection() {
   if (kicked || superseded) return;
   reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+  // 자리를 비운 사이에 시작된 연결 시도는 통신이 끊긴 채로 연 것이라 살아날 가망이 없다.
+  // 그런데 connect()는 "이미 연결 중"이라며 그냥 돌아가서, 돌아온 뒤에도 아무 일이
+  // 일어나지 않고 8초(CONNECT_TIMEOUT_MS)를 기다려야 했다. 30초쯤 자리를 비우면
+  // 감시기가 죽었다고 판정하는 순간과 돌아오는 순간이 겹쳐 딱 이 상황이 된다.
+  // 돌아온 직후 한 번만, 그 소켓을 기다리지 않고 버린다.
+  if (wasAway) {
+    wasAway = false;
+    if (ws && ws.readyState === WebSocket.CONNECTING) abandonSocket();
+  }
   dropStuckSocket();
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -1717,10 +1728,12 @@ if (window.liar && typeof window.liar.onServerChange === 'function') {
 // OPEN 상태라서 아무 일도 하지 않고 넘어가는 게 문제였다.
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'visible') verifyConnection();
+  else wasAway = true;
 });
 window.addEventListener('pageshow', verifyConnection);
 window.addEventListener('online', verifyConnection);
 window.addEventListener('focus', verifyConnection);
+window.addEventListener('offline', function () { wasAway = true; });
 
 // 열리다 만 소켓을 치우는 일은 소켓 상태와 상관없이 늘 돌아야 한다. 위의 감시기는
 // 연결이 열린 뒤에야 시작하는데(startWatchdog은 onopen에서 부른다), 정작 막히는 건
