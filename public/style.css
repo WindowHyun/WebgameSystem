@@ -129,7 +129,7 @@ input:disabled { opacity:.5; }
 .msg .body { min-width:0; flex:1; }
 .msg .who { font-size:13px; font-weight:700; display:flex; align-items:baseline; gap:6px; }
 .msg .who .app-tag { font-size:9.5px; font-weight:700; letter-spacing:.04em; background:#D9D3DA; color:#4A3A4C; padding:1px 4px; border-radius:3px; position:relative; top:-1px; }
-.msg .who .time { font-size:11px; font-weight:400; color:#8A8A8E; }
+.msg .who .time { font-size:11px; font-weight:400; color:#616061; }
 .msg .text { font-size:14px; margin-top:2px; word-break:break-word; line-height:1.55; }
 .msg .text .who-hl { font-weight:700; }
 .msg .text .liar-hl { color:#791F1F; font-weight:700; }
@@ -143,7 +143,7 @@ input:disabled { opacity:.5; }
 .msg:has(+ .msg.grouped) { margin-bottom:2px; }
 
 /* 대화가 비어 있을 때의 안내 */
-.chat-empty { font-size:13px; color:#8A8A8E; margin:6px 0 14px; }
+.chat-empty { font-size:13px; color:#616061; margin:6px 0 14px; }
 
 /* [요청] 결과를 팝업이나 코드블록처럼 생긴 박스가 아니라 그냥 채팅 글줄로 남긴다 -
    다른 시스템 안내와 똑같은 모양이다. 이겼는지 졌는지는 헤드라인 색으로만 구분한다. */
@@ -160,7 +160,7 @@ input:disabled { opacity:.5; }
 
 /* 대화 안에 들여쓰여 붙는 진행 블록 (설명 / 자유 / 찬반 / 투표 / 정답) */
 #live-block:empty { display:none; }
-.meta-line { font-size:12px; color:#8A8A8E; margin:8px 0 0; }
+.meta-line { font-size:12px; color:#616061; margin:8px 0 0; }
 
 /* ── 설명 단계 ── */
 .turn-mic { margin-right:6px; }
@@ -172,7 +172,7 @@ input:disabled { opacity:.5; }
 
 /* 누가 설명을 마쳤는지 한 줄로 */
 .track { display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
-.pill { display:inline-flex; align-items:center; gap:5px; border:1px solid #E4E4E6; background:#F8F8F9; color:#8A8A8E; border-radius:12px; padding:3px 10px 3px 8px; font-size:12.5px; }
+.pill { display:inline-flex; align-items:center; gap:5px; border:1px solid #E4E4E6; background:#F8F8F9; color:#616061; border-radius:12px; padding:3px 10px 3px 8px; font-size:12.5px; }
 .pill .em { font-size:12px; line-height:1; }
 .pill.done { background:#EAF3DE; border-color:#D2E4BC; color:#27500A; }
 .pill.now { background:#FFF3D6; border-color:#EBD08A; color:#6B4E00; font-weight:700; }
@@ -242,7 +242,11 @@ input:disabled { opacity:.5; }
   border:none; padding:6px 12px; font-size:13px; font-family:inherit; line-height:1.4;
   resize:none; overflow-y:auto;
 }
+/* 입력창 자체의 테두리는 없애 두고(슬랙처럼 상자 전체가 입력칸으로 보인다),
+   키보드로 들어왔다는 표시는 상자 쪽에서 한다. 예전에는 표시를 없애기만 해서
+   Tab으로 옮겨 다닐 때 지금 어디인지 알 수가 없었다. */
 #chat-input:focus { outline:none; }
+#composer-box:focus-within { border-color:#1264A3; box-shadow:0 0 0 1px #1264A3; }
 /* 슬랙 전송 버튼처럼 초록 원형 + 종이비행기 */
 #send-btn { width:26px; height:26px; flex-shrink:0; border:none; border-radius:6px; background:#007A5A; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0; }
 #send-btn svg { width:14px; height:14px; fill:#fff; }
