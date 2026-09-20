@@ -146,6 +146,12 @@ async function scenario(browser, port, game, awaySeconds, duringRound, mode) {
     const away = contexts[2];
     const awayPage = pages[2];
     const before = await awayPage.evaluate(game === 'liar' ? LIAR_ME : CARD_ME);
+    // 폰이 잠기면 브라우저는 먼저 화면을 숨김으로 표시한다. 그 신호가 없으면 화면은
+    // "자리를 비웠다"는 것 자체를 모르므로, 흉내 낼 때도 같이 줘야 진짜와 같아진다.
+    await awayPage.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
     if (mode === 'cut') {
       await away.setOffline(true);
       proxy.cut();
@@ -162,7 +168,10 @@ async function scenario(browser, port, game, awaySeconds, duringRound, mode) {
     const rxBefore = await awayPage.evaluate('window.__rx').catch(() => 0);
     if (mode === 'cut') await away.setOffline(false); else proxy.thaw();
     const returnedAt = Date.now();
-    await awayPage.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await awayPage.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
 
     // 화면이 "다시 붙었다"고 인정할 때까지 실제로 몇 초가 걸리는지 잰다.
     // 이게 사용자가 폰을 다시 켜고 멍하니 기다리는 시간이다.

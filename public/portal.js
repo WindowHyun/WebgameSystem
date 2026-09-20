@@ -11,6 +11,8 @@
   var CONNECT_TIMEOUT_MS = 8000;
   var lastSeenAt = 0;
   var connectingSince = 0;
+  // 화면이 숨겨졌거나 통신이 끊긴 것을 확인했다는 표시. 돌아왔을 때 한 번만 본다.
+  var wasAway = false;
 
   function showGames(name) {
     sessionStorage.setItem(KEY, name);
@@ -94,6 +96,12 @@
   }
   function verifyConnection() {
     reconnectDelay = 500;
+    // 자리를 비운 사이에 시작된 연결 시도는 기다리지 않고 버린다(public/poker.js의
+    // 같은 자리 주석 참고). 돌아온 직후 한 번만 한다.
+    if (wasAway) {
+      wasAway = false;
+      if (ws && ws.readyState === WebSocket.CONNECTING) abandonSocket();
+    }
     dropStuckSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) { connect(); return; }
     // 포털은 보여 주는 게 인원수뿐이라 따로 확인 절차를 두지 않는다. 오래 조용했으면
@@ -103,10 +111,12 @@
 
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') verifyConnection();
+    else wasAway = true;
   });
   window.addEventListener('pageshow', verifyConnection);
   window.addEventListener('online', verifyConnection);
   window.addEventListener('focus', verifyConnection);
+  window.addEventListener('offline', function () { wasAway = true; });
 
   setInterval(function () {
     if (dropStuckSocket()) { connect(); return; }

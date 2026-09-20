@@ -141,6 +141,8 @@
   var CONNECT_TIMEOUT_MS = 8000; // 이만큼 열리지 않는 연결은 버린다
   var lastSeenAt = 0;
   var connectingSince = 0;
+  // 화면이 숨겨졌거나 통신이 끊긴 것을 확인했다는 표시. 돌아왔을 때 한 번만 본다.
+  var wasAway = false;
   var probeHintTimer = null;
   var probeFailTimer = null;
 
@@ -193,6 +195,15 @@
   function verifyConnection() {
     if (leaving || superseded) return;
     reconnectDelay = 500; // 돌아왔으니 기다림은 처음부터
+    // 자리를 비운 사이에 시작된 연결 시도는 통신이 끊긴 채로 연 것이라 살아날 가망이 없다.
+    // 그런데 connect()는 "이미 연결 중"이라며 그냥 돌아가서, 돌아온 뒤에도 아무 일이
+    // 일어나지 않고 8초(CONNECT_TIMEOUT_MS)를 기다려야 했다. 30초쯤 자리를 비우면
+    // 감시기가 죽었다고 판정하는 순간과 돌아오는 순간이 겹쳐 딱 이 상황이 된다.
+    // 돌아온 직후 한 번만, 그 소켓을 기다리지 않고 버린다.
+    if (wasAway) {
+      wasAway = false;
+      if (ws && ws.readyState === WebSocket.CONNECTING) abandonSocket();
+    }
     dropStuckSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       clearTimeout(reconnectTimer);
@@ -365,10 +376,12 @@
   // online으로만 알 수 있다. 하나라도 놓치면 좀비 연결이 그대로 남는다.
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'visible') verifyConnection();
+    else wasAway = true;
   });
   window.addEventListener('pageshow', verifyConnection);
   window.addEventListener('online', verifyConnection);
   window.addEventListener('focus', verifyConnection);
+  window.addEventListener('offline', function () { wasAway = true; });
 
   // 복귀 신호가 하나도 안 와도 스스로 알아챈다. 예전에는 답이 오는지 보지도 않고
   // 20초마다 ping만 던지고 있어서, 좀비가 되면 서버가 죽여 줄 때까지 몰랐다.
