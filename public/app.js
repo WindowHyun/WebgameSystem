@@ -1008,10 +1008,16 @@ function renderChat(s) {
   // [요청] 같은 사람이 짧은 간격을 두고 연달아 말하면 아바타·이름을 한 번만 보여준다.
   var prevChatId = null;
   var prevChatAt = 0;
+  // 제안 세 가지(다음 설명 / 자유 대화 / 투표)는 아래 진행 블록이 같은 문장을 버튼과
+  // 함께 다시 그린다. 그래서 진행 블록이 실제로 떠 있는 동안에만 건너뛴다.
+  //   - 진행 블록은 이번 판 참가자에게만 나온다. 관전자는 대화 쪽으로 봐야 한다.
+  //   - 제안이 끝나면 블록이 사라지므로, 무엇을 물었는지는 기록으로 남아야 한다.
+  // 예전에는 투표 제안만, 그것도 조건 없이 지워서 나머지 둘은 두 번 찍히고
+  // 투표 제안은 관전자에게도 기록에도 영영 보이지 않았다.
+  var liveAsk = s.phase === 'proposal' && s.round && s.round.proposal && s.you && s.you.inRound;
+  var ASK_CODES = ['nextRoundAsked', 'freeAsked', 'proposalCalled'];
   s.chat.forEach(function (m) {
-    // 투표 제안은 아래 진행 블록이 같은 내용을 보여준다. 두 번 찍히지 않게 건너뛴다.
-    // (제안의 결말인 "진행합니다 / 부결되었습니다"는 기록으로 남긴다.)
-    if (m.code === 'proposalCalled') return;
+    if (liveAsk && ASK_CODES.indexOf(m.code) >= 0) return;
     var isSystem = m.kind === 'system';
     var grouped = !isSystem && prevChatId === m.id && (m.at - prevChatAt) < GROUP_WINDOW_MS;
     var shell = messageShell({ system: isSystem, name: m.name, at: m.at, grouped: grouped, avatarKey: m.id });

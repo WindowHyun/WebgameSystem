@@ -1,4 +1,4 @@
-.blackjack-page #cards{align-items:center}.blackjack-seat{min-width:156px}.hand{display:flex;justify-content:center;min-height:142px}.hand .card{margin-left:-44px}.hand .card:first-child{margin-left:0}.score{padding:3px 8px;border-radius:10px;background:#e8f5fa;color:#1264a3;font-size:11px;text-shadow:none}.score.bust{background:#fcebeb;color:#a52323}.blackjack-page .card.hidden-card:after{content:"비공개"}.blackjack-page .tie-hand .hidden-card:after{content:"?"}
+.blackjack-page #cards{align-items:center}.blackjack-seat{min-width:156px}.hand{display:flex;justify-content:center;min-height:142px}.hand .card{margin-left:-44px}.hand .card:first-child{margin-left:0}.score{padding:3px 8px;border-radius:10px;background:#e8f5fa;color:#1264a3;font-size:11px;text-shadow:none}.score.bust{background:#fcebeb;color:#a52323}.blackjack-page .card.hidden-card:after{content:"?"}.blackjack-page .tie-hand .hidden-card:after{content:"?"}
 @media(max-width:760px){.blackjack-page #cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 6px;padding:14px 6px}.blackjack-seat{min-width:0;max-width:100%;overflow:hidden}.hand{min-height:100px}.hand .card{margin-left:-34px}.phase-help{grid-column:1/-1;margin:0;text-align:center}.controls#playing .main-actions{grid-column:1/-1}.controls#playing .main-actions button{width:100%}}
 @media(max-width:380px){.hand .card{margin-left:-30px}.blackjack-seat{font-size:10px}.score{font-size:10px}}
 
@@ -11,8 +11,17 @@
   .hand .card:first-child{margin-left:0}
   .hand .card:nth-child(n+5){margin-left:-38px}
   .hand .card:nth-child(n+7){margin-left:-43px}
-  /* 뒷면 글자가 카드보다 넓어 "비공" + "비공개"로 겹쳐 보였다. */
-  .blackjack-page .card.hidden-card:after{content:"?";font-size:15px}
+  .blackjack-page .card.hidden-card:after{font-size:15px}
   /* 두 칸 배치라 세 명이면 2+1로 떨어져 비대칭이었다. 마지막 한 명을 가운데로 편다. */
   .blackjack-page #cards>.blackjack-seat:last-child:nth-child(odd){grid-column:1/-1}
+}
+
+/* [넓은 화면] 손패가 겹치면서 뒤 카드의 글자를 가리던 것.
+   카드 폭이 102px인데 겹침이 -44px이라 오른쪽 44px이 다음 카드에 덮였다. 카드 글자는
+   가운데 정렬이어서 덮인 자리에 걸쳤고, 뒷면 "비공개"는 "비공"까지만 남아 옆 카드의
+   글자와 이어져 보였다(앞면도 "7♦"의 무늬가 잘렸다). 뒷면 글자는 짧게 바꾸고,
+   가려진 카드의 글자는 덮이지 않는 왼쪽으로 붙인다. 맨 오른쪽 카드는 온전히 보이므로
+   원래대로 가운데 둔다. 좁은 화면은 카드와 겹침이 따로 잡혀 있어 건드리지 않는다. */
+@media(min-width:761px){
+  .hand .card:not(:last-child){justify-items:start;padding-left:15px}
 }

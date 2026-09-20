@@ -196,8 +196,13 @@ async function main() {
   await finishOneRound(pages);
   // [규칙 변경] 한 바퀴가 끝나면 2차를 할지 먼저 묻는다.
   await Promise.all(pages.map((p) => p.page.waitForSelector('#live-block .chip', { timeout: 5000 })));
+  // 묻는 문장은 찬반 버튼이 달린 진행 블록에만 남는다. 예전에는 기록 쪽에도
+  // 같은 문장이 찍혀 한 화면에 똑같은 물음이 두 번 보였다.
   check('X3 [요청] 한 바퀴가 끝나면 다음 설명을 할지 묻는다',
-    (await p1.page.textContent('#chat-messages')).includes('2차 설명을 할까요?'));
+    (await p1.page.textContent('#live-block')).includes('2차 설명을 할까요?'));
+  check('X3 [요청] 같은 물음이 화면에 두 번 나오지 않는다',
+    (await p1.page.textContent('#chat')).split('2차 설명을 할까요?').length - 1 === 1,
+    (await p1.page.textContent('#chat')).split('2차 설명을 할까요?').length - 1 + '번');
   check('X3 정하는 동안에는 대화가 잠긴다', await p1.page.isDisabled('#chat-input'));
   await agreeOnAsk(pages);
 
