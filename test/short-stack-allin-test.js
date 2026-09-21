@@ -121,6 +121,132 @@ function testBlackjack() {
   console.log('블랙잭 올인: 상대가 올인해도 올인할 수 있고, 칩 총액이 보존된다 통과');
 }
 
+/**
+ * 한쪽 칩만 적은 상황을, 게임이 실제로 허용하는 방법으로 만든다.
+ * 둘 다 올인해 한 판을 끝내면 진 쪽이 0원이 되고, 0원이 된 사람에게는 기부가
+ * 열린다(기부는 기본 배팅금보다 적게 가진 사람에게만 된다).
+ */
+function makeShortStack(room, ids, target) {
+  const view = () => room.stateFor(ids[0]);
+  for (let tries = 0; tries < 12; tries += 1) {
+    if (view().phase !== 'betting') {
+      for (const id of ids) room.setReady(id, true);
+      assert.equal(room.begin(ids[0]), null, '판을 시작할 수 없습니다.');
+    }
+    // 비기면 재대결이 붙으므로 결과가 날 때까지 반복한다.
+    for (let step = 0; step < 8 && view().phase === 'betting'; step += 1) {
+      room.allin(view().turnPlayerId);
+    }
+    const broke = view().players.find((p) => p.chips === 0);
+    if (!broke) continue;
+    const rich = view().players.find((p) => p.chips > 0);
+    assert.equal(room.donate(rich.id, broke.id, target), null, '기부가 거절되었습니다.');
+    return { shortId: broke.id, bigId: rich.id };
+  }
+  throw new Error('숏스택을 만들지 못했습니다.');
+}
+
+/**
+ * [신고] 상대보다 칩이 많을 때 올인하면 상대가 받을 수 있는 만큼만 걸려야 한다.
+ *
+ * 예전에는 보유한 칩 전부가 팟에 올라갔다. 사이드 팟이 없으니 그 돈은 상대가
+ * 자기 몫으로 올인하는 순간 환불로 그대로 되돌아왔지만, 그사이 화면에는 아무도
+ * 받을 수 없는 액수가 판돈으로 찍혀 있었다 - 200만원을 걸었다가 3천원으로
+ * 조용히 내려앉는 셈이다. 되돌려 주느니 처음부터 걸지 않는다.
+ */
+function testDoesNotOverCommit() {
+  const room = createPokerRoom({ onChange() {}, actionTimeoutMs: 0, proposalTimeoutMs: 0 });
+  const seats = seat(room, ['큰손', '숏스택']);
+  const ids = seats.map((x) => x.playerId);
+  assert.equal(room.begin(ids[0]), null);
+  const view = () => room.stateFor(ids[0]);
+  const startTotal = totalChips(view());
+
+  const { shortId, bigId } = makeShortStack(room, ids, 3000);
+  for (const id of ids) room.setReady(id, true);
+  assert.equal(room.begin(ids[0]), null);
+  const byId = (id) => view().players.find((p) => p.id === id);
+  assert.equal(byId(shortId).chips + byId(shortId).roundBet, 3000);
+
+  // 큰손 차례로 맞춘다. 숏스택이 먼저면 한 번 콜해서 넘긴다.
+  if (view().turnPlayerId === shortId) assert.equal(room.call(shortId), null);
+  assert.equal(view().turnPlayerId, bigId);
+
+  const shortTotal = byId(shortId).roundBet + byId(shortId).chips;
+  assert.equal(room.allin(bigId), null, '올인이 거절되었습니다.');
+  const shoved = byId(bigId);
+  assert.ok(shoved.roundBet <= shortTotal,
+    `상대는 ${shortTotal}원뿐인데 ${shoved.roundBet}원이 걸렸습니다.`);
+  assert.ok(shoved.chips > 0, '못 받을 몫은 큰손에게 남아 있어야 합니다.');
+  assert.ok(!shoved.isAllIn, '칩이 남았으면 올인으로 표시하면 안 됩니다.');
+  assert.equal(totalChips(view()), startTotal, '올인 직후에도 총액은 그대로여야 합니다.');
+
+  // 숏스택은 받을 수 있어야 한다 - 폴드 말고.
+  const need = view().currentBet - byId(shortId).roundBet;
+  const answer = byId(shortId).chips >= need ? room.call(shortId) : room.allin(shortId);
+  assert.equal(answer, null, `숏스택이 받을 수 있어야 합니다. (받은 값: ${answer})`);
+  assert.equal(totalChips(view()), startTotal, '끝난 뒤에도 총액은 그대로여야 합니다.');
+  room.dispose();
+  console.log('포커 올인: 상대가 받을 수 있는 만큼만 걸리고, 못 받을 몫은 손에 남는다 통과');
+}
+
+/** 세 명이면 상한은 "나 말고 가장 많이 가진 사람"이 낼 수 있는 전부다. */
+function testThreeHandedCap() {
+  const room = createPokerRoom({ onChange() {}, actionTimeoutMs: 0, proposalTimeoutMs: 0 });
+  const seats = seat(room, ['A', 'B', 'C']);
+  const ids = seats.map((x) => x.playerId);
+  assert.equal(room.begin(ids[0]), null);
+  const view = () => room.stateFor(ids[0]);
+  const startTotal = totalChips(view());
+
+  // 한 명을 3000원으로 줄인다. 나머지 둘은 그대로다.
+  const first = view().turnPlayerId;
+  assert.equal(room.raise(first, 50000), null);
+  const thin = view().turnPlayerId;
+  assert.equal(room.allin(thin), null);
+
+  // 상한이 내려갔어도, 아직 칩이 넉넉한 사람은 그 금액을 받을 수 있어야 한다.
+  const third = view().turnPlayerId;
+  const need = view().currentBet - view().players.find((p) => p.id === third).roundBet;
+  const rich = view().players.find((p) => p.id === third).chips >= need;
+  const answer = rich ? room.call(third) : room.allin(third);
+  assert.equal(answer, null, `세 번째 사람이 받을 수 있어야 합니다. (받은 값: ${answer})`);
+  assert.equal(totalChips(view()), startTotal, '총액은 그대로여야 합니다.');
+  room.dispose();
+  console.log('포커 올인: 세 명일 때도 상한과 환불이 맞물려 총액이 보존된다 통과');
+}
+
+/** 블랙잭도 같은 규칙이다. 배팅 단계는 카드 선택을 넘긴 뒤에 온다. */
+function testBlackjackCap() {
+  const room = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0, proposalTimeoutMs: 0 });
+  const seats = seat(room, ['큰손', '숏스택']);
+  const ids = seats.map((x) => x.playerId);
+  assert.equal(room.begin(ids[0]), null);
+  const view = () => room.stateFor(ids[0]);
+  const startTotal = totalChips(view());
+
+  for (let guard = 0; view().phase === 'playing' && guard < 20; guard += 1) {
+    assert.equal(room.stand(view().turnPlayerId), null);
+  }
+  assert.equal(view().phase, 'betting');
+
+  const firstId = view().turnPlayerId;
+  assert.equal(room.allin(firstId), null);
+  const shoved = view().players.find((p) => p.id === firstId);
+  const rivals = view().players.filter((p) => p.id !== firstId);
+  const reachable = Math.max(...rivals.map((p) => p.roundBet + p.chips));
+  assert.ok(shoved.roundBet <= reachable,
+    `상대가 낼 수 있는 건 ${reachable}원인데 ${shoved.roundBet}원이 걸렸습니다.`);
+  const second = room.allin(rivals[0].id);
+  assert.equal(second, null, `상대도 올인할 수 있어야 합니다. (받은 값: ${second})`);
+  assert.equal(totalChips(view()), startTotal, '총액은 그대로여야 합니다.');
+  room.dispose();
+  console.log('블랙잭 올인: 상한이 상대 보유액에 맞춰지고 총액이 보존된다 통과');
+}
+
 testPoker();
 testCapDropsToSmaller();
 testBlackjack();
+testDoesNotOverCommit();
+testThreeHandedCap();
+testBlackjackCap();

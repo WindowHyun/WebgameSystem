@@ -181,8 +181,12 @@ async function speaker(ps) { for (const p of ps) if (await p.page.locator('#comp
   // [요청] 한 바퀴가 끝나면 다음 바퀴를 돌지 다 같이 O/X로 정한다.
   log('\n━━━━━━━━━━ 2차 설명을 할까요? ━━━━━━━━━━');
   await Promise.all(players.map((p) => p.page.waitForSelector('#live-block .chip', { timeout: 8000 })));
+  // 묻는 문장은 찬반 버튼이 달린 진행 블록에만 남는다. 기록에도 같이 찍으면
+  // 한 화면에 똑같은 물음이 두 번 보인다.
   check('1차가 끝나면 2차를 할지 묻는다',
-    (await p1.page.textContent('#chat-messages')).includes('2차 설명을 할까요?'));
+    (await p1.page.textContent('#live-block')).includes('2차 설명을 할까요?'));
+  check('같은 물음이 화면에 두 번 나오지 않는다',
+    (await p1.page.textContent('#chat')).split('2차 설명을 할까요?').length - 1 === 1);
   await agreeAll(players);
 
   await p1.page.waitForFunction(
@@ -194,7 +198,9 @@ async function speaker(ps) { for (const p of ps) if (await p.page.locator('#comp
   log('\n━━━━━━━━━━ 자유 대화를 할까요? ━━━━━━━━━━');
   await Promise.all(players.map((p) => p.page.waitForSelector('#live-block .chip', { timeout: 8000 })));
   check('설명이 끝나면 자유 대화 O/X를 묻는다',
-    (await p1.page.textContent('#chat-messages')).includes('자유 대화를 할까요?'));
+    (await p1.page.textContent('#live-block')).includes('자유 대화를 할까요?'));
+  check('자유 대화 물음도 화면에 한 번만 나온다',
+    (await p1.page.textContent('#chat')).split('자유 대화를 할까요?').length - 1 === 1);
   check('O/X를 정하는 동안에는 대화가 잠긴다', await p1.page.isDisabled('#chat-input'));
   if (OUT) await p1.page.screenshot({ path: `${OUT}/03-free-ask.png` });
 

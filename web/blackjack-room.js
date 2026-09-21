@@ -383,9 +383,12 @@ function createBlackjackRoom(options) {
     const player = currentBetPlayer();
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     if (player.chips <= 0) return '올인할 칩이 없습니다.';
-    const cap = player.roundBet + player.chips;
-    pay(player, player.chips);
-    player.isAllIn = true;
+    // 상대가 받을 수 없는 몫은 걸지 않는다. 이유는 poker-room.js의 같은 자리 주석 참고.
+    const rivals = bettingPlayers().filter((other) => other.id !== playerId);
+    const reachable = rivals.length
+      ? Math.max(...rivals.map((other) => other.roundBet + other.chips)) : Infinity;
+    const cap = Math.max(player.roundBet, Math.min(player.roundBet + player.chips, reachable));
+    pay(player, cap - player.roundBet);
     allInCap = allInCap === null ? cap : Math.min(allInCap, cap);
     currentBet = allInCap;
     for (const other of bettingPlayers()) {
@@ -393,8 +396,12 @@ function createBlackjackRoom(options) {
       const refund = other.roundBet - allInCap;
       other.roundBet -= refund; other.chips += refund; pot -= refund;
     }
+    // 환불까지 끝난 뒤에야 정말 다 걸었는지가 정해진다.
+    player.isAllIn = player.chips === 0;
     acted.add(playerId);
-    note(`${player.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`);
+    note(player.isAllIn
+      ? `${player.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`
+      : `${player.nickname}님이 상대가 받을 수 있는 최대인 ${allInCap.toLocaleString()}원을 걸었습니다.`);
     // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다(call()과 같은 판정).
     if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;

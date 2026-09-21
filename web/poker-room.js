@@ -351,14 +351,28 @@ function createPokerRoom(options) {
    * 금액이 이 판의 상한이 되고, 그보다 많이 낸 사람에게는 넘치는 몫을 돌려준다.
    * 아무도 맞출 수 없는 돈이 팟에 남지 않으니 모두가 끝까지 겨룰 수 있다.
    * (폴드한 사람이 이미 낸 칩은 그대로 팟에 남는다 - 포기한 돈이다)
+   *
+   * 반대쪽도 같은 이유로 막는다: 내가 더 많이 가졌다면 상대가 받을 수 있는 만큼만
+   * 걸린다. 아래 본문 주석 참고.
    */
   function allin(pid) {
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
     const p = current();
     if (p.chips <= 0) return '올인할 칩이 없습니다.';
-    const cap = p.roundBet + p.chips;
-    pay(p, p.chips);
-    p.isAllIn = true;
+    // [규칙] 상대가 받을 수 없는 몫은 애초에 걸지 않는다.
+    //
+    // 사이드 팟이 없으므로 아무도 맞출 수 없는 돈은 팟에 올라가 봐야 아래 환불로
+    // 그대로 되돌아온다. 되돌려 주느니 처음부터 안 거는 편이 낫다 - 200만원을 걸었다가
+    // 3천원으로 조용히 내려앉는 대신, 화면에 찍히는 숫자가 곧 진짜 판돈이 된다.
+    //
+    // 이 판에서 실제로 겨룰 수 있는 최대는 "나 말고 가장 많이 가진 사람"이 낼 수 있는
+    // 전부다. 그보다 적게 가진 사람은 어차피 자기 몫으로 올인해 상한을 더 끌어내린다.
+    const rivals = active().filter((x) => x.id !== pid);
+    const reachable = rivals.length
+      ? Math.max(...rivals.map((x) => x.roundBet + x.chips)) : Infinity;
+    // 이미 낸 것보다 적게 되돌릴 수는 없다(레이즈로 앞서 더 냈을 수 있다).
+    const cap = Math.max(p.roundBet, Math.min(p.roundBet + p.chips, reachable));
+    pay(p, cap - p.roundBet);
     allInCap = allInCap === null ? cap : Math.min(allInCap, cap);
     currentBet = allInCap;
     for (const x of active()) {
@@ -366,8 +380,13 @@ function createPokerRoom(options) {
       const refund = x.roundBet - allInCap;
       x.roundBet -= refund; x.roundContribution -= refund; x.chips += refund; pot -= refund;
     }
+    // 환불까지 끝난 뒤에야 "정말 다 걸었는지"가 정해진다. 상한에 막혀 칩이 남았다면
+    // 올인이 아니다 - 남은 칩을 들고 있는 사람을 올인으로 표시하면 화면이 거짓말을 한다.
+    p.isAllIn = p.chips === 0;
     acted.add(pid);
-    note(`${p.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`);
+    note(p.isAllIn
+      ? `${p.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`
+      : `${p.nickname}님이 상대가 받을 수 있는 최대인 ${allInCap.toLocaleString()}원을 걸었습니다.`);
     // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다. 이 판정이 없으면
     // 전원이 올인한 뒤에도 차례가 계속 돌아, 더 낼 것도 없는 사람이 제한시간에 걸린다.
     if (active().every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
