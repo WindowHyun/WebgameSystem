@@ -284,7 +284,11 @@
     $('start').disabled = !state.canStart;
     $('set-bet').disabled = !!state.baseBetProposal;
     $('betting').querySelectorAll('button').forEach(function (button) { button.disabled = !myTurn; });
-    $('allin').disabled = !myTurn || state.allInCap !== null;
+    // 상한이 고정된 뒤에도 올인은 열어 둔다. 콜은 칩이 모자라면 서버가 거절하고
+    // 레이즈는 아래에서 막히므로, 올인까지 잠그면 칩이 적은 사람에게 남는 선택지가
+    // 폴드뿐이 된다 - 자기 칩을 다 걸고 겨뤄 볼 기회조차 없었다. 서버는 진작부터
+    // 이 올인을 받아 주고 있었고, 막고 있던 건 이 한 줄이었다.
+    $('allin').disabled = !myTurn || you.chips <= 0;
     $('raise').disabled = !myTurn || state.allInCap !== null;
     $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
     syncRaiseFloor(state.minRaise);

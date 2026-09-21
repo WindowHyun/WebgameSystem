@@ -214,7 +214,8 @@
     $('ready').textContent = you.ready ? '준비 취소' : '준비'; $('start').disabled = !state.canStart; $('set-bet').disabled = !!state.baseBetProposal;
     $('hit').disabled = !myTurn; $('stand').disabled = !myTurn;
     $('betting').querySelectorAll('button').forEach(function (button) { button.disabled = !myTurn; });
-    $('allin').disabled = !myTurn || state.allInCap !== null; $('raise').disabled = !myTurn || state.allInCap !== null;
+    // 상한이 고정된 뒤에도 올인은 열어 둔다(public/poker.js의 같은 자리 주석 참고).
+    $('allin').disabled = !myTurn || you.chips <= 0; $('raise').disabled = !myTurn || state.allInCap !== null;
     $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
     syncRaiseFloor(state.minRaise);
     // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다(public/poker.js와 동일).
