@@ -48,6 +48,7 @@ async function runGame(browser, port, game) {
   for (const page of pages) { await page.click('#ready'); await wait(150); }
   await wait(300);
   await pages[0].click('#start');
+  await pages[0].click('#start-go'); // 시작 확인 창
 
   // 블랙잭은 카드 선택을 먼저 끝내야 배팅 단계로 간다.
   if (game === 'blackjack') {

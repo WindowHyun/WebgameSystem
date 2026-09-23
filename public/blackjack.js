@@ -196,6 +196,30 @@
     };
   }
   function cardLabel(card) { if (card.hidden) return ''; var labels = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }; return (labels[card.rank] || card.rank) + card.suit; }
+  /**
+   * [요청] 게임 시작을 누르면 바로 시작하지 않고, 누가 준비를 안 했는지 먼저 보여 준다.
+   * 예전에는 누르는 즉시 준비한 사람끼리 판이 시작되어, 준비를 깜빡한 사람이 모른 채
+   * 빠졌다. 창이 열려 있는 동안 준비 상태가 바뀌면 목록도 따라 바뀌고, 그사이 다른
+   * 사람이 먼저 시작했거나 시작할 수 없게 되면 창을 닫는다.
+   */
+  var startConfirmOpen = false;
+  function renderStartConfirm() {
+    var lobby = state.phase === 'lobby' || state.phase === 'result';
+    if (startConfirmOpen && (!lobby || !state.canStart)) startConfirmOpen = false;
+    $('start-confirm').classList.toggle('hidden', !startConfirmOpen);
+    if (!startConfirmOpen) return;
+    // 서버와 같은 기준: 준비했고 칩이 있어야 이번 판에 들어간다.
+    var joining = state.players.filter(function (p) { return p.ready && p.chips > 0; });
+    var left = state.players.filter(function (p) { return !(p.ready && p.chips > 0); });
+    var names = function (list) { return list.map(function (p) { return p.nickname + (p.ready && p.chips <= 0 ? '(칩 없음)' : ''); }).join(', '); };
+    $('start-confirm-title').textContent = '준비한 ' + joining.length + '명으로 시작할까요?';
+    $('start-confirm-ready').textContent = '준비: ' + names(joining);
+    $('start-confirm-waiting').textContent = left.length
+      ? '준비 안 함: ' + names(left) + ' · 이번 판에서 빠집니다.'
+      : '모두 준비했습니다.';
+  }
+  function closeStartConfirm() { startConfirmOpen = false; renderStartConfirm(); }
+
   function renderProposal() {
     var proposal = state.baseBetProposal;
     $('proposal').classList.toggle('hidden', !proposal || proposal.yourVote);
@@ -233,7 +257,7 @@
     if (!lobby && !state.you.inRound) message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.';
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
     $('message').textContent = message;
-    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; if (player.connected === false) status = '끊김'; /* 두 단어면 폰에서 금액 줄이 잘린다(public/poker.js 참고) */ var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
+    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = lobby ? (player.ready ? '준비' : '대기') /* 대기 중에는 지난 판의 스탠드·폴드가 아니라 준비 여부 */ : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; if (player.connected === false) status = '끊김'; /* 두 단어면 폰에서 금액 줄이 잘린다(public/poker.js 참고) */ var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
     $('cards').innerHTML = state.players.filter(function (player) { return player.cards.length; }).map(function (player) {
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
@@ -244,13 +268,17 @@
     function openDonation(element, event) { event.preventDefault(); event.stopPropagation(); if (state.phase !== 'lobby' && state.phase !== 'result') { showError('기부는 대기 중에만 할 수 있습니다.'); return; } if (element.dataset.id === state.you.id) return; donationTarget = element.dataset.id; var target = state.players.find(function (p) { return p.id === donationTarget; }); var rect = element.getBoundingClientRect(); $('donate-name').textContent = target.nickname + '님에게'; $('donate').style.left = Math.min(event.clientX || rect.right, innerWidth - 190) + 'px'; $('donate').style.top = Math.min(event.clientY || rect.bottom, innerHeight - 150) + 'px'; $('donate').classList.remove('hidden'); }
     document.querySelectorAll('.player').forEach(function (element) { element.oncontextmenu = function (event) { openDonation(element, event); }; element.onclick = function (event) { openDonation(element, event); }; element.onkeydown = function (event) { if (event.key === 'Enter' || event.key === ' ') openDonation(element, event); }; });
     renderProposal();
+    renderStartConfirm();
   }
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
   $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { saveToken(null); location.href = '/'; } };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };
-  $('start').onclick = function () { send('start'); }; $('hit').onclick = function () { send('hit'); }; $('stand').onclick = function () { send('stand'); };
+  $('start').onclick = function () { startConfirmOpen = true; renderStartConfirm(); };
+  $('start-cancel').onclick = closeStartConfirm;
+  $('start-go').onclick = function () { closeStartConfirm(); send('start'); };
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && startConfirmOpen) closeStartConfirm(); }); $('hit').onclick = function () { send('hit'); }; $('stand').onclick = function () { send('stand'); };
   $('call').onclick = function () { send('call'); }; $('raise').onclick = function () { send('raise', { amount: Number($('raise-amount').value) }); }; $('allin').onclick = function () { send('allin'); }; $('fold').onclick = function () { send('fold'); };
   $('donate-send').onclick = function () { send('donate', { targetId: donationTarget, amount: Number($('donate-amount').value) }); $('donate').classList.add('hidden'); };
   document.querySelectorAll('button[data-help]').forEach(function (button) { function showHelp() { $('action-help').textContent = button.dataset.help; } button.addEventListener('mouseenter', showHelp); button.addEventListener('focus', showHelp); button.addEventListener('touchstart', showHelp, { passive: true }); });

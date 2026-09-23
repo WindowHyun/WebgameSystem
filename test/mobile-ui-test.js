@@ -162,6 +162,7 @@ async function runGame(browser, phone, descriptor, game) {
       await wait(400);
       shots.push(await inspect(me, phone, game, '2-준비완료-3명'));
       await me.tap('#start');
+      await me.tap('#start-go'); // 시작 확인 창
       await wait(900);
       shots.push(await inspect(me, phone, game, '3-라운드중-3명'));
       if (game === 'blackjack') {

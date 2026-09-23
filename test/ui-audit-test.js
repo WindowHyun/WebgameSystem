@@ -199,6 +199,7 @@ async function run(browser, label, contextOptions, port) {
         for (const p of pages) { await p.click('#ready'); await wait(150); }
         await wait(300);
         await me.click('#start');
+        await me.click('#start-go'); // 시작 확인 창
         await wait(900);
         await inspect(me, label, `${game}-2-진행중`);
       }
