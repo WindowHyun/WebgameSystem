@@ -17,6 +17,9 @@
  * [요청] 한 명이 가리면 접속한 모든 사람의 화면도 같이 가린다. 내가 우클릭으로 가리면
  * 'boss-cover' 이벤트를 쏘고, 각 페이지가 자기 연결로 서버에 알린다. 서버가 {type:'cover'}를
  * 보내오면 페이지가 window.bossCover.show()를 부른다. 돌아오는 것은 각자 한다.
+ *
+ * [요청] 가려진 동안은 제한시간도 멈춘다. 가리거나 돌아올 때마다(남이 가린 경우도)
+ * 'boss-cover-state' 이벤트를 쏘고, 각 페이지가 서버에 {type:'coverState'}로 알린다.
  */
 (function () {
   'use strict';
@@ -38,6 +41,12 @@
     var index;
     do { index = Math.floor(Math.random() * COVERS.length); } while (index === lastIndex);
     return index;
+  }
+
+  // 내 화면이 가려졌는지/돌아왔는지 페이지에 알린다. 페이지가 자기 연결로 서버에 전하고,
+  // 서버는 가려진 동안 나를 기다리는 제한시간을 멈춘다(web/cover-pause.js).
+  function announce(covered) {
+    try { document.dispatchEvent(new CustomEvent('boss-cover-state', { detail: { covered: covered } })); } catch (error) { /* 알리지 못해도 화면은 그대로 */ }
   }
 
   function show() {
@@ -71,6 +80,7 @@
     document.documentElement.style.overflow = 'hidden';
     // 입력창에 커서가 있으면 치던 글자가 게임으로 들어가지 않게 뺀다.
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    announce(true);
   }
 
   function hide() {
@@ -79,6 +89,7 @@
     overlay = null;
     document.title = savedTitle;
     document.documentElement.style.overflow = savedOverflow;
+    announce(false);
   }
 
   document.addEventListener('pointerdown', function (event) { lastPointer = event.pointerType || 'mouse'; }, true);

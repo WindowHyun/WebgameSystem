@@ -2,13 +2,14 @@
 
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
+const { createCoverPause } = require('./cover-pause');
 
 const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 5;
 
 function createPokerRoom(options) {
-  const changed = options.onChange || (() => {});
+  const notify = options.onChange || (() => {});
   // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[포커] 닉네임 > 행동"으로 남긴다.
   // 배팅 중에는 카드를 넘기지 않는다(판이 끝나 모두에게 공개된 뒤에만). 로그를 보는
   // 사람이 게임에 끼면 남의 카드를 미리 알게 된다. 기록하다 실패해도 게임은 계속된다.
@@ -37,7 +38,6 @@ function createPokerRoom(options) {
   let acted = new Set();
   let result = null;
   let baseBetProposal = null;
-  let actionTimer = null;
   let proposalTimer = null;
   const dropTimers = new Map();
   // 자리를 잃은 사람의 칩을 토큰에 묶어 둔다. 이게 없으면 나갔다 다시 들어오는 것만으로
@@ -59,7 +59,22 @@ function createPokerRoom(options) {
   const safeTimeout = (fn, ms) => setTimeout(() => {
     try { fn(); } catch (err) { logError(`[포커 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
   }, ms);
-  const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
+  const nameOf = (pid) => (players.find((p) => p.id === pid) || {}).nickname || '(나간 참가자)';
+  // [보스 키] 차례인 사람이 화면을 가리고 있으면 그 사람의 제한시간을 멈춘다(web/cover-pause.js).
+  const pause = createCoverPause({
+    setTimer: safeTimeout, clearTimer: clearTimeout, unref: true, maxPauseMs: options.maxCoverPauseMs,
+    isWaitingOn: (pid) => phase === 'betting' && !!current() && current().id === pid,
+    onExpire: () => changed(),
+  });
+  const actionClock = pause.timer;
+  /** 상태를 알리기 직전마다 멈춤 여부를 맞춘다. 차례가 넘어가는 것도 여기서 반영된다. */
+  function changed() {
+    const turned = pause.sync();
+    if (turned && turned.paused) act(turned.paused.map(nameOf).join(', '), '화면 가림 - 제한시간 멈춤');
+    else if (turned) act('진행', `제한시간 다시 흐름 (${Math.round(turned.resumedAfterMs / 1000)}초 멈춤${turned.expired ? ', 멈출 수 있는 최대 시간 초과' : ''})`);
+    notify();
+  }
+  const clearActionTimer = () => actionClock.clear();
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
   const cancelDrop = (pid) => { const timer = dropTimers.get(pid); if (timer) clearTimeout(timer); dropTimers.delete(pid); };
   function scheduleDrop(pid) {
@@ -138,13 +153,12 @@ function createPokerRoom(options) {
     if (phase !== 'betting' || actionTimeoutMs <= 0) return;
     const player = current();
     if (!player) return;
-    actionTimer = safeTimeout(() => fold(player.id, true), actionTimeoutMs);
-    if (actionTimer.unref) actionTimer.unref();
+    actionClock.start(() => fold(player.id, true), actionTimeoutMs);
   }
 
   function resetEmptyRoom() {
     if (players.some((p) => p.connected)) return false;
-    clearActionTimer(); clearProposalTimer();
+    clearActionTimer(); clearProposalTimer(); pause.reset();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
@@ -181,6 +195,8 @@ function createPokerRoom(options) {
     const restored = players.find((p) => p.token === oldToken);
     if (restored) {
       cancelDrop(restored.id);
+      // 새로 열린 화면이 가려져 있는지는 그 화면이 다시 알려 준다. 이전 화면의 상태는 버린다.
+      pause.forget(restored.id);
       restored.connected = true;
       restored.nickname = uniqueNickname(clean, restored.id);
       act(restored.nickname, '재접속');
@@ -204,6 +220,7 @@ function createPokerRoom(options) {
     const p = players.find((x) => x.id === pid);
     if (!p) return;
     p.connected = false;
+    pause.forget(pid);
     act(p.nickname, '연결 끊김');
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
     // 올인한 사람은 끊겨도 폴드하지 않는다. 더 낼 것도 정할 것도 없으니 기다리게 할
@@ -226,6 +243,7 @@ function createPokerRoom(options) {
     const index = players.findIndex((p) => p.id === pid);
     if (index < 0) return;
     cancelDrop(pid);
+    pause.forget(pid);
     act(players[index].nickname, `나감 (칩 ${money(players[index].chips)} 보관)`);
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
     const previousTurnId = phase === 'betting' && current() ? current().id : null;
@@ -239,6 +257,13 @@ function createPokerRoom(options) {
     if (hostId === pid) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'betting') continueAfterDeparture(previousTurnId, pid);
     resetEmptyRoom();
+    changed();
+  }
+
+  /** [보스 키] 이 사람의 화면이 가려졌는지/돌아왔는지. 화면이 알려 준다(public/cover.js). */
+  function setCovered(pid, covered) {
+    if (!players.some((p) => p.id === pid)) return;
+    pause.set(pid, covered === true);
     changed();
   }
 
@@ -567,6 +592,8 @@ function createPokerRoom(options) {
     const viewerInRound = !!me && dealtIn.includes(pid);
     return {
       type: 'pokerState', phase, baseBet, pot, currentBet, minRaise, allInCap, hostId, turnPlayerId: current() && current().id,
+      // 차례인 사람이 화면을 가려 제한시간이 멈춰 있는가(web/cover-pause.js)
+      paused: pause.pausedAt() !== null,
       result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: dealtIn.includes(me.id) } : null,
       baseBetProposal: baseBetProposal ? {
         id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount,
@@ -598,11 +625,12 @@ function createPokerRoom(options) {
   function dispose() {
     clearActionTimer();
     clearProposalTimer();
+    pause.dispose();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
   }
 
-  return { join, disconnect, leave, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  return { join, disconnect, leave, setCovered, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createPokerRoom, INITIAL_CHIPS };

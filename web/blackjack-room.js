@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
+const { createCoverPause } = require('./cover-pause');
 
 const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
@@ -23,7 +24,7 @@ function scoreHand(hand) {
 }
 
 function createBlackjackRoom(options) {
-  const changed = options.onChange || (() => {});
+  const notify = options.onChange || (() => {});
   // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[블랙잭] 닉네임 > 행동"으로 남긴다.
   // 운영자가 판을 되짚을 수 있도록 받은 카드와 그때의 점수까지 남긴다(운영 결정).
   // 그래서 게임 도중 이 로그를 보는 사람은 남의 패를 알 수 있다 - 로그는 운영자만 본다.
@@ -49,7 +50,6 @@ function createBlackjackRoom(options) {
   let allInCap = null;
   let acted = new Set();
   let result = null;
-  let actionTimer = null;
   let proposalTimer = null;
   const dropTimers = new Map();
   // 포커 방과 같은 이유로 나간 사람의 칩을 토큰에 묶어 둔다(web/poker-room.js의 chipBank 참고).
@@ -70,7 +70,26 @@ function createBlackjackRoom(options) {
   const safeTimeout = (fn, ms) => setTimeout(() => {
     try { fn(); } catch (err) { logError(`[블랙잭 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
   }, ms);
-  const clearActionTimer = () => { if (actionTimer) clearTimeout(actionTimer); actionTimer = null; };
+  const nameOf = (id) => (players.find((p) => p.id === id) || {}).nickname || '(나간 참가자)';
+  // [보스 키] 차례인 사람이 화면을 가리고 있으면 그 사람의 제한시간을 멈춘다(web/cover-pause.js).
+  // 카드 선택(playing)과 배팅(betting) 모두 차례가 있다.
+  const pause = createCoverPause({
+    setTimer: safeTimeout, clearTimer: clearTimeout, unref: true, maxPauseMs: options.maxCoverPauseMs,
+    isWaitingOn: (id) => {
+      const turn = phase === 'playing' ? currentPlayingPlayer() : phase === 'betting' ? currentBetPlayer() : null;
+      return !!turn && turn.id === id;
+    },
+    onExpire: () => changed(),
+  });
+  const actionClock = pause.timer;
+  /** 상태를 알리기 직전마다 멈춤 여부를 맞춘다(web/poker-room.js의 changed 참고). */
+  function changed() {
+    const turned = pause.sync();
+    if (turned && turned.paused) act(turned.paused.map(nameOf).join(', '), '화면 가림 - 제한시간 멈춤');
+    else if (turned) act('진행', `제한시간 다시 흐름 (${Math.round(turned.resumedAfterMs / 1000)}초 멈춤${turned.expired ? ', 멈출 수 있는 최대 시간 초과' : ''})`);
+    notify();
+  }
+  const clearActionTimer = () => actionClock.clear();
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
   const cancelDrop = (playerId) => { const timer = dropTimers.get(playerId); if (timer) clearTimeout(timer); dropTimers.delete(playerId); };
   function scheduleDrop(playerId) {
@@ -157,12 +176,11 @@ function createBlackjackRoom(options) {
     if (actionTimeoutMs <= 0) return;
     if (phase === 'playing') {
       const player = currentPlayingPlayer();
-      if (player) actionTimer = safeTimeout(() => stand(player.id, true), actionTimeoutMs);
+      if (player) actionClock.start(() => stand(player.id, true), actionTimeoutMs);
     } else if (phase === 'betting') {
       const player = currentBetPlayer();
-      if (player) actionTimer = safeTimeout(() => fold(player.id, true), actionTimeoutMs);
+      if (player) actionClock.start(() => fold(player.id, true), actionTimeoutMs);
     }
-    if (actionTimer && actionTimer.unref) actionTimer.unref();
   }
 
   function freshDeck() {
@@ -186,7 +204,7 @@ function createBlackjackRoom(options) {
 
   function resetIfEmpty() {
     if (players.some((p) => p.connected)) return;
-    clearActionTimer(); clearProposalTimer();
+    clearActionTimer(); clearProposalTimer(); pause.reset();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
@@ -202,6 +220,8 @@ function createBlackjackRoom(options) {
     const restored = players.find((p) => p.token === oldToken);
     if (restored) {
       cancelDrop(restored.id);
+      // 새로 열린 화면이 가려져 있는지는 그 화면이 다시 알려 준다. 이전 화면의 상태는 버린다.
+      pause.forget(restored.id);
       restored.connected = true; restored.nickname = uniqueNickname(clean, restored.id); act(restored.nickname, '재접속'); changed();
       return { playerId: restored.id, token: restored.token, restored: true };
     }
@@ -231,6 +251,7 @@ function createBlackjackRoom(options) {
     if (!player) return;
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false;
+    pause.forget(playerId);
     act(player.nickname, '연결 끊김');
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
     // 올인한 사람은 끊겨도 폴드하지 않는다. 더 정할 것이 없고, 폴드시키면 잠깐 끊긴
@@ -251,6 +272,7 @@ function createBlackjackRoom(options) {
     const player = players.find((p) => p.id === playerId);
     if (!player) return;
     cancelDrop(playerId);
+    pause.forget(playerId);
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     act(player.nickname, `나감 (칩 ${money(player.chips)} 보관)`);
     forceFold(player); player.connected = false;
@@ -261,6 +283,13 @@ function createBlackjackRoom(options) {
     if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
     else if (phase === 'betting') continueAfterDeparture(previousTurnId, playerId);
     resetIfEmpty(); changed();
+  }
+
+  /** [보스 키] 이 사람의 화면이 가려졌는지/돌아왔는지. 화면이 알려 준다(public/cover.js). */
+  function setCovered(playerId, covered) {
+    if (!players.some((p) => p.id === playerId)) return;
+    pause.set(playerId, covered === true);
+    changed();
   }
 
   function setReady(playerId, ready) {
@@ -564,6 +593,8 @@ function createBlackjackRoom(options) {
     return {
       type: 'blackjackState', phase, hostId, baseBet, pot, currentBet, minRaise, allInCap, result,
       turnPlayerId: phase === 'playing' ? playingTurn && playingTurn.id : phase === 'betting' ? bettingTurn && bettingTurn.id : null,
+      // 차례인 사람이 화면을 가려 제한시간이 멈춰 있는가(web/cover-pause.js)
+      paused: pause.pausedAt() !== null,
       you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: contenders.includes(me.id) } : null,
       canStart: !!me && (phase === 'lobby' || phase === 'result') && players.filter((p) => p.connected && p.ready && p.chips > 0).length >= MIN_PLAYERS,
       // 시작 버튼이 왜 꺼져 있는지 화면이 그대로 말해 줄 수 있게 서버가 사유를 내려 준다.
@@ -583,11 +614,12 @@ function createBlackjackRoom(options) {
   function dispose() {
     clearActionTimer();
     clearProposalTimer();
+    pause.dispose();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
   }
 
-  return { join, disconnect, leave, setReady, proposeBaseBet, voteBaseBet, begin, hit, stand, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  return { join, disconnect, leave, setCovered, setReady, proposeBaseBet, voteBaseBet, begin, hit, stand, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createBlackjackRoom, scoreHand, INITIAL_CHIPS };

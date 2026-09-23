@@ -27,6 +27,7 @@ const crypto = require('crypto');
 const { normalizeWord } = require('./protocol');
 const WORD_LIST = require('./words');
 const { createModeration } = require('./moderation');
+const { createCoverPause } = require('./cover-pause');
 
 /**
  * [H4] 제시어 목록 형식 검사.
@@ -129,16 +130,53 @@ function createRoom(options) {
   let phase = 'lobby';
   let round = null;
   let result = null;
-  let phaseTimer = null;
+  // [보스 키] 지금 제한시간이 기다리는 사람이 화면을 가리고 있으면 제한시간을 멈춘다
+  // (web/cover-pause.js). 누구를 기다리는지는 단계마다 다르다(waitingOn 참고).
+  const pause = createCoverPause({ setTimer, clearTimer, now, maxPauseMs: opts.maxCoverPauseMs,
+    isWaitingOn: (id) => waitingOn(id), onExpire: () => changed() });
+  // 단계마다 하나씩 거는 제한시간(설명 차례·자유 대화·찬반·투표·정답).
+  const phaseClock = pause.timer;
 
   // ───────────────────────────── 내부 도우미 ─────────────────────────────
 
-  function changed() { onChange(); }
+  /** 상태를 알리기 직전마다 멈춤 여부와 화면에 보낼 남은 시간을 맞춘다. */
+  function changed() {
+    const turned = pause.sync();
+    if (turned && turned.paused) act(turned.paused.map(nameOf).join(', '), '화면 가림 - 제한시간 멈춤');
+    else if (turned) act('진행', `제한시간 다시 흐름 (${Math.round(turned.resumedAfterMs / 1000)}초 멈춤${turned.expired ? ', 멈출 수 있는 최대 시간 초과' : ''})`);
+    syncPhaseEndsAt();
+    onChange();
+  }
+
+  /**
+   * 화면이 남은 시간을 세는 값(…EndsAt)을 제한시간 타이머에 맞춘다. 멈췄다가 풀리면
+   * 끝나는 시각이 멈춘 만큼 뒤로 밀린다. 멈춰 있는 동안은 "멈춘 시각 + 남은 시간"이고,
+   * 화면은 pausedAt을 지금으로 보고 세므로 남은 시간이 그대로 멈춰 보인다.
+   */
+  function syncPhaseEndsAt() {
+    const at = phaseClock.endsAt();
+    if (at === null || !round) return;
+    if (phase === 'turn') round.speakEndsAt = at;
+    else if (phase === 'free') round.freeEndsAt = at;
+    else if (phase === 'proposal' && round.proposal) round.proposal.endsAt = at;
+    else if (phase === 'voting') round.votingEndsAt = at;
+    else if (phase === 'guess') round.guessEndsAt = at;
+  }
+
+  /** 지금 돌고 있는 제한시간이 이 사람을 기다리고 있는가(보스 키로 멈출지 판단). */
+  function waitingOn(id) {
+    const player = players.get(id);
+    if (!round || !player || !player.connected || !inRound(id)) return false;
+    if (phase === 'turn') return currentSpeakerId() === id;
+    if (phase === 'free') return true; // 다 같이 이야기하는 시간 - 한 명이라도 못 보면 멈춘다
+    if (phase === 'proposal') return !!round.proposal && !round.proposal.answers.has(id);
+    if (phase === 'voting') return !round.votes.has(id);
+    if (phase === 'guess') return round.accusedId === id;
+    return false;
+  }
 
   function clearPhaseTimer() {
-    if (phaseTimer === null) return;
-    clearTimer(phaseTimer);
-    phaseTimer = null;
+    phaseClock.clear();
   }
 
   function cancelDrop(id) {
@@ -207,6 +245,7 @@ function createRoom(options) {
     if (players.size > 0) return false;
     moderation.reset();
     clearPhaseTimer();
+    pause.reset();
     round = null;
     result = null;
     phase = 'lobby';
@@ -330,6 +369,8 @@ function createRoom(options) {
       for (const player of players.values()) {
         if (player.token !== input.token) continue;
         cancelDrop(player.id);
+        // 새로 열린 화면이 가려져 있는지는 그 화면이 다시 알려 준다. 이전 화면의 상태는 버린다.
+        pause.forget(player.id);
         player.connected = true;
         if (phase === 'lobby' || phase === 'result') player.nickname = uniqueNickname(nickname, player.id);
         act(player.nickname, '재접속');
@@ -378,10 +419,18 @@ function createRoom(options) {
     return { playerId: player.id, token: player.token, restored: false };
   }
 
+  /** [보스 키] 이 사람의 화면이 가려졌는지/돌아왔는지. 화면이 알려 준다(public/cover.js). */
+  function setCovered(playerId, covered) {
+    if (!players.has(playerId)) return;
+    pause.set(playerId, covered === true);
+    changed();
+  }
+
   function disconnect(playerId) {
     const player = players.get(playerId);
     if (!player || !player.connected) return;
     player.connected = false;
+    pause.forget(playerId);
     act(player.nickname, '연결 끊김');
     moderation.depart(playerId);
     cancelDrop(playerId);
@@ -425,6 +474,7 @@ function createRoom(options) {
     if (!player) return;
     act(player.nickname, '나감');
     cancelDrop(playerId);
+    pause.forget(playerId);
     players.delete(playerId);
     moderation.depart(playerId);
     // 자리를 버린 것이므로 되찾을 기록도 지운다. 남겨 두면 다시 들어올 때 되살아난다.
@@ -573,7 +623,7 @@ function createRoom(options) {
     pushChat({ kind: 'system', code: 'nextRoundAsked', at: now(),
       speakRound: round.speakRound, nextRound: round.speakRound + 1,
       text: `${round.speakRound}차 설명이 끝났습니다. ${round.speakRound + 1}차 설명을 할까요?` });
-    phaseTimer = setTimer(() => { phaseTimer = null; settleProposal(true); }, PROPOSAL_MS);
+    phaseClock.start(() => { settleProposal(true); }, PROPOSAL_MS);
     changed();
   }
 
@@ -614,8 +664,7 @@ function createRoom(options) {
     if (round.speakIndex >= round.speakOrder.length) { nextSpeakRound(); return; }
 
     round.speakEndsAt = now() + SPEAK_MS;
-    phaseTimer = setTimer(() => {
-      phaseTimer = null;
+    phaseClock.start(() => {
       if (phase !== 'turn') return;
       act(nameOf(currentSpeakerId()), '설명 시간 초과');
       pushChat({ kind: 'system', code: 'turnSkipped', who: nameOf(currentSpeakerId()), at: now(),
@@ -647,7 +696,7 @@ function createRoom(options) {
     phase = 'proposal';
     pushChat({ kind: 'system', code: 'freeAsked', at: now(), speakRounds: TURN_ROUNDS,
       text: `${TURN_ROUNDS}차 설명까지 끝났습니다. 자유 대화를 할까요?` });
-    phaseTimer = setTimer(() => { phaseTimer = null; settleProposal(true); }, PROPOSAL_MS);
+    phaseClock.start(() => { settleProposal(true); }, PROPOSAL_MS);
     changed();
   }
 
@@ -671,8 +720,7 @@ function createRoom(options) {
     pushChat({ kind: 'system', code: 'freeStart', at: now(), speakRounds: TURN_ROUNDS,
       text: '이제 자유롭게 이야기하세요. (1분)' });
     // 1분이 다 되면 곧바로 투표로 간다. 이미 충분히 이야기했으니 찬반을 다시 묻지 않는다.
-    phaseTimer = setTimer(() => {
-      phaseTimer = null;
+    phaseClock.start(() => {
       if (phase === 'free') beginVoting();
     }, FREE_MS);
     changed();
@@ -777,7 +825,7 @@ function createRoom(options) {
     pushChat({ kind: 'system', code: 'proposalCalled', who: nameOf(playerId), text: `${nameOf(playerId)}님이 투표를 제안했습니다. 진행할까요?`, at: now() });
 
     clearPhaseTimer();
-    phaseTimer = setTimer(() => { phaseTimer = null; settleProposal(true); }, PROPOSAL_MS);
+    phaseClock.start(() => { settleProposal(true); }, PROPOSAL_MS);
     changed();
     return null;
   }
@@ -863,8 +911,7 @@ function createRoom(options) {
     // 부결되면 자유 채팅으로 돌아간다. 남은 시간을 다시 준다.
     phase = 'free';
     round.freeEndsAt = now() + FREE_MS;
-    phaseTimer = setTimer(() => {
-      phaseTimer = null;
+    phaseClock.start(() => {
       if (phase === 'free') beginVoting();
     }, FREE_MS);
     pushChat({ kind: 'system', code: 'proposalRejected', agree, disagree, text: `투표 제안이 부결되었습니다. (찬성 ${agree} / 반대 ${disagree}) 대화를 이어가세요.`, at: now() });
@@ -889,7 +936,7 @@ function createRoom(options) {
           ? '투표를 진행합니다.'
           : '자유 대화 시간이 끝났습니다. 투표를 진행합니다.',
       at: now() });
-    phaseTimer = setTimer(() => { phaseTimer = null; tally(); }, VOTE_MS);
+    phaseClock.start(() => { tally(); }, VOTE_MS);
     changed();
   }
 
@@ -960,7 +1007,7 @@ function createRoom(options) {
 
     phase = 'guess';
     round.guessEndsAt = now() + GUESS_MS;
-    phaseTimer = setTimer(() => { phaseTimer = null; finish('citizens', 'guessTimeout'); }, GUESS_MS);
+    phaseClock.start(() => { finish('citizens', 'guessTimeout'); }, GUESS_MS);
     changed();
   }
 
@@ -1018,6 +1065,9 @@ function createRoom(options) {
       maxSpectators: MAX_SPECTATORS,
       moderation: moderation.stateFor(playerId),
       serverTime: now(), // 클라이언트 시계가 어긋나 있어도 남은 시간을 정확히 세도록
+      // [보스 키] 누가 화면을 가려 제한시간이 멈춘 시각. 멈춰 있지 않으면 null.
+      // 화면은 멈춰 있는 동안 이 시각을 "지금"으로 보고 남은 시간을 센다.
+      pausedAt: pause.pausedAt(),
       you: me ? {
         id: me.id,
         nickname: me.nickname,
@@ -1092,11 +1142,12 @@ function createRoom(options) {
   return {
     dispose() {
       clearPhaseTimer();
+      pause.dispose();
       for (const id of dropTimers.keys()) cancelDrop(id);
       moderation.dispose();
     },
     setMode, requestKick: moderation.request, voteKick: moderation.vote,
-    join, disconnect, leave, start, say, callVote, respondProposal, vote, guess, stateFor,
+    join, disconnect, leave, setCovered, start, say, callVote, respondProposal, vote, guess, stateFor,
     playerIds: () => [...players.keys()],
     // 테스트에서 들여다보기 위한 것. 서버는 쓰지 않는다.
     _debug: () => ({ phase, round, result }),

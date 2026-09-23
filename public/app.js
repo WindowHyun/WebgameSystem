@@ -222,6 +222,8 @@ function connect() {
     if (msg.type === 'welcome') {
       myId = msg.playerId;
       saveToken(msg.token);
+      // [보스 키] 가려진 채로 다시 연결됐으면 서버에 다시 알린다(서버는 이전 연결의 상태를 버린다).
+      if (window.bossCover && window.bossCover.isShown()) sendCoverState(true);
       writeStored(NAME_KEY, myNickname);
       return;
     }
@@ -413,6 +415,11 @@ function sendMessage(payload) {
 document.addEventListener('boss-cover', function () {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cover' }));
 });
+// [보스 키] 내 화면이 가려졌는지/돌아왔는지 알린다. 가려진 동안 나를 기다리는 제한시간이 멈춘다.
+function sendCoverState(covered) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'coverState', covered: covered === true }));
+}
+document.addEventListener('boss-cover-state', function (event) { sendCoverState(!!(event.detail && event.detail.covered)); });
 
 // ───────────────────────────── 조작 ─────────────────────────────
 function enterGameScreen() {
@@ -697,6 +704,15 @@ function updateJumpBar() {
 function secondsLeft(endsAt) {
   if (!endsAt) return 0;
   return Math.max(0, Math.round((endsAt - (Date.now() + serverOffset)) / 1000));
+}
+
+// 단계 제한시간의 남은 시간. [보스 키] 누가 화면을 가려 제한시간이 멈춰 있으면(pausedAt)
+// 멈춘 시각을 지금으로 보고 센다 - 그래서 화면의 숫자도 멈춰 있다(web/cover-pause.js).
+function phaseTimeLeft(s, endsAt) {
+  var frozen = !!s.pausedAt;
+  var reference = frozen ? s.pausedAt : Date.now() + serverOffset;
+  var seconds = endsAt ? Math.max(0, Math.round((endsAt - reference) / 1000)) : 0;
+  return '남은 시간 ' + seconds + '초' + (frozen ? ' (화면 가림으로 멈춤)' : '');
 }
 
 function clockOf(at) {
@@ -1165,7 +1181,7 @@ function metaTurn(s) {
   var rounds = s.round.speakRounds > 1
     ? ' · 설명은 ' + s.round.speakRounds + '차까지 돕니다'
     : '';
-  return '남은 시간 ' + secondsLeft(s.round.speakEndsAt) + '초 · '
+  return phaseTimeLeft(s, s.round.speakEndsAt) + ' · '
     + s.round.speakTotal + '명 중 ' + s.round.spokenCount + '명 설명함'
     + ' · 한 바퀴에 1인 1회' + rounds;
 }
@@ -1197,7 +1213,7 @@ function buildFree(s) {
 }
 
 function metaFree(s) {
-  return '남은 시간 ' + secondsLeft(s.round.freeEndsAt) + '초 · '
+  return phaseTimeLeft(s, s.round.freeEndsAt) + ' · '
     + '🎧 를 누르면 투표를 제안할 수 있습니다 · 시간이 다 되면 바로 투표로 넘어갑니다';
 }
 
@@ -1254,7 +1270,7 @@ function chip(value, emoji, count, picked) {
 
 function metaProposal(s) {
   var p = s.round.proposal;
-  return '남은 시간 ' + secondsLeft(p.endsAt) + '초 · ' + p.total + '명 중 ' + (p.agree + p.disagree) + '명 응답'
+  return phaseTimeLeft(s, p.endsAt) + ' · ' + p.total + '명 중 ' + (p.agree + p.disagree) + '명 응답'
     + (p.kind === 'nextRound'
       ? ' · 찬성이 절반 이상이면 다음 설명, 아니면 바로 투표로 넘어갑니다'
       : p.kind === 'free'
@@ -1316,7 +1332,7 @@ function buildVote(s) {
 }
 
 function metaVote(s) {
-  return '남은 시간 ' + secondsLeft(s.round.votingEndsAt) + '초 · '
+  return phaseTimeLeft(s, s.round.votingEndsAt) + ' · '
     + s.round.total + '명 중 ' + s.round.voted + '명 투표함';
 }
 
@@ -1354,7 +1370,7 @@ function buildGuess(s) {
   return shell;
 }
 
-function metaGuess(s) { return '남은 시간 ' + secondsLeft(s.round.guessEndsAt) + '초'; }
+function metaGuess(s) { return phaseTimeLeft(s, s.round.guessEndsAt); }
 
 /** 남은 시간만 1초마다 갈아 끼운다. 블록 전체를 다시 그리면 입력 중인 글자가 날아간다. */
 function refreshLiveTimers(s) {

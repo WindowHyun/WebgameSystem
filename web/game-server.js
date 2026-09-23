@@ -338,6 +338,8 @@ function createGameServer(options) {
     if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
     // [보스 키] 참가 전(이름 입력 화면)에도 가릴 수 있어야 한다.
     if (msg.type === 'cover') { broadcastCover(client, `라이어 ${nicknameOf(room, client.playerId)}`); return; }
+    // [보스 키] 내 화면이 가려졌다/돌아왔다. 가려진 동안은 나를 기다리는 제한시간이 멈춘다.
+    if (msg.type === 'coverState') { if (client.playerId) room.setCovered(client.playerId, msg.covered); return; }
 
     if (msg.type === 'join') {
       // 한 연결이 참가를 두 번 보내면 앞서 잡았던 자리가 주인 없이 남는다. 연결이
@@ -539,6 +541,7 @@ function createGameServer(options) {
         const msg = JSON.parse(raw);
         if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
         if (msg.type === 'cover') { broadcastCover(client, `포커 ${nicknameOf(pokerRoom, client.playerId)}`); return; }
+        if (msg.type === 'coverState') { if (client.playerId) pokerRoom.setCovered(client.playerId, msg.covered === true); return; }
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
@@ -585,6 +588,7 @@ function createGameServer(options) {
         const msg = JSON.parse(raw);
         if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
         if (msg.type === 'cover') { broadcastCover(client, `블랙잭 ${nicknameOf(blackjackRoom, client.playerId)}`); return; }
+        if (msg.type === 'coverState') { if (client.playerId) blackjackRoom.setCovered(client.playerId, msg.covered === true); return; }
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });

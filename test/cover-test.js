@@ -12,6 +12,7 @@
  *   - 폰 길게 누르기로는 덮이지 않는다
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
  *     돌아오는 것은 각자 하고, 누가 가렸는지 관리 로그에 남는다
+ *   - [요청] 가려진 동안은 그 사람을 기다리는 제한시간도 멈추고, 화면의 남은 시간도 멈춰 보인다
  */
 
 const { chromium, devices } = require('playwright');
@@ -164,6 +165,36 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     await wait(200);
     const spread = serverLog.filter((l) => l.includes('보스 키')).length - before;
     check('연타해도 1초에 한 번만 퍼진다', spread <= 1, `${spread}번`);
+
+    console.log('\n=== 가려진 동안 제한시간 멈춤 ===');
+    // 앞에서 가려진 화면을 모두 돌려 놓고 라이어 판을 시작한다.
+    for (const p of [liar, other, inLiar]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
+    await wait(1200); // 앞선 연타의 1초 쿨다운이 지나게
+    await liar.click('#start-btn');
+    await liar.waitForFunction(() => window.state && window.state.phase === 'turn' && window.state.round && window.state.round.speaker);
+    const speakerId = await liar.evaluate(() => window.state.round.speaker.id);
+    const liarPages = [liar, other, inLiar];
+    let speakerPage = null;
+    for (const p of liarPages) if (await p.evaluate((id) => window.myId === id, speakerId)) speakerPage = p;
+    const watcher = liarPages.find((p) => p !== speakerPage && p !== inLiar) || other;
+    const metaOf = (p) => p.evaluate(() => (document.getElementById('live-meta') || {}).textContent || '');
+    await speakerPage.mouse.click(700, 400, { button: 'right' });
+    await wait(500);
+    const frozenA = await metaOf(watcher);
+    await wait(2200);
+    const frozenB = await metaOf(watcher);
+    const secondsIn = (text) => Number((/남은 시간 (\d+)초/.exec(text) || [])[1]);
+    check('설명 차례인 사람이 가리면 다른 사람 화면에 "멈춤"이 뜬다', frozenA.includes('화면 가림으로 멈춤'), frozenA);
+    check('멈춘 동안에는 남은 시간 숫자가 줄지 않는다', secondsIn(frozenA) === secondsIn(frozenB) && secondsIn(frozenA) > 0, `${frozenA} → ${frozenB}`);
+    await speakerPage.keyboard.press('Escape');
+    await wait(2300);
+    const running = await metaOf(watcher);
+    check('돌아오면 멈춤이 풀리고 남은 시간이 다시 줄어든다',
+      !running.includes('멈춤') && secondsIn(running) < secondsIn(frozenB), `${frozenB} → ${running}`);
+    check('관리 로그에 멈춘 사람과 다시 흐른 것이 남는다',
+      serverLog.some((l) => l.includes('[라이어]') && l.includes('> 화면 가림 - 제한시간 멈춤'))
+      && serverLog.some((l) => l.includes('[라이어] 진행 > 제한시간 다시 흐름')),
+      serverLog.filter((l) => l.includes('제한시간')).join(' / '));
 
     const errors = [portal, liar, other, pa, pb, ba, phone, fromPoker, inLiar, inBlackjack, onPortal].flatMap((p) => p.errors);
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));
