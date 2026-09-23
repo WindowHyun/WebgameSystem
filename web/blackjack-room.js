@@ -80,6 +80,8 @@ function createBlackjackRoom(options) {
       dropTimers.delete(playerId);
       const index = players.findIndex((p) => p.id === playerId && !p.connected);
       if (index < 0) return;
+      // 올인하고 결과를 기다리는 사람은 판이 끝날 때까지 자리를 남긴다(web/poker-room.js 참고).
+      if (phase === 'betting' && contenders.includes(playerId) && players[index].isAllIn) { scheduleDrop(playerId); return; }
       chipBank.set(players[index].token, players[index].chips);
       players.splice(index, 1);
       contenders = contenders.filter((id) => id !== playerId);
@@ -100,6 +102,32 @@ function createBlackjackRoom(options) {
       if (next >= 0) { turn = next; return; }
     }
     turn = 0;
+  }
+
+  /** 남은 사람이 모두 행동했고 금액도 맞췄는가. 그렇다면 이 배팅은 끝났다. */
+  function bettingDone() {
+    return bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn));
+  }
+  /** 차례가 올인한 사람에게 가면 건너뛴다(web/poker-room.js의 skipAllInTurn 참고). */
+  function skipAllInTurn() {
+    const list = bettingPlayers();
+    for (let step = 0; step < list.length; step += 1) {
+      const index = (turn + step) % list.length;
+      if (!list[index].isAllIn) { turn = index; return; }
+    }
+  }
+  /**
+   * 배팅 중에 누가 빠진 뒤 판을 이어 간다. 이미 배팅이 끝났으면 쇼다운으로 간다 -
+   * 차례만 넘기면 올인한 사람에게 차례가 가서 자동 폴드된다(web/poker-room.js 참고).
+   */
+  function continueAfterDeparture(previousTurnId, departedId) {
+    const left = bettingPlayers();
+    if (left.length === 1) { settle(left[0]); return; }
+    if (left.length === 0) return;
+    if (bettingDone()) { showdown(); return; }
+    rebaseBettingTurn(previousTurnId, departedId);
+    skipAllInTurn();
+    armActionTimer();
   }
 
   function rebasePlayingTurn(previousTurnId, departedId) {
@@ -202,11 +230,15 @@ function createBlackjackRoom(options) {
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false;
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
-    if (phase === 'playing' || phase === 'betting') forceFold(player);
+    // 올인한 사람은 끊겨도 폴드하지 않는다. 더 정할 것이 없고, 폴드시키면 잠깐 끊긴
+    // 것만으로 이미 건 칩을 전부 잃는다(web/poker-room.js의 disconnect 참고).
+    const waitingAllIn = phase === 'betting' && player.isAllIn;
+    if ((phase === 'playing' || phase === 'betting') && !waitingAllIn) forceFold(player);
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
-    else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
-    else if (phase === 'betting') { rebaseBettingTurn(previousTurnId, playerId); armActionTimer(); }
+    // 올인하고 기다리던 사람이 끊긴 것은 판의 흐름을 바꾸지 않는다. 여기서 이어 가기를
+    // 부르면 지금 차례인 사람의 제한시간만 괜히 처음부터 다시 걸린다.
+    else if (phase === 'betting' && !waitingAllIn) continueAfterDeparture(previousTurnId, playerId);
     if (players.some((p) => p.connected)) scheduleDrop(playerId);
     else resetIfEmpty();
     changed();
@@ -223,8 +255,7 @@ function createBlackjackRoom(options) {
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
-    else if (phase === 'betting' && bettingPlayers().length === 1) settle(bettingPlayers()[0]);
-    else if (phase === 'betting') { rebaseBettingTurn(previousTurnId, playerId); armActionTimer(); }
+    else if (phase === 'betting') continueAfterDeparture(previousTurnId, playerId);
     resetIfEmpty(); changed();
   }
 
@@ -317,7 +348,10 @@ function createBlackjackRoom(options) {
     if (!draw(player)) {
       player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); advancePlaying(false); changed(); return null;
     }
-    note(`${player.nickname}님이 히트했습니다.${player.isBusted ? ' 21을 넘었지만 계속 진행할 수 있습니다.' : ''}`);
+    // 21을 넘었는지는 기록에 남기지 않는다. 기록은 모두가 보므로, 여기에 적으면 서버가
+    // 점수와 21 초과 여부를 가려 준 것이 소용없어지고 블러핑이 성립하지 않는다.
+    // 본인은 자기 상태(점수·21 초과 표시)로 안다.
+    note(`${player.nickname}님이 히트했습니다.`);
     armActionTimer(); changed(); return null;
   }
 
@@ -357,7 +391,7 @@ function createBlackjackRoom(options) {
     const needed = Math.max(0, currentBet - player.roundBet);
     if (player.chips < needed) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
     pay(player, needed); acted.add(playerId); note(`${player.nickname}님이 ${needed.toLocaleString()}원을 콜했습니다.`);
-    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
+    if (bettingDone()) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;
   }
 
@@ -403,7 +437,7 @@ function createBlackjackRoom(options) {
       ? `${player.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`
       : `${player.nickname}님이 상대가 받을 수 있는 최대인 ${allInCap.toLocaleString()}원을 걸었습니다.`);
     // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다(call()과 같은 판정).
-    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
+    if (bettingDone()) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;
   }
 
@@ -415,8 +449,8 @@ function createBlackjackRoom(options) {
     // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다(call()과 같은
     // 판정). 이게 없으면 마지막 차례인 사람이 폴드했을 때 차례가 처음으로 돌아가,
     // 이미 콜을 맞춘 사람이 또 내야 하는 상황이 된다.
-    if (bettingPlayers().every((p) => acted.has(p.id) && (p.roundBet === currentBet || p.isAllIn))) { showdown(); return null; }
-    turn %= bettingPlayers().length; armActionTimer(); changed(); return null;
+    if (bettingDone()) { showdown(); return null; }
+    turn %= bettingPlayers().length; skipAllInTurn(); armActionTimer(); changed(); return null;
   }
 
   function showdown() {
@@ -475,10 +509,11 @@ function createBlackjackRoom(options) {
       minPlayers: MIN_PLAYERS,
       baseBetProposal: baseBetProposal ? { id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount, agreed: [...baseBetProposal.votes.values()].filter(Boolean).length, voted: baseBetProposal.votes.size, total: players.filter((p) => p.connected && p.id !== baseBetProposal.proposerId).length, yourVote: playerId === baseBetProposal.proposerId || baseBetProposal.votes.has(playerId) } : null,
       history: history.slice(-12),
-      players: players.filter((p) => p.connected).map((p) => {
+      // 끊긴 채로 판을 계속 겨루는 사람(올인하고 기다리는 사람)은 목록에 남긴다.
+      players: players.filter((p) => p.connected || (phase !== 'lobby' && contenders.includes(p.id) && !p.isFolded)).map((p) => {
         // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
         const reveal = phase === 'result' ? true : p.id === playerId;
-        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, inRound: contenders.includes(p.id), score: reveal ? p.score : null, cards: p.hand.map((card) => reveal ? card : { hidden: true }), tieCards: p.tieCards.map((card) => phase === 'result' ? card : { hidden: true }), isBusted: reveal ? p.isBusted : false, isStanding: p.isStanding, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet };
+        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, connected: p.connected, inRound: contenders.includes(p.id), score: reveal ? p.score : null, cards: p.hand.map((card) => reveal ? card : { hidden: true }), tieCards: p.tieCards.map((card) => phase === 'result' ? card : { hidden: true }), isBusted: reveal ? p.isBusted : false, isStanding: p.isStanding, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet };
       }),
     };
   }

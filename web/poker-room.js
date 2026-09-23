@@ -61,6 +61,9 @@ function createPokerRoom(options) {
       dropTimers.delete(pid);
       const index = players.findIndex((p) => p.id === pid && !p.connected);
       if (index < 0) return;
+      // 올인하고 결과를 기다리는 사람은 판이 끝날 때까지 자리를 남긴다. 여기서 빼면
+      // 판에서도 빠져서, 이미 건 칩을 겨뤄 보지도 못하고 잃는다(disconnect 참고).
+      if (phase === 'betting' && contenders.includes(pid) && players[index].isAllIn) { scheduleDrop(pid); return; }
       chipBank.set(players[index].token, players[index].chips);
       players.splice(index, 1);
       contenders = contenders.filter((id) => id !== pid);
@@ -81,6 +84,37 @@ function createPokerRoom(options) {
       if (next >= 0) { turn = next; return; }
     }
     turn = 0;
+  }
+  /** 남은 사람이 모두 행동했고 금액도 맞췄는가. 그렇다면 이 배팅은 끝났다. */
+  function bettingDone() {
+    return active().every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn));
+  }
+  /**
+   * 차례가 올인한 사람에게 가면 건너뛴다. 올인한 사람은 더 낼 것도 정할 것도 없어서,
+   * 차례를 받으면 제한시간에 걸려 자동 폴드되고 이미 낸 칩을 전부 잃는다.
+   */
+  function skipAllInTurn() {
+    const list = active();
+    for (let step = 0; step < list.length; step += 1) {
+      const index = (turn + step) % list.length;
+      if (!list[index].isAllIn) { turn = index; return; }
+    }
+  }
+  /**
+   * 배팅 중에 누가 빠진 뒤(나가기·끊김) 판을 이어 간다.
+   *
+   * 예전에는 차례만 옆 사람에게 넘겼다. 그래서 A 올인 → B 콜 → C가 자기 차례에
+   * 나가면, 배팅은 이미 끝났는데도 차례가 올인한 A에게 돌아가 A가 자동 폴드되고
+   * B가 쇼다운 없이 팟을 가져갔다. call()·fold()와 같은 종료 판정을 여기서도 한다.
+   */
+  function continueAfterDeparture(previousTurnId, departedId) {
+    const left = active();
+    if (left.length === 1) { settle(left[0], false); return; }
+    if (left.length === 0) return;
+    if (bettingDone()) { showdown(); return; }
+    rebaseBettingTurn(previousTurnId, departedId);
+    skipAllInTurn();
+    armActionTimer();
   }
   function uniqueNickname(value, excludeId) {
     const used = new Set(players.filter((p) => p.id !== excludeId).map((p) => p.nickname));
@@ -161,16 +195,15 @@ function createPokerRoom(options) {
     if (!p) return;
     p.connected = false;
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
-    if (phase === 'betting' && contenders.includes(pid) && !p.isFolded) {
+    // 올인한 사람은 끊겨도 폴드하지 않는다. 더 낼 것도 정할 것도 없으니 기다리게 할
+    // 일이 없고, 폴드시키면 폰을 잠깐 잠그거나 와이파이가 LTE로 바뀌는 것만으로 이미
+    // 건 칩을 전부 잃었다. 판이 끝날 때까지 자리도 남겨 둔다(scheduleDrop 참고).
+    // 스스로 나가기를 누른 것(leave)은 포기라서 그쪽은 그대로 폴드한다.
+    if (phase === 'betting' && contenders.includes(pid) && !p.isFolded && !p.isAllIn) {
       const previousTurnId = current() && current().id;
       p.isFolded = true;
       note(`${p.nickname}님의 연결이 끊겨 폴드 처리되었습니다.`);
-      const left = active();
-      if (left.length === 1) settle(left[0], false);
-      else {
-        rebaseBettingTurn(previousTurnId, pid);
-        armActionTimer();
-      }
+      continueAfterDeparture(previousTurnId, pid);
     }
     if (hostId === pid) hostId = (players.find((x) => x.connected) || {}).id || null;
     if (!resetEmptyRoom()) scheduleDrop(pid);
@@ -190,11 +223,7 @@ function createPokerRoom(options) {
     chipBank.set(players[index].token, players[index].chips);
     players.splice(index, 1);
     if (hostId === pid) hostId = (players.find((p) => p.connected) || {}).id || null;
-    if (phase === 'betting') {
-      const left = active();
-      if (left.length === 1) settle(left[0], false);
-      else if (left.length > 1) { rebaseBettingTurn(previousTurnId, pid); armActionTimer(); }
-    }
+    if (phase === 'betting') continueAfterDeparture(previousTurnId, pid);
     resetEmptyRoom();
     changed();
   }
@@ -291,6 +320,18 @@ function createPokerRoom(options) {
     }
     if (!draw(ids)) { refundAndFinish('남은 카드가 부족해 배팅금을 돌려드립니다.'); return; }
     if (tie) note(`동점자 ${ids.length}명이 재대결합니다. 팟은 유지됩니다.`);
+    // [규칙] 재대결에 더 걸 칩이 없는 사람이 있으면 배팅 없이 카드로만 가린다.
+    //
+    // 재대결은 새 배팅부터 시작하는데, 올인으로 칩이 0원이 된 사람은 콜·올인·레이즈가
+    // 전부 거절되어 폴드밖에 할 수 없었다. 가만있어도 제한시간에 자동 폴드되어,
+    // 둘 다 올인했다가 비기면 먼저 차례가 온 쪽이 팟을 통째로 잃었다.
+    // 사이드 팟이 없으니 한 명이라도 더 걸 수 없으면 아무도 더 걸 수 없다(올인 상한과
+    // 같은 이치). 그러면 배팅할 것이 없으므로 곧바로 새 카드를 비교한다.
+    if (tie && ids.some((pid) => { const p = players.find((x) => x.id === pid); return !p || p.chips <= 0; })) {
+      note('더 걸 칩이 없는 사람이 있어 배팅 없이 카드로만 가립니다.');
+      showdown();
+      return;
+    }
     armActionTimer();
   }
 
@@ -318,7 +359,7 @@ function createPokerRoom(options) {
     const need = Math.max(0, currentBet - p.roundBet);
     if (p.chips < need) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
     pay(p, need); acted.add(pid); note(`${p.nickname}님이 ${need.toLocaleString()}원을 콜했습니다.`);
-    if (active().every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
+    if (bettingDone()) return showdown();
     advance(); armActionTimer(); changed(); return null;
   }
 
@@ -389,7 +430,7 @@ function createPokerRoom(options) {
       : `${p.nickname}님이 상대가 받을 수 있는 최대인 ${allInCap.toLocaleString()}원을 걸었습니다.`);
     // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다. 이 판정이 없으면
     // 전원이 올인한 뒤에도 차례가 계속 돌아, 더 낼 것도 없는 사람이 제한시간에 걸린다.
-    if (active().every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
+    if (bettingDone()) return showdown();
     advance(); armActionTimer(); changed(); return null;
   }
 
@@ -401,8 +442,8 @@ function createPokerRoom(options) {
     // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다. 예전에는
     // 이 판정이 call()에만 있어서, 마지막 차례인 사람이 폴드하면 차례가 처음으로 돌아가
     // 이미 콜을 맞춘 사람이 또 내야 하는 상황이 됐다.
-    if (left.every((x) => acted.has(x.id) && (x.roundBet === currentBet || x.isAllIn))) return showdown();
-    turn %= left.length; armActionTimer(); changed(); return null;
+    if (bettingDone()) return showdown();
+    turn %= left.length; skipAllInTurn(); armActionTimer(); changed(); return null;
   }
 
   function showdown() {
@@ -462,7 +503,10 @@ function createPokerRoom(options) {
       // 시작 버튼이 왜 꺼져 있는지 화면이 그대로 말해 줄 수 있게 서버가 사유를 내려 준다.
       readyCount: players.filter((p) => p.connected && p.ready && p.chips > 0).length,
       minPlayers: MIN_PLAYERS,
-      players: players.filter((p) => p.connected).map((p) => {
+      // 끊긴 사람은 목록에서 뺀다. 다만 끊긴 채로 판을 계속 겨루는 사람(올인하고
+      // 기다리는 사람)은 남긴다 - 빼면 그 사람이 이겨도 테이블에 카드가 안 보이고,
+      // "○○님이 획득했습니다"만 떠서 누가 어떻게 이겼는지 알 수 없다.
+      players: players.filter((p) => p.connected || (phase !== 'lobby' && contenders.includes(p.id) && !p.isFolded)).map((p) => {
         // "이번 판에 카드를 받았는가". 화면은 이걸로 중도 입장자("다음 판 대기")와
         // 이 판에 뛰다 폴드한 사람("폴드")을 가른다.
         const inRound = dealtIn.includes(p.id);
@@ -470,7 +514,7 @@ function createPokerRoom(options) {
         if (phase === 'betting') reveal = viewerInRound && p.id !== pid && !p.isFolded;
         // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
         else if (phase === 'result') reveal = !!(result && result.revealed);
-        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, inRound, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? (reveal ? p.currentCard : { hidden: true }) : null };
+        return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, connected: p.connected, inRound, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? (reveal ? p.currentCard : { hidden: true }) : null };
       }),
     };
   }

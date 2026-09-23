@@ -314,6 +314,10 @@
     $('players').innerHTML = state.players.map(function (player) {
       var waiting = state.phase === 'betting' && !player.inRound;
       var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
+      // 끊긴 채로 판에 남은 사람(올인하고 기다리는 사람). 차례가 오지 않으니 기다릴 필요는 없다.
+      // "올인 · 끊김"처럼 두 단어를 쓰면 폰에서 옆의 금액 줄("0 · +100만")이 잘린다.
+      // 올인했다는 건 그 금액 줄이 이미 말해 주므로 한 단어로 둔다.
+      if (player.connected === false) status = '끊김';
       var initial = Array.from(player.nickname)[0] || '나';
       return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
