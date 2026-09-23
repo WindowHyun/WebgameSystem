@@ -233,6 +233,8 @@
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
       if (data.type === 'pong') return;
+      // [보스 키] 누군가 화면을 가렸다 - 내 화면도 가린다(public/cover.js).
+      if (data.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
       if (data.type === 'welcome') { saveToken(data.token); return; }
       if (data.type === 'replaced') {
         superseded = true;
@@ -378,6 +380,8 @@
     renderStartConfirm();
   }
 
+  // [보스 키] 내가 가리면 다른 사람들 화면도 가리도록 서버에 알린다(public/cover.js).
+  document.addEventListener('boss-cover', function () { send('cover'); });
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
   $('leave').onclick = function (event) {
     event.preventDefault();

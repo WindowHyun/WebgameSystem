@@ -13,6 +13,10 @@
  *   - 폰의 길게 누르기도 contextmenu로 오지만, 폰에는 우클릭이 없으니 원래 동작을 둔다.
  *
  * 모든 페이지(포털·라이어·포커·블랙잭)가 이 파일 하나를 같이 쓴다.
+ *
+ * [요청] 한 명이 가리면 접속한 모든 사람의 화면도 같이 가린다. 내가 우클릭으로 가리면
+ * 'boss-cover' 이벤트를 쏘고, 각 페이지가 자기 연결로 서버에 알린다. 서버가 {type:'cover'}를
+ * 보내오면 페이지가 window.bossCover.show()를 부른다. 돌아오는 것은 각자 한다.
  */
 (function () {
   'use strict';
@@ -37,6 +41,7 @@
   }
 
   function show() {
+    if (overlay) return; // 이미 가려져 있다(남이 가린 신호가 겹쳐 와도 그대로)
     var index = pick();
     lastIndex = index;
     var cover = COVERS[index];
@@ -88,7 +93,10 @@
     }
     event.preventDefault();
     event.stopPropagation();
-    if (overlay) hide(); else show();
+    if (overlay) { hide(); return; }
+    show();
+    // 다른 사람들 화면도 가리도록 각 페이지에 알린다(페이지가 자기 연결로 서버에 보낸다).
+    try { document.dispatchEvent(new CustomEvent('boss-cover')); } catch (error) { /* 알림 실패해도 내 화면은 가려져 있다 */ }
   }, true);
 
   // 가려진 동안에는 Esc만 받는다(돌아가기). 다른 키는 뒤의 게임으로 보내지 않는다.
@@ -98,4 +106,5 @@
     event.preventDefault();
     if (event.key === 'Escape') hide();
   }, true);
+  window.bossCover = { show: show, isShown: function () { return !!overlay; } };
 }());

@@ -267,7 +267,11 @@ function createGameServer(options) {
         if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
         client.count += 1;
         if (client.count > RATE_MAX) return;
-        try { if (JSON.parse(raw).type === 'ping') sendTo(ws, { type: 'pong' }); } catch {}
+        try {
+          const type = JSON.parse(raw).type;
+          if (type === 'ping') sendTo(ws, { type: 'pong' });
+          else if (type === 'cover') broadcastCover(client, '포털 접속자');
+        } catch {}
       });
       broadcastPortal();
       return;
@@ -332,6 +336,8 @@ function createGameServer(options) {
     // [E-3] 화면 쪽 확인. 브라우저는 WebSocket ping 프레임을 자바스크립트로 볼 수
     // 없어서, 화면이 스스로 살아 있는지 확인하려면 이렇게 주고받아야 한다.
     if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+    // [보스 키] 참가 전(이름 입력 화면)에도 가릴 수 있어야 한다.
+    if (msg.type === 'cover') { broadcastCover(client, `라이어 ${nicknameOf(room, client.playerId)}`); return; }
 
     if (msg.type === 'join') {
       // 한 연결이 참가를 두 번 보내면 앞서 잡았던 자리가 주인 없이 남는다. 연결이
@@ -442,12 +448,39 @@ function createGameServer(options) {
    * "김하늘\n[포커] 박서준 > 올인 1,000,000원" 같은 닉네임 하나로 없던 줄을 로그에
    * 끼워 넣을 수 있다(IP 쪽의 sanitizeIp와 같은 문제). 제어 문자는 공백으로 바꾼다.
    */
+  const cleanLogText = (value) => Array.from(String(value == null ? '' : value), (ch) => {
+    const code = ch.codePointAt(0);
+    return code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 ? ' ' : ch;
+  }).join('');
   function actionLogger(game) {
-    const clean = (value) => Array.from(String(value == null ? '' : value), (ch) => {
-      const code = ch.codePointAt(0);
-      return code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 ? ' ' : ch;
-    }).join('');
-    return (who, what) => log(`[${game}] ${clean(who)} > ${clean(what)}`);
+    return (who, what) => log(`[${game}] ${cleanLogText(who)} > ${cleanLogText(what)}`);
+  }
+
+  /**
+   * [보스 키] 한 명이 우클릭으로 화면을 가리면, 접속한 모든 사람(포털·라이어·포커·블랙잭)의
+   * 화면도 같이 가린다. 같은 사무실에서 여럿이 하다가 누가 다가오면, 먼저 본 사람이 누르는
+   * 순간 모두가 가려져야 한다. 돌아오는 것은 각자 한다 - 한 사람이 먼저 돌아왔다고 남의
+   * 화면까지 풀리면 안 된다.
+   *
+   * 장난으로 연타해도 퍼지는 것은 1초에 한 번이다. 누가 가렸는지는 관리 로그에 남긴다.
+   */
+  const COVER_COOLDOWN_MS = 1000;
+  let lastCoverAt = 0;
+  function nicknameOf(gameRoom, playerId) {
+    try {
+      const view = gameRoom && playerId ? gameRoom.stateFor(playerId) : null;
+      const me = view && view.players ? view.players.find((p) => p.id === playerId) : null;
+      return me ? me.nickname : '미참가자';
+    } catch { return '알 수 없음'; }
+  }
+  function broadcastCover(from, label) {
+    const now = Date.now();
+    if (now - lastCoverAt < COVER_COOLDOWN_MS) return;
+    lastCoverAt = now;
+    log(`[보스 키] ${cleanLogText(label)} > 모두의 화면을 가림`);
+    for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
+      if (client !== from) sendTo(client.ws, { type: 'cover' });
+    }
   }
 
   function initialize() {
@@ -505,6 +538,7 @@ function createGameServer(options) {
         if (client.count > RATE_MAX) return;
         const msg = JSON.parse(raw);
         if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'cover') { broadcastCover(client, `포커 ${nicknameOf(pokerRoom, client.playerId)}`); return; }
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
@@ -550,6 +584,7 @@ function createGameServer(options) {
         if (client.count > RATE_MAX) return;
         const msg = JSON.parse(raw);
         if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'cover') { broadcastCover(client, `블랙잭 ${nicknameOf(blackjackRoom, client.playerId)}`); return; }
         if (msg.type === 'join') {
           if (client.playerId) return;
           const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });

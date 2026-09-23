@@ -23,6 +23,7 @@ const CLIENT_MESSAGES = {
   start: () => null,
   leave: () => null,
   ping: () => null,   // [E-3] 화면이 연결이 살아 있는지 확인하는 용도
+  cover: () => null,  // [보스 키] 한 명이 가리면 모두의 화면을 가린다
   chat: (m) => (str(m.text, LIMITS.text) ? null : 'text'),
   callVote: () => null,
   proposalVote: (m) => (typeof m.agree === 'boolean' ? null : 'agree'),

@@ -32,6 +32,8 @@
       lastSeenAt = Date.now(); // 무엇이 오든 연결이 살아 있다는 뜻이다
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
+      // [보스 키] 누군가 화면을 가렸다 - 포털에 있는 사람도 가린다(public/cover.js).
+      if (data.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
       if (data.type !== 'games') return;
       Object.keys(data.games).forEach(function (id) {
         var game = data.games[id];
@@ -62,6 +64,11 @@
   };
   document.querySelectorAll('.game-card').forEach(function (card) {
     card.onclick = function () { location.href = card.dataset.url; };
+  });
+
+  // [보스 키] 포털에서 가려도 게임 중인 사람들 화면까지 가린다.
+  document.addEventListener('boss-cover', function () {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cover' }));
   });
 
   var saved = sessionStorage.getItem(KEY);

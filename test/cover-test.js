@@ -10,6 +10,8 @@
  *   - 라이어 참가자 목록 우클릭(강퇴 메뉴)은 그대로 둔다
  *   - 카드 게임 기부 창은 왼쪽 클릭으로 계속 열린다
  *   - 폰 길게 누르기로는 덮이지 않는다
+ *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
+ *     돌아오는 것은 각자 하고, 누가 가렸는지 관리 로그에 남는다
  */
 
 const { chromium, devices } = require('playwright');
@@ -65,6 +67,11 @@ async function basic(page, label) {
   await wait(200);
   check(`${label}: Esc로도 돌아온다`, !(await page.evaluate(COVER)));
 }
+
+// 서버 로그(관리 로그)를 엿보기 위해 붙잡는다. 화면에는 그대로 흘려보낸다.
+const serverLog = [];
+const originalError = console.error;
+console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...args); };
 
 (async () => {
   const port = 4595;
@@ -131,7 +138,34 @@ async function basic(page, label) {
     await wait(200);
     check('폰: 길게 누르기(터치에서 온 우클릭)로는 덮이지 않는다', !(await phone.evaluate(COVER)));
 
-    const errors = [portal, liar, other, pa, pb, ba, phone].flatMap((p) => p.errors);
+    console.log('\n=== 모두의 화면 ===');
+    const fromPoker = await enter(browser, port, 'poker', '무');
+    const inLiar = await enter(browser, port, 'liar', '기');
+    const inBlackjack = await enter(browser, port, 'blackjack', '경');
+    const onPortal = await enter(browser, port, null, '신');
+    await wait(1200); // 앞선 검사들이 가린 뒤 1초 쿨다운이 지나게
+    await fromPoker.mouse.click(700, 400, { button: 'right' });
+    await wait(700);
+    const states = await Promise.all([inLiar, inBlackjack, onPortal].map((p) => p.evaluate(COVER)));
+    check('포커에서 한 명이 가리면 라이어·블랙잭·포털에 있는 사람 화면도 가려진다',
+      states.every((st) => st && st.full && st.loaded), JSON.stringify(states));
+    check('다른 사람 탭 제목도 쇼핑몰 제목으로 바뀐다', states.every((st) => st && /올리브영/.test(st.title)));
+    await onPortal.keyboard.press('Escape');
+    await wait(300);
+    check('돌아오는 것은 각자 한다(한 사람이 돌아와도 남의 화면은 그대로)',
+      !(await onPortal.evaluate(COVER)) && !!(await inLiar.evaluate(COVER)) && !!(await fromPoker.evaluate(COVER)));
+    check('누가 가렸는지 관리 로그에 남는다',
+      serverLog.some((l) => l.includes('[보스 키] 포커 무 > 모두의 화면을 가림')), serverLog.filter((l) => l.includes('보스 키')).join(' / '));
+    // 연타해도 1초에 한 번만 퍼진다.
+    const before = serverLog.filter((l) => l.includes('보스 키')).length;
+    for (let i = 0; i < 4; i += 1) {
+      await inBlackjack.mouse.click(700, 400, { button: 'right' }); await wait(60);
+    }
+    await wait(200);
+    const spread = serverLog.filter((l) => l.includes('보스 키')).length - before;
+    check('연타해도 1초에 한 번만 퍼진다', spread <= 1, `${spread}번`);
+
+    const errors = [portal, liar, other, pa, pb, ba, phone, fromPoker, inLiar, inBlackjack, onPortal].flatMap((p) => p.errors);
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));
   } finally {
     await browser.close();
