@@ -42,6 +42,7 @@ async function newPlayer(browser, port, game, name) {
 
     ok('방장이 아닌 셋째의 시작 버튼이 활성화돼 있다', !(await c.page.isDisabled('#start')));
     await c.page.click('#start');
+    await c.page.click('#start-go'); // 시작 확인 창
     await wait(700);
     const phase = await a.page.textContent('#phase');
     ok('방장이 아닌 사람이 라운드를 시작했다', phase.includes('배팅'), `(phase="${phase}")`);

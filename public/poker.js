@@ -261,6 +261,30 @@
     return (labels[card.rank] || card.rank) + card.suit;
   }
 
+  /**
+   * [요청] 게임 시작을 누르면 바로 시작하지 않고, 누가 준비를 안 했는지 먼저 보여 준다.
+   * 예전에는 누르는 즉시 준비한 사람끼리 판이 시작되어, 준비를 깜빡한 사람이 모른 채
+   * 빠졌다. 창이 열려 있는 동안 준비 상태가 바뀌면 목록도 따라 바뀌고, 그사이 다른
+   * 사람이 먼저 시작했거나 시작할 수 없게 되면 창을 닫는다.
+   */
+  var startConfirmOpen = false;
+  function renderStartConfirm() {
+    var lobby = state.phase === 'lobby' || state.phase === 'result';
+    if (startConfirmOpen && (!lobby || !state.canStart)) startConfirmOpen = false;
+    $('start-confirm').classList.toggle('hidden', !startConfirmOpen);
+    if (!startConfirmOpen) return;
+    // 서버와 같은 기준: 준비했고 칩이 있어야 이번 판에 들어간다.
+    var joining = state.players.filter(function (p) { return p.ready && p.chips > 0; });
+    var left = state.players.filter(function (p) { return !(p.ready && p.chips > 0); });
+    var names = function (list) { return list.map(function (p) { return p.nickname + (p.ready && p.chips <= 0 ? '(칩 없음)' : ''); }).join(', '); };
+    $('start-confirm-title').textContent = '준비한 ' + joining.length + '명으로 시작할까요?';
+    $('start-confirm-ready').textContent = '준비: ' + names(joining);
+    $('start-confirm-waiting').textContent = left.length
+      ? '준비 안 함: ' + names(left) + ' · 이번 판에서 빠집니다.'
+      : '모두 준비했습니다.';
+  }
+  function closeStartConfirm() { startConfirmOpen = false; renderStartConfirm(); }
+
   function renderProposal() {
     var proposal = state.baseBetProposal;
     $('proposal').classList.toggle('hidden', !proposal || proposal.yourVote);
@@ -315,7 +339,9 @@
 
     $('players').innerHTML = state.players.map(function (player) {
       var waiting = state.phase === 'betting' && !player.inRound;
-      var status = waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
+      // 판이 끝나 대기 중일 때는 지난 판의 폴드·올인이 아니라 다음 판 준비 여부를 보여 준다.
+      var status = lobby ? (player.ready ? '준비' : '대기')
+        : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
       // 끊긴 채로 판에 남은 사람(올인하고 기다리는 사람). 차례가 오지 않으니 기다릴 필요는 없다.
       // "올인 · 끊김"처럼 두 단어를 쓰면 폰에서 옆의 금액 줄("0 · +100만")이 잘린다.
       // 올인했다는 건 그 금액 줄이 이미 말해 주므로 한 단어로 둔다.
@@ -349,6 +375,7 @@
       element.onkeydown = function (event) { if (event.key === 'Enter' || event.key === ' ') openDonation(element, event); };
     });
     renderProposal();
+    renderStartConfirm();
   }
 
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
@@ -368,7 +395,10 @@
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };
-  $('start').onclick = function () { send('start'); };
+  $('start').onclick = function () { startConfirmOpen = true; renderStartConfirm(); };
+  $('start-cancel').onclick = closeStartConfirm;
+  $('start-go').onclick = function () { closeStartConfirm(); send('start'); };
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && startConfirmOpen) closeStartConfirm(); });
   $('call').onclick = function () { send('call'); };
   $('raise').onclick = function () { send('raise', { amount: Number($('raise-amount').value) }); };
   $('allin').onclick = function () { send('allin'); };

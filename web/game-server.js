@@ -44,6 +44,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.png': 'image/png',
+  '.webp': 'image/webp',
   '.js': 'text/javascript; charset=utf-8',
   '.woff2': 'font/woff2',
 };
@@ -206,7 +207,7 @@ function createGameServer(options) {
 
   function cacheControl(name) {
     if (name.endsWith('.html')) return 'no-cache';
-    if (/\.(woff2|png)$/.test(name)) return 'public, max-age=31536000, immutable';
+    if (/\.(woff2|png|webp)$/.test(name)) return 'public, max-age=31536000, immutable';
     return 'public, max-age=300, must-revalidate';
   }
 
