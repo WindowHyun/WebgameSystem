@@ -74,6 +74,13 @@ const CHAT_MAX = 100;           // 재접속한 사람에게도 보여줄 최근
 // 그중 안내(System) 줄이 차지할 수 있는 최대치. 나머지(70줄)는 사람이 친 말 몫으로 남는다.
 const SYSTEM_MAX = 30;
 const RECENT_WORDS_MAX = 8;
+// 관리 로그에 남기는 결과 사유. 제시어·라이어가 누구였는지는 넣지 않는다.
+const RESULT_REASONS = {
+  liarLeft: '담당자가 나감', noVotes: '아무도 투표하지 않음', tie: '동표',
+  wrongAccusation: '엉뚱한 사람을 지목', guessTimeout: '정답 시간 초과', guess: '정답 제출로 결정',
+};
+// 관리 로그에 사람 단위로 따로 남기므로 진행 안내로는 옮기지 않는 것들(pushChat 참고).
+const LOGGED_ELSEWHERE = ['roundStart', 'proposalCalled', 'turnSkipped', 'kicked', 'result'];
 
 /**
  * @param onChange 상태가 바뀔 때마다 불린다. 서버는 여기서 모든 접속자에게 상태를 다시 보낸다.
@@ -86,11 +93,19 @@ function createRoom(options) {
   const clearTimer = opts.clearTimer || clearTimeout;
   const now = opts.now || (() => Date.now());
   const random = opts.random || Math.random;
+  // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[라이어] 닉네임 > 행동"으로 남긴다.
+  // 제시어와 누가 라이어인지는 절대 넘기지 않는다 - 로그를 보는 사람이 게임에 끼면
+  // 답을 미리 알게 된다(맨 위 "공정성" 주석과 같은 원칙). 정답 제출도 내용은 뺀다.
+  // 대화 내용도 넘기지 않는다(사적인 말이 섞이고, 설명은 제시어를 거의 말해 준다).
+  // 기록하다 실패해도 게임은 멈추면 안 된다.
+  const onAction = opts.onAction || (() => {});
+  const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
 
   const players = new Map(); // playerId -> { id, token, nickname, connected, joinedAt }
   const dropTimers = new Map();
   const moderation = createModeration({ players, now, setTimer, clearTimer,
     onChange: () => changed(),
+    onAction: act,
     onKick: (id) => {
       pushChat({ kind: 'system', code: 'kicked', text: `${nameOf(id)}님이 다수결로 강퇴되었습니다.`, at: now() });
       leave(id);
@@ -317,6 +332,7 @@ function createRoom(options) {
         cancelDrop(player.id);
         player.connected = true;
         if (phase === 'lobby' || phase === 'result') player.nickname = uniqueNickname(nickname, player.id);
+        act(player.nickname, '재접속');
         changed();
         return { playerId: player.id, token: player.token, restored: true };
       }
@@ -331,6 +347,7 @@ function createRoom(options) {
           connected: true, spectator: false, joinedAt: now(),
         };
         players.set(revived.id, revived);
+        act(revived.nickname, '재접속 (판 자리 복구)');
         changed();
         return { playerId: revived.id, token: revived.token, restored: true };
       }
@@ -355,6 +372,7 @@ function createRoom(options) {
       joinedAt: now(),
     };
     players.set(player.id, player);
+    act(player.nickname, spectator ? '관전으로 입장' : '입장');
     changed();
     // 라운드 진행 중에 들어온 사람은 이번 판은 구경만 하고 다음 판부터 참여한다.
     return { playerId: player.id, token: player.token, restored: false };
@@ -364,6 +382,7 @@ function createRoom(options) {
     const player = players.get(playerId);
     if (!player || !player.connected) return;
     player.connected = false;
+    act(player.nickname, '연결 끊김');
     moderation.depart(playerId);
     cancelDrop(playerId);
 
@@ -373,6 +392,7 @@ function createRoom(options) {
       dropTimers.delete(playerId);
       const still = players.get(playerId);
       if (!still || still.connected) return;
+      act(still.nickname, '자리 정리 (돌아오지 않음)');
       players.delete(playerId);
       moderation.depart(playerId);
       forgetFromRound(playerId);
@@ -403,6 +423,7 @@ function createRoom(options) {
   function leave(playerId) {
     const player = players.get(playerId);
     if (!player) return;
+    act(player.nickname, '나감');
     cancelDrop(playerId);
     players.delete(playerId);
     moderation.depart(playerId);
@@ -434,6 +455,7 @@ function createRoom(options) {
     const count = [...players.values()].filter((p) => !!p.spectator === spectator).length;
     if (count >= (spectator ? MAX_SPECTATORS : MAX_PLAYERS)) return '선택한 모드의 정원이 찼습니다.';
     player.spectator = spectator;
+    act(player.nickname, spectator ? '관전으로 전환' : '참가로 전환');
     moderation.depart(playerId);
     changed();
     return null;
@@ -478,6 +500,7 @@ function createRoom(options) {
       seats: new Map(roster.map((p) => [p.token, { id: p.id, nickname: p.nickname }])),
     };
     phase = 'turn';
+    act(playerId !== undefined ? nameOf(playerId) : '진행', `게임 시작 (${roster.length}명)`);
     pushChat({ kind: 'system', code: 'roundStart', text: '게임이 시작되었습니다.', at: now() });
     beginTurn();
     return null;
@@ -594,6 +617,7 @@ function createRoom(options) {
     phaseTimer = setTimer(() => {
       phaseTimer = null;
       if (phase !== 'turn') return;
+      act(nameOf(currentSpeakerId()), '설명 시간 초과');
       pushChat({ kind: 'system', code: 'turnSkipped', who: nameOf(currentSpeakerId()), at: now(),
         text: `${nameOf(currentSpeakerId())}님이 설명 시간을 넘겼습니다.` });
       round.speakIndex += 1;
@@ -688,6 +712,10 @@ function createRoom(options) {
     chatSeq += 1;
     chat.push(Object.assign({ seq: chatSeq }, entry));
     trimChat();
+    // 진행 안내는 그대로 관리 로그에 옮긴다. 이 안내 문구에는 제시어도 라이어도 들어
+    // 있지 않다. 누가 한 일로 이미 남긴 것(시작·투표 제안·시간 초과·강퇴)과 결과(finish가
+    // 사유까지 붙여 남긴다)는 두 번 찍히지 않게 뺀다.
+    if (entry.kind === 'system' && !LOGGED_ELSEWHERE.includes(entry.code)) act('진행', entry.text);
   }
 
   function say(playerId, text) {
@@ -717,6 +745,7 @@ function createRoom(options) {
 
     // 설명을 마쳤으면 대화권을 다음 사람에게 넘긴다.
     if (phase === 'turn') {
+      act(player.nickname, `설명 (${round.speakRound}차)`);
       round.spoken.add(playerId);
       round.lastSpokenId = playerId;
       round.speakIndex += 1;
@@ -744,6 +773,7 @@ function createRoom(options) {
       endsAt: now() + PROPOSAL_MS,
     };
     phase = 'proposal';
+    act(nameOf(playerId), '투표 제안');
     pushChat({ kind: 'system', code: 'proposalCalled', who: nameOf(playerId), text: `${nameOf(playerId)}님이 투표를 제안했습니다. 진행할까요?`, at: now() });
 
     clearPhaseTimer();
@@ -758,6 +788,9 @@ function createRoom(options) {
     if (!inRound(playerId)) return '이번 라운드 참가자가 아닙니다.';
 
     round.proposal.answers.set(playerId, agree === true);
+    const asked = round.proposal.kind === 'nextRound' ? `${round.speakRound + 1}차 설명`
+      : round.proposal.kind === 'free' ? '자유 대화' : '투표 진행';
+    act(nameOf(playerId), `${asked} ${agree === true ? '찬성' : '반대'}`);
     settleProposal(false); // 안에서 changed()까지 처리한다
     return null;
   }
@@ -869,6 +902,7 @@ function createRoom(options) {
     if (playerId === targetId) return '자기 자신에게는 투표할 수 없습니다.';
 
     round.votes.set(playerId, targetId);
+    act(nameOf(playerId), `투표 → ${nameOf(targetId)}`);
     maybeTally(); // 안에서 changed()까지 처리한다
     return null;
   }
@@ -934,6 +968,7 @@ function createRoom(options) {
     if (phase !== 'guess') return '지금은 정답을 낼 수 없습니다.';
     if (playerId !== round.accusedId) return '지목된 사람만 정답을 낼 수 있습니다.';
     const correct = normalizeWord(word) === normalizeWord(round.word);
+    act(nameOf(playerId), '정답 제출');
     finish(correct ? 'liar' : 'citizens', 'guess', { guess: String(word).trim().slice(0, 60) });
     return null;
   }
@@ -947,6 +982,7 @@ function createRoom(options) {
       liar: { id: round.liarId, nickname: nameOf(round.liarId) },
       accused: round.accusedId ? { id: round.accusedId, nickname: nameOf(round.accusedId) } : null,
     }, extra || {});
+    act('결과', `${winner === 'liar' ? '담당자 승리' : '시민 팀 승리'} (${RESULT_REASONS[reason] || reason})`);
     record.rounds += 1;
     if (winner === 'liar') record.liarWins += 1;
     else if (winner === 'citizens') record.citizenWins += 1;

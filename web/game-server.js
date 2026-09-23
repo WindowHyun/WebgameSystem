@@ -434,6 +434,21 @@ function createGameServer(options) {
     return text;
   }
 
+  /**
+   * [관리 로그] 게임 방이 알려 주는 행동을 "[포커] 김하늘 > 콜 100원" 한 줄로 남긴다.
+   *
+   * 닉네임은 참가자가 마음대로 적는 글자라 줄바꿈이 들어갈 수 있다. 그대로 쓰면
+   * "김하늘\n[포커] 박서준 > 올인 1,000,000원" 같은 닉네임 하나로 없던 줄을 로그에
+   * 끼워 넣을 수 있다(IP 쪽의 sanitizeIp와 같은 문제). 제어 문자는 공백으로 바꾼다.
+   */
+  function actionLogger(game) {
+    const clean = (value) => Array.from(String(value == null ? '' : value), (ch) => {
+      const code = ch.codePointAt(0);
+      return code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 ? ' ' : ch;
+    }).join('');
+    return (who, what) => log(`[${game}] ${clean(who)} > ${clean(what)}`);
+  }
+
   function initialize() {
       if (initialized) return;
       initialized = true;
@@ -444,7 +459,7 @@ function createGameServer(options) {
           error(`[진행 처리 실패] ${err && err.stack ? err.stack : err}`);
         }
       }, ms);
-      room = createRoom({ onChange: broadcastState, setTimer: guardedTimer,
+      room = createRoom({ onChange: broadcastState, setTimer: guardedTimer, onAction: actionLogger('라이어'),
         onKick: (id) => {
           for (const client of clients) {
             if (client.playerId !== id) continue;
@@ -455,8 +470,8 @@ function createGameServer(options) {
           }
         },
       });
-      pokerRoom = createPokerRoom({ onChange: broadcastPoker });
-      blackjackRoom = createBlackjackRoom({ onChange: broadcastBlackjack });
+      pokerRoom = createPokerRoom({ onChange: broadcastPoker, onAction: actionLogger('포커') });
+      blackjackRoom = createBlackjackRoom({ onChange: broadcastBlackjack, onAction: actionLogger('블랙잭') });
       startHeartbeat();
       server = http.createServer(handleHttp);
       // [S-1] 이 서버는 자기가 내려준 화면(같은 출처)이나 Electron 창(로컬 출처)만

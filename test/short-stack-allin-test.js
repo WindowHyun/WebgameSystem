@@ -137,9 +137,12 @@ function makeShortStack(room, ids, target) {
     for (let step = 0; step < 8 && view().phase === 'betting'; step += 1) {
       room.allin(view().turnPlayerId);
     }
+    // 판이 결판나지 않았으면(카드가 모자라 전원 환불 등) 다음 판으로 다시 한다.
+    // 예전에는 둘 다 올인했다가 비기면 두 사람 다 0원인 채로 멈춰서, 여기서 "칩이 남은
+    // 사람"을 찾지 못해 검사가 죽었다(10번에 1번꼴). 재대결 수정으로 이제는 결판이 난다.
     const broke = view().players.find((p) => p.chips === 0);
-    if (!broke) continue;
     const rich = view().players.find((p) => p.chips > 0);
+    if (!broke || !rich) continue;
     assert.equal(room.donate(rich.id, broke.id, target), null, '기부가 거절되었습니다.');
     return { shortId: broke.id, bigId: rich.id };
   }
