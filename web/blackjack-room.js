@@ -8,21 +8,17 @@ const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 5;
 
 /**
- * 손패 점수. 에이스는 1로도 11로도 세고, 21을 넘지 않는 한 11로 올려 잡는다.
+ * 손패 점수. [규칙] 에이스는 무조건 1로 센다. J·Q·K는 10.
  *
- * 예전에는 무조건 1이어서 A♠+K♥가 11점이었다. 그래서 이 게임에는 내추럴 21이 아예
- * 존재할 수 없었고, 에이스를 든 사람은 반드시 더 뽑아야 했다 - 화면은 rank 1을 "A"로
- * 보여 주고 있었으므로 표시와 계산이 어긋나 있었다.
- * (에이스를 둘 이상 11로 올리면 반드시 21을 넘으므로 올릴 수 있는 것은 하나뿐이다)
+ * 한때 에이스를 1 또는 11로 세고 21을 넘지 않는 한 11로 올려 잡았다. 규칙상 맞는
+ * 계산이지만, 그러면 히트했는데 점수가 줄어드는 일이 생긴다(A+K 21점에서 4를 받으면
+ * 에이스가 1로 내려가 15점). 화면에는 숫자 하나만 보여서 "히트했더니 점수가
+ * 깎였다"는 제보가 나왔다. 이 게임의 규칙은 에이스 1로 정했다 - 이제 카드를 받으면
+ * 점수는 반드시 오른다(test/blackjack-room-test.js가 모든 손으로 확인한다).
  */
 function scoreHand(hand) {
   let sum = 0;
-  let aces = 0;
-  for (const card of hand) {
-    sum += card.rank > 10 ? 10 : card.rank;
-    if (card.rank === 1) aces += 1;
-  }
-  if (aces > 0 && sum + 10 <= 21) sum += 10;
+  for (const card of hand) sum += card.rank > 10 ? 10 : card.rank;
   return sum;
 }
 
@@ -62,13 +58,7 @@ function createBlackjackRoom(options) {
   const makeId = () => crypto.randomBytes(8).toString('hex');
   const makeToken = () => crypto.randomBytes(18).toString('hex');
   const note = (text) => { history.push({ text, timestamp: Date.now() }); if (history.length > 40) history.shift(); };
-  /**
-   * 에이스는 1로도 11로도 센다. 21을 넘지 않는 한 11로 올려 잡는다.
-   * 예전에는 무조건 1이어서 A♠+K♥가 11점이었고, 그래서 이 게임에는 내추럴 21이
-   * 아예 존재할 수 없었다 - 에이스를 든 사람은 반드시 더 뽑아야 했고 대개 터졌다.
-   * 화면은 rank 1을 "A"로 보여 주고 있었으므로 표시와 계산이 어긋나 있었다.
-   * (에이스를 둘 이상 11로 올리면 반드시 21을 넘으므로 올릴 수 있는 것은 하나뿐이다)
-   */
+  // 점수 계산 규칙은 파일 맨 위 scoreHand 주석 참고(에이스는 무조건 1).
   const score = scoreHand;
   const inRound = () => contenders.map((id) => players.find((p) => p.id === id)).filter(Boolean);
   const bettingPlayers = () => inRound().filter((p) => !p.isFolded);
