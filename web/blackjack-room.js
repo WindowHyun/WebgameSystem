@@ -25,11 +25,14 @@ function scoreHand(hand) {
 function createBlackjackRoom(options) {
   const changed = options.onChange || (() => {});
   // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[블랙잭] 닉네임 > 행동"으로 남긴다.
-  // 판이 끝나기 전에는 점수·카드·21 초과 여부를 넘기지 않는다 - 로그를 보는 사람이
-  // 게임에 끼면 블러핑이 무의미해진다(hit()의 기록 주석과 같은 이유).
+  // 운영자가 판을 되짚을 수 있도록 받은 카드와 그때의 점수까지 남긴다(운영 결정).
+  // 그래서 게임 도중 이 로그를 보는 사람은 남의 패를 알 수 있다 - 로그는 운영자만 본다.
+  // 참가자끼리 보는 게임 화면의 기록(note)에는 여전히 카드·점수를 남기지 않는다.
   const onAction = options.onAction || (() => {});
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const money = (value) => `${Number(value || 0).toLocaleString()}원`;
+  const cardName = (card) => (card ? ({ 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }[card.rank] || card.rank) + card.suit : '?');
+  const handLine = (player) => `${player.score}점${player.isBusted ? ', 21 초과' : ''}, ${player.hand.length}장`;
   const players = [];
   const history = [];
   let phase = 'lobby';
@@ -324,6 +327,7 @@ function createBlackjackRoom(options) {
     }
     note('카드 두 장씩 배분했습니다. 차례대로 히트 또는 스탠드를 선택하세요.');
     act(players.find((p) => p.id === playerId).nickname, `게임 시작 (${ready.length}명: ${ready.map((p) => p.nickname).join(', ')})`);
+    for (const player of inRound()) act(player.nickname, `카드 받음: ${player.hand.map(cardName).join(' ')} → ${handLine(player)}`);
     advancePlaying(true); changed(); return null;
   }
 
@@ -350,13 +354,13 @@ function createBlackjackRoom(options) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     if (!draw(player)) {
-      player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); act(player.nickname, '스탠드 (남은 카드 없음)'); advancePlaying(false); changed(); return null;
+      player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); act(player.nickname, `스탠드 (남은 카드 없음) → ${handLine(player)}`); advancePlaying(false); changed(); return null;
     }
     // 21을 넘었는지는 기록에 남기지 않는다. 기록은 모두가 보므로, 여기에 적으면 서버가
     // 점수와 21 초과 여부를 가려 준 것이 소용없어지고 블러핑이 성립하지 않는다.
-    // 본인은 자기 상태(점수·21 초과 표시)로 안다.
+    // 본인은 자기 상태(점수·21 초과 표시)로 안다. 운영자용 관리 로그에는 남긴다(맨 위 참고).
     note(`${player.nickname}님이 히트했습니다.`);
-    act(player.nickname, `히트 (${player.hand.length}장째)`);
+    act(player.nickname, `히트: ${cardName(player.hand[player.hand.length - 1])} 받음 → ${handLine(player)}`);
     armActionTimer(); changed(); return null;
   }
 
@@ -364,7 +368,7 @@ function createBlackjackRoom(options) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     player.isStanding = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 스탠드되었습니다.` : `${player.nickname}님이 스탠드했습니다.`);
-    act(player.nickname, timedOut ? '스탠드 (시간 초과)' : '스탠드');
+    act(player.nickname, `${timedOut ? '스탠드 (시간 초과)' : '스탠드'} → ${handLine(player)}`);
     advancePlaying(false); changed(); return null;
   }
 
@@ -477,8 +481,8 @@ function createBlackjackRoom(options) {
     let safety = 20;
     while (candidates.length > 1 && deck.length >= candidates.length && safety-- > 0) {
       note(`동점자 ${candidates.length}명이 재대결 카드 한 장씩 뽑습니다.`);
-      act('진행', `동점 재대결 카드: ${candidates.map((p) => p.nickname).join(', ')}`);
       const drawn = candidates.map((player) => { const card = deck.pop(); player.tieCards.push(card); return { player, value: card.rank > 10 ? 10 : card.rank }; });
+      act('진행', `동점 재대결 카드: ${drawn.map((entry) => `${entry.player.nickname} ${cardName(entry.player.tieCards[entry.player.tieCards.length - 1])}(${entry.value})`).join(' · ')}`);
       const bestTieCard = Math.max(...drawn.map((entry) => entry.value));
       candidates = drawn.filter((entry) => entry.value === bestTieCard).map((entry) => entry.player);
     }
