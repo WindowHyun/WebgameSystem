@@ -3,7 +3,10 @@
 const crypto = require('crypto');
 const VOTE_MS = 30000;
 
-function createModeration({ players, now, setTimer, clearTimer, onChange, onKick }) {
+function createModeration({ players, now, setTimer, clearTimer, onChange, onKick, onAction }) {
+  // 관리 로그. 기록하다 실패해도 강퇴 투표가 멈추면 안 된다.
+  const act = (who, what) => { try { if (onAction) onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
+  const nameOf = (id) => (players.get(id) || {}).nickname || '(나간 참가자)';
   let proposal = null;
   let timer = null;
   let result = null;
@@ -18,6 +21,7 @@ function createModeration({ players, now, setTimer, clearTimer, onChange, onKick
     timer = null;
     proposal = null;
     result = { id: previous.id, passed, message };
+    act('강퇴', message);
     if (passed) {
       const target = players.get(previous.targetId);
       if (target) onKick(target.id);
@@ -45,6 +49,7 @@ function createModeration({ players, now, setTimer, clearTimer, onChange, onKick
       answers: new Map([[by, true]]), endsAt: now() + VOTE_MS };
     cooldowns.set(by, now() + VOTE_MS);
     result = null;
+    act(nameOf(by), `강퇴 제안 → ${proposal.targetName}`);
     timer = setTimer(() => finish(false, '강퇴 투표가 시간 초과로 부결되었습니다.'), VOTE_MS);
     onChange();
     return null;
@@ -53,6 +58,7 @@ function createModeration({ players, now, setTimer, clearTimer, onChange, onKick
     if (!proposal || proposal.id !== proposalId) return '이미 종료된 강퇴 투표입니다.';
     if (!proposal.voters.has(id) || !eligible(id)) return '이 강퇴 투표에 참여할 수 없습니다.';
     proposal.answers.set(id, agree);
+    act(nameOf(id), `강퇴 ${agree ? '찬성' : '반대'} (${proposal.targetName})`);
     const { agree: yes, disagree: no } = counts();
     if (yes >= proposal.required) finish(true, `${proposal.targetName}님이 다수결로 강퇴되었습니다.`);
     else if (proposal.voters.size - no < proposal.required) finish(false, '강퇴 투표가 부결되었습니다.');

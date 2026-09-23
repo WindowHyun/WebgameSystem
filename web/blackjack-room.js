@@ -28,6 +28,12 @@ function scoreHand(hand) {
 
 function createBlackjackRoom(options) {
   const changed = options.onChange || (() => {});
+  // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[블랙잭] 닉네임 > 행동"으로 남긴다.
+  // 판이 끝나기 전에는 점수·카드·21 초과 여부를 넘기지 않는다 - 로그를 보는 사람이
+  // 게임에 끼면 블러핑이 무의미해진다(hit()의 기록 주석과 같은 이유).
+  const onAction = options.onAction || (() => {});
+  const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
+  const money = (value) => `${Number(value || 0).toLocaleString()}원`;
   const players = [];
   const history = [];
   let phase = 'lobby';
@@ -82,6 +88,7 @@ function createBlackjackRoom(options) {
       if (index < 0) return;
       // 올인하고 결과를 기다리는 사람은 판이 끝날 때까지 자리를 남긴다(web/poker-room.js 참고).
       if (phase === 'betting' && contenders.includes(playerId) && players[index].isAllIn) { scheduleDrop(playerId); return; }
+      act(players[index].nickname, `자리 정리 (돌아오지 않음, 칩 ${money(players[index].chips)} 보관)`);
       chipBank.set(players[index].token, players[index].chips);
       players.splice(index, 1);
       contenders = contenders.filter((id) => id !== playerId);
@@ -202,7 +209,7 @@ function createBlackjackRoom(options) {
     const restored = players.find((p) => p.token === oldToken);
     if (restored) {
       cancelDrop(restored.id);
-      restored.connected = true; restored.nickname = uniqueNickname(clean, restored.id); changed();
+      restored.connected = true; restored.nickname = uniqueNickname(clean, restored.id); act(restored.nickname, '재접속'); changed();
       return { playerId: restored.id, token: restored.token, restored: true };
     }
     if (players.length >= MAX_PLAYERS) return { error: `방이 가득 찼습니다. (최대 ${MAX_PLAYERS}명)` };
@@ -213,6 +220,7 @@ function createBlackjackRoom(options) {
     const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), chips: kept === undefined ? INITIAL_CHIPS : kept, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: waiting, isFolded: waiting, isAllIn: false, roundBet: 0 };
     players.push(player);
     if (!hostId) hostId = player.id;
+    act(player.nickname, `입장 (칩 ${money(player.chips)}${kept === undefined ? '' : ', 보관해 둔 칩 복구'}${waiting ? ', 다음 판부터' : ''})`);
     changed();
     return { playerId: player.id, token: player.token, restored: false };
   }
@@ -222,6 +230,7 @@ function createBlackjackRoom(options) {
     player.isFolded = true;
     if (phase === 'playing') player.isStanding = true;
     note(`${player.nickname}님의 연결이 끊겨 제외되었습니다.`);
+    act(player.nickname, player.connected ? '폴드 (방을 나감)' : '폴드 (연결 끊김)');
   }
 
   function disconnect(playerId) {
@@ -229,7 +238,8 @@ function createBlackjackRoom(options) {
     if (!player) return;
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false;
-    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
+    act(player.nickname, '연결 끊김');
+    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
     // 올인한 사람은 끊겨도 폴드하지 않는다. 더 정할 것이 없고, 폴드시키면 잠깐 끊긴
     // 것만으로 이미 건 칩을 전부 잃는다(web/poker-room.js의 disconnect 참고).
     const waitingAllIn = phase === 'betting' && player.isAllIn;
@@ -249,10 +259,11 @@ function createBlackjackRoom(options) {
     if (!player) return;
     cancelDrop(playerId);
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
-    player.connected = false; forceFold(player);
+    act(player.nickname, `나감 (칩 ${money(player.chips)} 보관)`);
+    forceFold(player); player.connected = false;
     chipBank.set(player.token, player.chips);
     players.splice(players.indexOf(player), 1);
-    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); }
+    if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
     if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
     else if (phase === 'betting') continueAfterDeparture(previousTurnId, playerId);
@@ -274,13 +285,14 @@ function createBlackjackRoom(options) {
     if (!player) return '참가자를 찾을 수 없습니다.';
     if (!Number.isInteger(value) || value < 100 || value % 100 !== 0 || value > INITIAL_CHIPS) return '기본 배팅금은 100원 단위로 설정해 주세요.';
     if (players.filter((p) => p.connected).length === 1) {
-      baseBet = value; note(`기본 배팅금이 ${value.toLocaleString()}원으로 변경되었습니다.`); changed(); return null;
+      baseBet = value; note(`기본 배팅금이 ${value.toLocaleString()}원으로 변경되었습니다.`); act(player.nickname, `기본 배팅금 ${money(value)}으로 변경 (혼자라 바로 적용)`); changed(); return null;
     }
     baseBetProposal = { id: makeId(), proposerId: playerId, proposerName: player.nickname, amount: value, votes: new Map() };
     note(`${player.nickname}님이 기본 배팅금 ${value.toLocaleString()}원을 제안했습니다.`);
+    act(player.nickname, `기본 배팅금 ${money(value)} 제안`);
     proposalTimer = safeTimeout(() => {
       if (!baseBetProposal) return;
-      note('기본 배팅금 투표 시간이 끝나 변경이 취소되었습니다.'); baseBetProposal = null; proposalTimer = null; changed();
+      note('기본 배팅금 투표 시간이 끝나 변경이 취소되었습니다.'); act('투표', '기본 배팅금 투표 시간 초과로 취소'); baseBetProposal = null; proposalTimer = null; changed();
     }, proposalTimeoutMs);
     if (proposalTimer.unref) proposalTimer.unref();
     changed(); return null;
@@ -293,14 +305,15 @@ function createBlackjackRoom(options) {
     if (!players.some((p) => p.id === playerId && p.connected)) return '참가자를 찾을 수 없습니다.';
     if (baseBetProposal.votes.has(playerId)) return '이미 투표했습니다.';
     baseBetProposal.votes.set(playerId, !!agree);
+    act(players.find((p) => p.id === playerId).nickname, `기본 배팅금 ${money(baseBetProposal.amount)} ${agree ? '찬성' : '반대'}`);
     const voters = players.filter((p) => p.connected && p.id !== baseBetProposal.proposerId);
     const required = Math.ceil(voters.length / 2);
     const agreed = [...baseBetProposal.votes.values()].filter(Boolean).length;
     const remaining = voters.length - baseBetProposal.votes.size;
     if (agreed >= required) {
-      baseBet = baseBetProposal.amount; note(`찬성 ${agreed}명으로 기본 배팅금이 ${baseBet.toLocaleString()}원으로 변경되었습니다.`); clearProposalTimer(); baseBetProposal = null;
+      baseBet = baseBetProposal.amount; note(`찬성 ${agreed}명으로 기본 배팅금이 ${baseBet.toLocaleString()}원으로 변경되었습니다.`); act('투표', `기본 배팅금 ${money(baseBet)}으로 변경 (찬성 ${agreed}명)`); clearProposalTimer(); baseBetProposal = null;
     } else if (agreed + remaining < required || remaining === 0) {
-      note(`찬성 ${agreed}명으로 변경이 거절되었습니다. 다시 설정해 주세요.`); clearProposalTimer(); baseBetProposal = null;
+      note(`찬성 ${agreed}명으로 변경이 거절되었습니다. 다시 설정해 주세요.`); act('투표', `기본 배팅금 변경 부결 (찬성 ${agreed}명)`); clearProposalTimer(); baseBetProposal = null;
     }
     changed(); return null;
   }
@@ -320,6 +333,7 @@ function createBlackjackRoom(options) {
       if (contenders.includes(player.id)) { draw(player); draw(player); }
     }
     note('카드 두 장씩 배분했습니다. 차례대로 히트 또는 스탠드를 선택하세요.');
+    act(players.find((p) => p.id === playerId).nickname, `게임 시작 (${ready.length}명: ${ready.map((p) => p.nickname).join(', ')})`);
     advancePlaying(true); changed(); return null;
   }
 
@@ -346,19 +360,22 @@ function createBlackjackRoom(options) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     if (!draw(player)) {
-      player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); advancePlaying(false); changed(); return null;
+      player.isStanding = true; note(`${player.nickname}님은 남은 카드가 없어 자동 스탠드되었습니다.`); act(player.nickname, '스탠드 (남은 카드 없음)'); advancePlaying(false); changed(); return null;
     }
     // 21을 넘었는지는 기록에 남기지 않는다. 기록은 모두가 보므로, 여기에 적으면 서버가
     // 점수와 21 초과 여부를 가려 준 것이 소용없어지고 블러핑이 성립하지 않는다.
     // 본인은 자기 상태(점수·21 초과 표시)로 안다.
     note(`${player.nickname}님이 히트했습니다.`);
+    act(player.nickname, `히트 (${player.hand.length}장째)`);
     armActionTimer(); changed(); return null;
   }
 
   function stand(playerId, timedOut) {
     const player = currentPlayingPlayer();
     if (!player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
-    player.isStanding = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 스탠드되었습니다.` : `${player.nickname}님이 스탠드했습니다.`); advancePlaying(false); changed(); return null;
+    player.isStanding = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 스탠드되었습니다.` : `${player.nickname}님이 스탠드했습니다.`);
+    act(player.nickname, timedOut ? '스탠드 (시간 초과)' : '스탠드');
+    advancePlaying(false); changed(); return null;
   }
 
   function beginBetting() {
@@ -367,6 +384,7 @@ function createBlackjackRoom(options) {
     if (survivors.length === 1) { settle(survivors[0]); return; }
     phase = 'betting'; turn = 0; currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set();
     note('카드 선택이 끝났습니다. 배팅을 시작합니다.');
+    act('진행', `카드 선택 끝, 배팅 시작 (${survivors.map((p) => p.nickname).join(', ')})`);
     armActionTimer();
   }
 
@@ -391,6 +409,7 @@ function createBlackjackRoom(options) {
     const needed = Math.max(0, currentBet - player.roundBet);
     if (player.chips < needed) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
     pay(player, needed); acted.add(playerId); note(`${player.nickname}님이 ${needed.toLocaleString()}원을 콜했습니다.`);
+    act(player.nickname, `콜 ${money(needed)}`);
     if (bettingDone()) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;
   }
@@ -405,7 +424,9 @@ function createBlackjackRoom(options) {
     if (value < minRaise) return `레이즈는 직전 레이즈 금액인 ${minRaise.toLocaleString()}원 이상이어야 합니다.`;
     if (needed >= player.chips) return '레이즈 후 칩이 남아야 합니다. 전액은 올인을 사용하세요.';
     pay(player, needed); currentBet += value; minRaise = value; acted = new Set([playerId]); advanceBet();
-    note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`); armActionTimer(); changed(); return null;
+    note(`${player.nickname}님이 ${value.toLocaleString()}원을 레이즈했습니다.`);
+    act(player.nickname, `레이즈 ${money(value)} (판돈 ${money(currentBet)})`);
+    armActionTimer(); changed(); return null;
   }
 
   /**
@@ -436,6 +457,7 @@ function createBlackjackRoom(options) {
     note(player.isAllIn
       ? `${player.nickname}님이 ${allInCap.toLocaleString()}원에 올인했습니다.`
       : `${player.nickname}님이 상대가 받을 수 있는 최대인 ${allInCap.toLocaleString()}원을 걸었습니다.`);
+    act(player.nickname, player.isAllIn ? `올인 ${money(allInCap)}` : `상대가 받을 수 있는 최대 ${money(allInCap)} (칩 ${money(player.chips)} 남김)`);
     // 남은 사람이 모두 행동했고 금액도 맞췄다면 여기서 배팅이 끝난다(call()과 같은 판정).
     if (bettingDone()) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;
@@ -445,6 +467,7 @@ function createBlackjackRoom(options) {
     const player = currentBetPlayer();
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     player.isFolded = true; note(timedOut ? `${player.nickname}님의 제한시간이 지나 자동 폴드되었습니다.` : `${player.nickname}님이 폴드했습니다.`);
+    act(player.nickname, timedOut ? '폴드 (시간 초과)' : '폴드');
     if (bettingPlayers().length === 1) { settle(bettingPlayers()[0]); return null; }
     // 남은 사람들이 이미 다 행동했고 금액도 맞췄다면 이 배팅은 끝난 것이다(call()과 같은
     // 판정). 이게 없으면 마지막 차례인 사람이 폴드했을 때 차례가 처음으로 돌아가,
@@ -454,6 +477,7 @@ function createBlackjackRoom(options) {
   }
 
   function showdown() {
+    act('진행', `쇼다운: ${bettingPlayers().map((p) => `${p.nickname} ${p.score > 21 ? `${p.score}점(21 초과)` : `${p.score}점`}/${p.hand.length}장`).join(' · ')}`);
     let candidates = bettingPlayers().filter((p) => p.score <= 21);
     if (!candidates.length) { refundAndFinish('모든 참가자가 21을 초과해 배팅금을 돌려드립니다.'); return; }
     const bestScore = Math.max(...candidates.map((p) => p.score));
@@ -463,6 +487,7 @@ function createBlackjackRoom(options) {
     let safety = 20;
     while (candidates.length > 1 && deck.length >= candidates.length && safety-- > 0) {
       note(`동점자 ${candidates.length}명이 재대결 카드 한 장씩 뽑습니다.`);
+      act('진행', `동점 재대결 카드: ${candidates.map((p) => p.nickname).join(', ')}`);
       const drawn = candidates.map((player) => { const card = deck.pop(); player.tieCards.push(card); return { player, value: card.rank > 10 ? 10 : card.rank }; });
       const bestTieCard = Math.max(...drawn.map((entry) => entry.value));
       candidates = drawn.filter((entry) => entry.value === bestTieCard).map((entry) => entry.player);
@@ -477,13 +502,14 @@ function createBlackjackRoom(options) {
     const amount = pot; winner.chips += pot; pot = 0; phase = 'result';
     result = { winnerId: winner.id, nickname: winner.nickname, amount, noWinner: false };
     note(`${winner.nickname}님이 ${winner.score}점으로 팟 ${amount.toLocaleString()}원을 획득했습니다.`);
+    act(winner.nickname, `팟 ${money(amount)} 획득 (${winner.score}점) → 칩 ${money(winner.chips)}`);
     players.forEach((p) => { p.ready = false; p.isAllIn = false; p.roundBet = 0; }); changed();
   }
 
   function refundAndFinish(message) {
     clearActionTimer();
     for (const player of players) { player.chips += player.roundBet; player.roundBet = 0; player.ready = false; player.isAllIn = false; }
-    pot = 0; phase = 'result'; result = { noWinner: true, message }; note(message); changed();
+    pot = 0; phase = 'result'; result = { noWinner: true, message }; note(message); act('진행', `환불 - ${message}`); changed();
   }
 
   function donate(fromId, toId, amount) {
@@ -492,7 +518,9 @@ function createBlackjackRoom(options) {
     if (!from || !to || from === to) return '기부 대상을 확인해 주세요.';
     if (to.chips >= baseBet) return '현재 칩이 부족한 참가자에게만 기부할 수 있습니다.';
     if (!Number.isInteger(value) || value < 100 || value % 100 !== 0 || from.chips < value) return '기부 금액과 보유 칩을 확인해 주세요.';
-    from.chips -= value; to.chips += value; note(`${from.nickname}님이 ${to.nickname}님에게 ${value.toLocaleString()}원을 기부했습니다.`); changed(); return null;
+    from.chips -= value; to.chips += value; note(`${from.nickname}님이 ${to.nickname}님에게 ${value.toLocaleString()}원을 기부했습니다.`);
+    act(from.nickname, `기부 → ${to.nickname} ${money(value)}`);
+    changed(); return null;
   }
 
   function stateFor(playerId) {
