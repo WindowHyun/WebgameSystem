@@ -75,17 +75,37 @@ const fresh = room.join({ nickname: '새 참가자' });
 assert.equal(room.stateFor(fresh.playerId).you.chips, INITIAL_CHIPS);
 assert.equal(room.stateFor(fresh.playerId).baseBet, 100);
 
-// 에이스는 21을 넘지 않는 한 11로 센다. 예전에는 무조건 1이어서 A+K가 11점이었고,
-// 그래서 이 게임에는 내추럴 21이 존재할 수 없었다.
+// [규칙] 에이스는 무조건 1로 센다.
+// 1/11로 세던 때는 히트했는데 점수가 줄어드는 일이 있었다(A+K 21점 → 4를 받으면 15점).
+// 규칙상 맞는 계산이지만 화면에는 숫자 하나만 보여서 "히트했더니 점수가 깎였다"는
+// 제보가 나왔다. 이 게임의 규칙은 에이스 1로 정한다.
 for (const [ranks, want, label] of [
-  [[1, 13], 21, 'A + K (내추럴 21)'],
-  [[1, 1], 12, 'A + A (에이스 하나만 11)'],
-  [[1, 5, 9], 15, 'A + 5 + 9 (11로 올리면 버스트라 1)'],
-  [[1, 6], 17, 'A + 6'],
-  [[1, 2, 8], 21, 'A + 2 + 8'],
+  [[1, 13], 11, 'A + K'],
+  [[1, 1], 2, 'A + A'],
+  [[1, 5, 9], 15, 'A + 5 + 9'],
+  [[1, 6], 7, 'A + 6'],
+  [[1, 10, 10], 21, 'A + 10 + 10'],
   [[10, 9, 5], 24, '10 + 9 + 5 (버스트)'],
 ]) {
   assert.equal(scoreHand(ranks.map((rank) => ({ rank, suit: '♠' }))), want, `${label}는 ${want}점이어야 합니다`);
 }
 
-console.log('블랙잭 규칙: 21 초과 블러핑·배팅·쇼다운·투표·에이스 1/11·빈 방 초기화 통과');
+// 제보된 증상 자체를 지킨다: 어떤 손에서든 히트하면 점수는 반드시 오른다.
+// 두 장짜리 모든 손 × 받을 수 있는 모든 카드, 세 장째에서 한 장 더까지 전부 본다.
+for (let a = 1; a <= 13; a += 1) {
+  for (let b = 1; b <= 13; b += 1) {
+    for (let c = 1; c <= 13; c += 1) {
+      const two = [a, b].map((rank) => ({ rank, suit: '♠' }));
+      const three = two.concat({ rank: c, suit: '♥' });
+      assert.ok(scoreHand(three) > scoreHand(two),
+        `히트했는데 점수가 줄거나 그대로다: ${[a, b]} = ${scoreHand(two)} → +${c} = ${scoreHand(three)}`);
+      for (let d = 1; d <= 13; d += 1) {
+        const four = three.concat({ rank: d, suit: '♦' });
+        assert.ok(scoreHand(four) > scoreHand(three),
+          `히트했는데 점수가 줄거나 그대로다: ${[a, b, c]} = ${scoreHand(three)} → +${d} = ${scoreHand(four)}`);
+      }
+    }
+  }
+}
+
+console.log('블랙잭 규칙: 21 초과 블러핑·배팅·쇼다운·투표·에이스 1·히트하면 점수가 오른다·빈 방 초기화 통과');

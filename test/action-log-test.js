@@ -6,7 +6,7 @@
  * 형식보다 더 중요한 것은 로그로 새면 안 되는 것들이다. 로그를 보는 사람(운영자)이
  * 게임에 끼는 경우가 흔하므로, 게임 중에 로그를 보고 답을 알 수 있으면 안 된다.
  *   - 라이어: 제시어, 누가 라이어인지, 대화 내용, 정답으로 낸 단어
- *   - 블랙잭: 판이 끝나기 전의 점수·21 초과 여부
+ *   - 블랙잭: 게임 화면의 기록에 카드·점수(관리 로그에는 운영 결정으로 남긴다)
  *   - 포커: 판이 끝나기 전의 카드
  * 그리고 닉네임에 줄바꿈을 넣어 없던 줄을 로그에 끼워 넣을 수 없어야 한다.
  */
@@ -63,8 +63,11 @@ function testPoker() {
   room.dispose();
 }
 
-function testBlackjackHidesBust() {
+function testBlackjackCardsAndTotals() {
   console.log('\n=== 블랙잭 ===');
+  // [운영 결정] 관리 로그에는 받은 카드와 그때의 점수를 남긴다(운영자가 판을 되짚도록).
+  // 대신 참가자끼리 보는 게임 화면의 기록에는 여전히 남기지 않는다 - 그게 블러핑의 전제다.
+  const cardName = (c) => ({ 1: 'A', 11: 'J', 12: 'Q', 13: 'K' }[c.rank] || c.rank) + c.suit;
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const log = recorder();
     const room = createBlackjackRoom({ onChange() {}, onAction: log.onAction, actionTimeoutMs: 0, proposalTimeoutMs: 0 });
@@ -72,18 +75,36 @@ function testBlackjackHidesBust() {
     room.setReady(a.playerId, true); room.setReady(b.playerId, true);
     room.begin(a.playerId);
     const hitter = room.stateFor(a.playerId).turnPlayerId;
+    const other = hitter === a.playerId ? b.playerId : a.playerId;
+    const name = room.stateFor(hitter).players.find((p) => p.id === hitter).nickname;
+    const dealt = room.stateFor(hitter).players.find((p) => p.id === hitter);
     for (let i = 0; i < 5; i += 1) room.hit(hitter);
     const me = room.stateFor(hitter).players.find((p) => p.id === hitter);
     if (!me.isBusted) { room.dispose(); continue; }
-    const beforeShowdown = log.lines.slice();
-    check('히트가 남는다', has(beforeShowdown, '히트 (3장째)'), beforeShowdown.join(' / '));
-    check('판이 끝나기 전에는 점수도 21 초과도 로그에 없다',
-      !beforeShowdown.some((l) => /점|초과/.test(l)), beforeShowdown.join(' / '));
+
+    check('처음 받은 두 장과 점수가 남는다',
+      has(log.lines, `${name} > 카드 받음: ${dealt.cards.map(cardName).join(' ')} → ${dealt.score}점, 2장`),
+      log.lines.filter((l) => l.includes('카드 받음')).join(' / '));
+    check('상대가 받은 두 장도 남는다', log.lines.filter((l) => l.includes('> 카드 받음:')).length === 2);
+    const last = me.cards[me.cards.length - 1];
+    check('히트로 뽑은 카드와 그때의 점수가 남는다',
+      has(log.lines, `${name} > 히트: ${cardName(last)} 받음 → ${me.score}점, 21 초과, ${me.cards.length}장`),
+      log.lines.filter((l) => l.includes('히트')).slice(-1)[0]);
+    // 히트마다 누적 점수가 실제 손패와 맞는지 - 한 줄씩 다시 계산해 본다.
+    const hitLines = log.lines.filter((l) => l.startsWith(`${name} > 히트:`));
+    let running = dealt.score;
+    let consistent = hitLines.length === me.cards.length - 2;
+    me.cards.slice(2).forEach((card, i) => {
+      running += card.rank > 10 ? 10 : card.rank;
+      if (!hitLines[i] || !hitLines[i].includes(`${cardName(card)} 받음 → ${running}점`)) consistent = false;
+    });
+    check('히트할 때마다 적힌 점수가 실제 손패의 누적 점수와 같다', consistent, hitLines.join(' / '));
+
+    const seenByOther = room.stateFor(other).history.map((h) => h.text);
+    check('게임 화면의 기록에는 여전히 카드도 점수도 없다',
+      !seenByOther.some((t) => /점|초과|♠|♥|♦|♣/.test(t)), seenByOther.join(' / '));
     room.stand(hitter);
-    room.stand(room.stateFor(a.playerId).turnPlayerId);
-    room.call(room.stateFor(a.playerId).turnPlayerId);
-    room.call(room.stateFor(a.playerId).turnPlayerId);
-    check('판이 끝나면 쇼다운에서 점수가 공개된다', has(log.lines, '(21 초과)'), log.lines.slice(-3).join(' / '));
+    check('스탠드할 때의 점수가 남는다', has(log.lines, `${name} > 스탠드 → ${me.score}점, 21 초과`));
     room.dispose();
     return;
   }
@@ -154,7 +175,7 @@ async function testServerLines() {
 
 async function main() {
   testPoker();
-  testBlackjackHidesBust();
+  testBlackjackCardsAndTotals();
   testLiarNeverLeaksAnswer();
   await testServerLines();
   console.log(`\n관리 로그: ${pass}개 통과, ${fail}개 실패`);
