@@ -174,6 +174,8 @@
       var data;
       try { data = JSON.parse(event.data); } catch (error) { return; }
       if (data.type === 'pong') return;
+      // [보스 키] 누군가 화면을 가렸다 - 내 화면도 가린다(public/cover.js).
+      if (data.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
       if (data.type === 'welcome') { saveToken(data.token); return; }
       if (data.type === 'replaced') {
         superseded = true;
@@ -275,6 +277,8 @@
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };
+  // [보스 키] 내가 가리면 다른 사람들 화면도 가리도록 서버에 알린다(public/cover.js).
+  document.addEventListener('boss-cover', function () { send('cover'); });
   $('start').onclick = function () { startConfirmOpen = true; renderStartConfirm(); };
   $('start-cancel').onclick = closeStartConfirm;
   $('start-go').onclick = function () { closeStartConfirm(); send('start'); };

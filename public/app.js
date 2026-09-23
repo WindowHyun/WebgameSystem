@@ -217,6 +217,8 @@ function connect() {
     var msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
     if (msg.type === 'pong') { pongSeen = true; return; }
+    // [보스 키] 누군가 화면을 가렸다 - 내 화면도 가린다(public/cover.js).
+    if (msg.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
     if (msg.type === 'welcome') {
       myId = msg.playerId;
       saveToken(msg.token);
@@ -405,6 +407,12 @@ function sendMessage(payload) {
   ws.send(JSON.stringify(payload));
   return true;
 }
+
+// [보스 키] 내가 가리면 다른 사람들 화면도 가리도록 서버에 알린다(public/cover.js).
+// 참가 전이어도 연결은 열려 있으므로 보낼 수 있다. 끊겨 있으면 조용히 넘어간다.
+document.addEventListener('boss-cover', function () {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cover' }));
+});
 
 // ───────────────────────────── 조작 ─────────────────────────────
 function enterGameScreen() {
