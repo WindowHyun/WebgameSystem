@@ -32,7 +32,7 @@
       </section>
 
       <section id="betting" class="controls hidden">
-        <button id="call" data-help="현재 배팅액에 맞춰 필요한 칩을 냅니다.">콜</button>
+        <button id="call" data-help="현재 배팅액에 맞춰 필요한 칩을 냅니다. 더 낼 것이 없으면 체크입니다.">콜</button>
         <div class="raise-setting"><input id="raise-amount" aria-label="레이즈 금액" type="number" min="100" step="100" value="100"><button id="raise" class="secondary" data-help="현재 배팅액을 입력한 금액만큼 올립니다.">레이즈</button></div>
         <button id="allin" class="warning" data-help="보유한 칩 전부를 배팅합니다. 상대가 받을 수 있는 금액까지만 걸리고, 이 판의 배팅 상한이 고정됩니다.">올인</button><button id="fold" class="text-button" data-help="이번 판을 포기하며 이미 낸 칩은 팟에 남습니다.">폴드</button>
       </section>
@@ -47,6 +47,6 @@
   </div>
   <div id="donate" class="popover hidden"><b id="donate-name"></b><input id="donate-amount" aria-label="기부 금액" type="number" min="100" step="100" value="100"><button id="donate-send" data-help="입력한 칩을 선택한 참가자에게 무상으로 보냅니다.">기부하기</button></div>
   <div id="error" role="alert"></div>
-  <script src="poker.js?v=8"></script>
+  <script src="poker.js?v=9"></script>
 </body>
 </html>

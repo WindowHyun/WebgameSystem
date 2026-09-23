@@ -320,14 +320,51 @@ function createPokerRoom(options) {
     dealtIn = contenders.slice(); // 이 판의 참가자 명단. 재대결이 와도 그대로 둔다.
     players.forEach((p) => { p.roundContribution = 0; });
     act(players.find((p) => p.id === pid).nickname, `게임 시작 (${ready.length}명: ${ready.map((p) => p.nickname).join(', ')})`);
-    startBetting(contenders, false);
     note('새 라운드가 시작되었습니다.');
+    startBetting(contenders, false);
     changed();
     return null;
   }
 
+  /**
+   * [규칙] 앤티 - 판을 시작할 때 참가자 전원이 기본 배팅금을 먼저 팟에 낸다.
+   *
+   * 예전에는 아무도 미리 내지 않았다. 기본 배팅금은 "계속하려면 최소 이만큼"이라는
+   * 콜 기준일 뿐이라, 첫 차례에 폴드하면 0원을 잃었고 폴드로 이긴 사람은 자기가 낸
+   * 돈만 돌려받았다. 기본 배팅금을 투표로 올려도 폴드가 나오면 아무 의미가 없었다.
+   *
+   * 칩이 기본 배팅금보다 적은 사람은 가진 만큼 내고 올인한다. 올인이 나오면 allin()과
+   * 같은 규칙으로 그 금액이 이 판의 상한이 되고, 더 낸 사람은 넘치는 몫을 돌려받는다
+   * (사이드 팟이 없으므로 아무도 맞출 수 없는 돈을 팟에 남기지 않는다).
+   */
+  function collectAnte(ids) {
+    const list = ids.map((pid) => players.find((x) => x.id === pid)).filter(Boolean);
+    for (const p of list) {
+      pay(p, Math.min(baseBet, p.chips));
+      if (p.chips === 0) { p.isAllIn = true; acted.add(p.id); }
+    }
+    const allIns = list.filter((p) => p.isAllIn);
+    if (allIns.length) {
+      allInCap = Math.min(...allIns.map((p) => p.roundBet));
+      currentBet = allInCap;
+      for (const x of list) {
+        if (x.roundBet <= allInCap) continue;
+        const refund = x.roundBet - allInCap;
+        x.roundBet -= refund; x.roundContribution -= refund; x.chips += refund; pot -= refund;
+      }
+    }
+    note(`앤티로 ${baseBet.toLocaleString()}원씩 걷었습니다. (팟 ${pot.toLocaleString()}원)`);
+    act('진행', `앤티 ${money(baseBet)}씩 걷음 (팟 ${money(pot)})`);
+    for (const p of allIns) {
+      note(`${p.nickname}님은 칩이 모자라 ${p.roundBet.toLocaleString()}원을 내고 올인했습니다.`);
+      act(p.nickname, `앤티 ${money(p.roundBet)} (칩이 모자라 올인)`);
+    }
+  }
+
   function startBetting(ids, tie) {
-    contenders = ids.slice(); turn = 0; currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set(); phase = 'betting';
+    // 새 판은 앤티가 곧 지금의 배팅액이다(collectAnte가 걷는다). 재대결은 팟이 이미 있어
+    // 다시 걷지 않으므로 0원(체크)부터 시작한다.
+    contenders = ids.slice(); turn = 0; currentBet = tie ? 0 : baseBet; minRaise = baseBet; allInCap = null; acted = new Set(); phase = 'betting';
     for (const p of players) {
       p.isFolded = !ids.includes(p.id);
       p.isAllIn = false;
@@ -356,6 +393,10 @@ function createPokerRoom(options) {
       showdown();
       return;
     }
+    if (!tie) collectAnte(ids);
+    // 앤티로 올인한 사람은 차례를 받지 않는다. 전원이 앤티로 올인했다면 배팅할 것이 없다.
+    skipAllInTurn();
+    if (bettingDone()) { showdown(); return; }
     armActionTimer();
   }
 
@@ -382,8 +423,10 @@ function createPokerRoom(options) {
     const p = current();
     const need = Math.max(0, currentBet - p.roundBet);
     if (p.chips < need) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
-    pay(p, need); acted.add(pid); note(`${p.nickname}님이 ${need.toLocaleString()}원을 콜했습니다.`);
-    act(p.nickname, `콜 ${money(need)}`);
+    pay(p, need); acted.add(pid);
+    // 앤티를 낸 뒤 더 낼 것이 없으면 콜이 아니라 체크다.
+    note(need ? `${p.nickname}님이 ${need.toLocaleString()}원을 콜했습니다.` : `${p.nickname}님이 체크했습니다.`);
+    act(p.nickname, need ? `콜 ${money(need)}` : '체크');
     if (bettingDone()) return showdown();
     advance(); armActionTimer(); changed(); return null;
   }

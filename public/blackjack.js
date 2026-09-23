@@ -216,7 +216,9 @@
     $('betting').querySelectorAll('button').forEach(function (button) { button.disabled = !myTurn; });
     // 상한이 고정된 뒤에도 올인은 열어 둔다(public/poker.js의 같은 자리 주석 참고).
     $('allin').disabled = !myTurn || you.chips <= 0; $('raise').disabled = !myTurn || state.allInCap !== null;
-    $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
+    // 앤티를 내고 나면 더 낼 것이 없는 경우가 많다. 그때 "콜 · 0원"은 체크다.
+    var toCall = Math.max(0, state.currentBet - you.roundBet);
+    $('call').textContent = toCall ? '콜 · ' + money(toCall) : '체크';
     syncRaiseFloor(state.minRaise);
     // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다(public/poker.js와 동일).
     var message = '참가자들이 준비하면 시작할 수 있습니다.';

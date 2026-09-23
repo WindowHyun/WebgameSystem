@@ -320,6 +320,7 @@ function createBlackjackRoom(options) {
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
     if (ready.length < MIN_PLAYERS) return '준비한 참가자가 2명 이상이어야 합니다.';
     phase = 'playing'; result = null; pot = 0; deck = freshDeck(); contenders = ready.map((p) => p.id); turn = 0;
+    currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set();
     for (const player of players) {
       player.hand = []; player.tieCards = []; player.score = 0; player.isBusted = false; player.isStanding = false;
       player.isFolded = !contenders.includes(player.id); player.isAllIn = false; player.roundBet = 0;
@@ -328,6 +329,7 @@ function createBlackjackRoom(options) {
     note('카드 두 장씩 배분했습니다. 차례대로 히트 또는 스탠드를 선택하세요.');
     act(players.find((p) => p.id === playerId).nickname, `게임 시작 (${ready.length}명: ${ready.map((p) => p.nickname).join(', ')})`);
     for (const player of inRound()) act(player.nickname, `카드 받음: ${player.hand.map(cardName).join(' ')} → ${handLine(player)}`);
+    collectAnte(contenders);
     advancePlaying(true); changed(); return null;
   }
 
@@ -372,13 +374,49 @@ function createBlackjackRoom(options) {
     advancePlaying(false); changed(); return null;
   }
 
+  /**
+   * [규칙] 앤티 - 카드를 나눠 줄 때 참가자 전원이 기본 배팅금을 먼저 팟에 낸다.
+   * 이유와 올인 처리는 web/poker-room.js의 collectAnte 주석 참고. 블랙잭은 카드를 고른
+   * 뒤에 배팅하므로, 카드를 받는 순간 걷어야 배팅 단계에서 폴드했을 때 앤티를 잃는다.
+   */
+  function collectAnte(ids) {
+    const list = ids.map((id) => players.find((p) => p.id === id)).filter(Boolean);
+    for (const player of list) {
+      pay(player, Math.min(baseBet, player.chips));
+      if (player.chips === 0) player.isAllIn = true;
+    }
+    const allIns = list.filter((p) => p.isAllIn);
+    if (allIns.length) {
+      allInCap = Math.min(...allIns.map((p) => p.roundBet));
+      currentBet = allInCap;
+      for (const other of list) {
+        if (other.roundBet <= allInCap) continue;
+        const refund = other.roundBet - allInCap;
+        other.roundBet -= refund; other.chips += refund; pot -= refund;
+      }
+    }
+    note(`앤티로 ${baseBet.toLocaleString()}원씩 걷었습니다. (팟 ${pot.toLocaleString()}원)`);
+    act('진행', `앤티 ${money(baseBet)}씩 걷음 (팟 ${money(pot)})`);
+    for (const player of allIns) {
+      note(`${player.nickname}님은 칩이 모자라 ${player.roundBet.toLocaleString()}원을 내고 올인했습니다.`);
+      act(player.nickname, `앤티 ${money(player.roundBet)} (칩이 모자라 올인)`);
+    }
+  }
+
   function beginBetting() {
     const survivors = inRound().filter((p) => !p.isFolded);
     if (survivors.length === 0) { refundAndFinish('진행 가능한 참가자가 없어 이번 판을 종료합니다.'); return; }
     if (survivors.length === 1) { settle(survivors[0]); return; }
-    phase = 'betting'; turn = 0; currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set();
+    // 앤티가 곧 지금의 배팅액이다(begin에서 걷었다). 앤티로 올인한 사람은 이미 할 일을
+    // 다 한 것이라 행동한 것으로 치고, 차례도 건너뛴다. 올인 상한도 그대로 이어 간다.
+    phase = 'betting'; turn = 0; minRaise = baseBet;
+    currentBet = allInCap !== null ? allInCap : baseBet;
+    acted = new Set(survivors.filter((p) => p.isAllIn).map((p) => p.id));
     note('카드 선택이 끝났습니다. 배팅을 시작합니다.');
     act('진행', `카드 선택 끝, 배팅 시작 (${survivors.map((p) => p.nickname).join(', ')})`);
+    skipAllInTurn();
+    // 남은 사람이 전부 앤티로 올인했다면 배팅할 것이 없다.
+    if (bettingDone()) { showdown(); return; }
     armActionTimer();
   }
 
@@ -402,8 +440,10 @@ function createBlackjackRoom(options) {
     if (phase !== 'betting' || !player || player.id !== playerId) return '지금은 본인 차례가 아닙니다.';
     const needed = Math.max(0, currentBet - player.roundBet);
     if (player.chips < needed) return '콜할 칩이 부족합니다. 올인을 선택하세요.';
-    pay(player, needed); acted.add(playerId); note(`${player.nickname}님이 ${needed.toLocaleString()}원을 콜했습니다.`);
-    act(player.nickname, `콜 ${money(needed)}`);
+    pay(player, needed); acted.add(playerId);
+    // 앤티를 낸 뒤 더 낼 것이 없으면 콜이 아니라 체크다.
+    note(needed ? `${player.nickname}님이 ${needed.toLocaleString()}원을 콜했습니다.` : `${player.nickname}님이 체크했습니다.`);
+    act(player.nickname, needed ? `콜 ${money(needed)}` : '체크');
     if (bettingDone()) { showdown(); return null; }
     advanceBet(); armActionTimer(); changed(); return null;
   }
