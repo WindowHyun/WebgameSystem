@@ -52,7 +52,8 @@ function testPoker() {
   check('입장이 남는다', has(log.lines, '김하늘 > 입장 (칩 1,000,000원)'), log.lines[0]);
   check('누가 시작했는지 남는다', has(log.lines, '김하늘 > 게임 시작 (2명: 김하늘, 박서준)'));
   check('레이즈가 금액과 함께 남는다', has(log.lines, `${firstName} > 레이즈 500원 (판돈 600원)`));
-  check('콜이 실제로 낸 금액과 함께 남는다', has(log.lines, `${secondName} > 콜 600원`));
+  // 앤티 100원은 이미 냈으므로, 600원까지 맞추려면 500원만 더 낸다.
+  check('콜이 실제로 낸 금액과 함께 남는다', has(log.lines, `${secondName} > 콜 500원`));
   check('판이 끝나면 쇼다운 카드가 남는다', has(log.lines, '진행 > 쇼다운: '));
   check('누가 얼마를 가져갔는지 남는다', log.lines.some((l) => / > 팟 1,200원 획득/.test(l)) || has(log.lines, '동점 재대결'),
     log.lines.slice(-2).join(' / '));

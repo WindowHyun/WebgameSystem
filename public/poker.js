@@ -290,7 +290,9 @@
     // 이 올인을 받아 주고 있었고, 막고 있던 건 이 한 줄이었다.
     $('allin').disabled = !myTurn || you.chips <= 0;
     $('raise').disabled = !myTurn || state.allInCap !== null;
-    $('call').textContent = '콜 · ' + money(Math.max(0, state.currentBet - you.roundBet));
+    // 앤티를 내고 나면 더 낼 것이 없는 경우가 많다. 그때 "콜 · 0원"은 체크다.
+    var toCall = Math.max(0, state.currentBet - you.roundBet);
+    $('call').textContent = toCall ? '콜 · ' + money(toCall) : '체크';
     syncRaiseFloor(state.minRaise);
 
     // 시작 버튼이 꺼져 있으면 그 이유를 그대로 말해 준다. 예전에는 "방장만 시작"이라는

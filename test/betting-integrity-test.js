@@ -95,8 +95,8 @@ async function testLeaveAfterAllInAndCall(game, make, how) {
   check(`${game}/${how}: 결과가 카드 비교로 났다`,
     !!later.result && (later.result.revealed !== false || later.result.noWinner === true), JSON.stringify(later.result));
   if (how === '끊김') {
-    // 끊긴 C는 폴드되어 목록에서 빠져 있다. C는 한 푼도 내지 않았으므로 시작 칩 그대로다.
-    const chips = later.players.map((p) => p.chips).concat(INITIAL_CHIPS);
+    // 끊긴 C는 폴드되어 목록에서 빠져 있다. C가 낸 것은 앤티(기본 배팅금 100원)뿐이다.
+    const chips = later.players.map((p) => p.chips).concat(INITIAL_CHIPS - 100);
     check(`${game}/${how}: 칩 총액이 그대로다`, total(chips, later.pot) === start,
       `${total(chips, later.pot)} vs ${start}`);
   }
