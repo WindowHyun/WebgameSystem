@@ -174,6 +174,61 @@ function testWinWholeGame() {
   room.dispose();
 }
 
+function testReviewFixes() {
+  console.log('\n=== 리뷰에서 나온 것 ===');
+  {
+    // 집중 단계에서 "집중 완료"를 누른 뒤 화면을 가리면 집중이 풀려야 한다.
+    const { room, ids, view, start } = open(['가', '나']);
+    start();
+    room.focus(ids[0], true);
+    room.setCovered(ids[0], true);
+    room.focus(ids[1], true);
+    check('집중한 뒤 화면을 가리면 집중이 풀려 레벨이 시작되지 않는다', view().phase === 'focus'
+      && view().players.find((p) => p.id === ids[0]).focused === false, view().phase);
+    room.focus(ids[0], true);
+    check('돌아와서 다시 누르면 시작한다', view().phase === 'playing');
+    room.dispose();
+  }
+  {
+    // 남은 카드가 떠난 사람 것뿐이라 끝난 레벨: 보상 없이 넘어간다.
+    const { room, ids, view, setHands, focusAll, start } = open(['가', '나', '다']);
+    start();
+    room._debug().setLevel(2); // 레벨 2를 깨면 원래 수리검 +1
+    setHands([1, 2], [3, 4], [55, 80]);
+    focusAll();
+    for (const id of [ids[0], ids[0], ids[1], ids[1]]) room.play(id);
+    room.leave(ids[2]);
+    const s = view();
+    check('떠난 사람 카드만 남아 끝난 레벨은 보상 없이 다음 레벨로 간다', s.level === 3 && s.stars === 1 && s.lastEvent.kind === 'left',
+      JSON.stringify({ level: s.level, stars: s.stars, event: s.lastEvent }));
+    room.dispose();
+  }
+  {
+    // 마지막 레벨에서 어려운 카드를 들고 나가면 이긴 것이 아니다.
+    const { room, ids, view, setHands, focusAll, start } = open(['가', '나', '다']);
+    start();
+    room._debug().setLevel(10);
+    setHands([1], [2], [55, 80]);
+    focusAll();
+    room.play(ids[0]); room.play(ids[1]);
+    room.leave(ids[2]);
+    const s = view();
+    check('마지막 레벨을 떠난 사람 때문에 못 치르면 승리가 아니라 승패 없이 끝난다', s.phase === 'result' && s.result.won === false && s.result.ended === true,
+      JSON.stringify(s.result));
+    room.dispose();
+  }
+  {
+    const { room, view } = open(['가']);
+    const long = '가나다라마바사아자차카타파하가나다라마😀';
+    room.join({ nickname: long });
+    const dup = room.join({ nickname: long });
+    const name = room.stateFor(dup.playerId).players.find((p) => p.id === dup.playerId).nickname;
+    check('겹치는 닉네임을 줄여도 이모지가 반으로 갈리지 않는다', !/[\uD800-\uDFFF]/.test(name.replace(/😀/g, '')), JSON.stringify(name));
+    void view;
+    room.dispose();
+  }
+}
+
 function testPauseAndCover() {
   console.log('\n=== 멈춤·화면 가림 ===');
   const { room, ids, view, focusAll, start } = open(['가', '나']);
@@ -299,6 +354,7 @@ async function main() {
   await testStar();
   testWinWholeGame();
   testPauseAndCover();
+  testReviewFixes();
   await testDisconnectAndLeave();
   testLogsHideHands();
   await testServer();

@@ -86,11 +86,13 @@ function createMindRoom(options) {
   function uniqueNickname(value, exceptId) {
     const used = new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname));
     if (!used.has(value)) return value;
+    // 글자(코드 포인트) 단위로 자른다. slice()는 UTF-16 단위라 이모지를 반으로 가른다.
+    const head = (count) => Array.from(value).slice(0, count).join('');
     for (let n = 2; n < 100; n += 1) {
-      const candidate = `${value.slice(0, 20)}(${n})`;
+      const candidate = `${head(20)}(${n})`;
       if (!used.has(candidate)) return candidate;
     }
-    return `${value.slice(0, 18)}-${makeId().slice(0, 4)}`;
+    return `${head(18)}-${makeId().slice(0, 4)}`;
   }
 
   function shuffledDeck() {
@@ -147,6 +149,22 @@ function createMindRoom(options) {
   function completeLevel(before) {
     const reward = REWARDS[level];
     let rewardText = '';
+    // [이슈] 남은 카드가 떠난 사람 것뿐이라 끝난 레벨은 깬 것이 아니다. 예전에는 그대로
+    // "통과"로 쳐서 보상을 받았고, 마지막 레벨이면 치르지도 않은 게임을 이긴 것이 됐다
+    // (어려운 카드를 들고 나가 버리면 되는 셈이었다). 보상 없이 넘어가고, 마지막 레벨이면
+    // 승패 없이 끝낸다.
+    if (before && before.kind === 'left') {
+      note(`레벨 ${level}은 남은 카드가 빠진 사람 것뿐이라 보상 없이 넘어갑니다.`);
+      act('진행', `레벨 ${level} 보상 없이 넘어감 (남은 카드가 빠진 사람 것뿐)`);
+      lastEvent = { kind: 'left', text: `${before.text} → 레벨 ${level}은 보상 없이 넘어갑니다` };
+      if (level >= levels) {
+        finish(false, '마지막 레벨을 끝까지 치르지 못해 승패 없이 게임을 마칩니다.', true);
+        return;
+      }
+      level += 1;
+      startLevel();
+      return;
+    }
     if (reward === 'star' && stars < MAX_STARS) { stars += 1; rewardText = ' 보상으로 수리검 1개를 받았습니다.'; }
     if (reward === 'life' && lives < MAX_LIVES) { lives += 1; rewardText = ' 보상으로 목숨 1개를 받았습니다.'; }
     note(`레벨 ${level} 통과!${rewardText}`);
@@ -175,7 +193,7 @@ function createMindRoom(options) {
       finish(false, '함께할 사람이 부족해 게임을 마칩니다.', true);
       return;
     }
-    if (handsEmpty()) { completeLevel(); return; }
+    if (handsEmpty()) { completeLevel({ kind: 'left', text: `${player.nickname}님이 빠져 남은 카드가 없습니다` }); return; }
     enterFocus(`${player.nickname}님이 빠졌습니다. 남은 사람끼리 이어 갑니다 - 다시 집중하세요.`);
   }
 
@@ -410,7 +428,20 @@ function createMindRoom(options) {
 
   /** [보스 키] 레벨 도중 누가 화면을 가리면 멈춘다 - 가린 사람은 판을 볼 수 없다. */
   function setCovered(id, covered) {
-    if (!covered || phase !== 'playing' || !roster.includes(id)) return;
+    if (!covered || !roster.includes(id)) return;
+    // [이슈] 집중 단계에서 "집중 완료"를 누른 뒤 화면을 가리면(남이 가린 경우 포함) 그 사람은
+    // 집중한 것으로 남아, 나머지가 집중하는 순간 가린 사람이 판을 못 보는 채로 레벨이
+    // 시작됐다. 가리면 집중을 풀고, 돌아와서 다시 누르게 한다.
+    if (phase === 'focus') {
+      const player = find(id);
+      if (player && player.focused) {
+        player.focused = false;
+        note(`${player.nickname}님의 화면이 가려져 집중을 풀었습니다. 돌아와서 다시 눌러야 시작합니다.`);
+        changed();
+      }
+      return;
+    }
+    if (phase !== 'playing') return;
     note(`${nameOf(id)}님의 화면이 가려져 잠시 멈췄습니다.`);
     act(nameOf(id), '화면 가림 - 잠깐 멈춤');
     enterFocus(`${nameOf(id)}님의 화면이 가려져 잠시 멈췄습니다. 돌아오면 다시 집중하세요.`);

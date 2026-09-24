@@ -49,6 +49,15 @@
    */
   var pendingPlay = false;
   var pendingTimer = null;
+  // [이슈] 잠금은 "내 카드가 실제로 줄었을 때"(또는 레벨·단계가 바뀌었을 때)만 푼다. 예전에는
+  // 아무 상태나 오면 풀어서, 두 번 누르는 사이에 다른 사람 때문에 온 상태가 끼면 두 번째
+  // 누름이 그대로 나가 카드 두 장이 연달아 나갔다.
+  var pendingHand = 0;
+  var pendingLevel = 0;
+  function settlePending(next) {
+    if (!pendingPlay || !next.you) return;
+    if (next.you.hand.length < pendingHand || next.level !== pendingLevel || next.phase !== 'playing') pendingPlay = false;
+  }
 
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
   var errorTimer = null;
@@ -227,7 +236,7 @@
       // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
       if (data.type === 'left') { location.href = '/'; return; }
       if (data.type === 'error') { pendingPlay = false; showError(data.message); if (state) render(); return; }
-      if (data.type === 'mindState') { state = data; pendingPlay = false; render(); }
+      if (data.type === 'mindState') { settlePending(data); state = data; render(); }
     };
     ws.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
     ws.onclose = function () {
@@ -392,6 +401,8 @@
   $('play').onclick = function () {
     if (pendingPlay) return;
     pendingPlay = true;
+    pendingHand = state.you.hand.length;
+    pendingLevel = state.level;
     $('play').disabled = true;
     clearTimeout(pendingTimer);
     pendingTimer = setTimeout(function () { pendingPlay = false; if (state) render(); }, 1500);
