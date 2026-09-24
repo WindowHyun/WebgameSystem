@@ -1686,9 +1686,13 @@ function render(s) {
 
   var lobbyish = s.phase === 'lobby' || s.phase === 'result';
   // [요청] 돋보기 아이콘만 있는 버튼이라 글자는 title(말풍선 안내)로만 남긴다.
+  // [모바일] 마우스가 없는 기기는 말풍선이 뜨지 않아서 그때만 글자(.btn-label)를 보인다(style.css).
+  var startText = s.phase === 'result' ? '다음 라운드' : '게임 시작';
   $('start-btn').disabled = !s.canStart;
-  $('start-btn').title = s.phase === 'result' ? '다음 라운드' : '게임 시작';
-  $('start-btn').setAttribute('aria-label', s.phase === 'result' ? '다음 라운드' : '게임 시작');
+  $('start-btn').title = startText;
+  $('start-btn').setAttribute('aria-label', startText);
+  var startLabel = $('start-btn').querySelector('.btn-label');
+  if (startLabel) startLabel.textContent = startText;
   $('start-btn').classList.toggle('hidden', !lobbyish);
   // 투표 제안은 자유 대화 때만. 설명이 끝나기 전에는 누를 수 없다.
   $('vote-btn').disabled = !(s.phase === 'free' && s.you && s.you.inRound);

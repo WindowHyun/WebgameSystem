@@ -10,6 +10,8 @@
  *   - 라이어 참가자 목록 우클릭(강퇴 메뉴)은 그대로 둔다
  *   - 카드 게임 기부 창은 왼쪽 클릭으로 계속 열린다
  *   - 폰 길게 누르기로는 덮이지 않는다
+ *   - [모바일] 폰(우클릭·Esc가 없다)은 남이 가린 화면을 한 번 눌러 푼다. 연달아 누른 손가락은
+ *     드러난 버튼을 누르지 않는다. 데스크톱 마우스 왼쪽 클릭으로는 풀리지 않는다
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
  *     돌아오는 것은 각자 하고, 누가 가렸는지 관리 로그에 남는다
  *   - [요청] 가려진 동안은 그 사람을 기다리는 제한시간도 멈추고, 화면의 남은 시간도 멈춰 보인다
@@ -166,6 +168,40 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
       !(await onPortal.evaluate(COVER)) && !!(await inLiar.evaluate(COVER)) && !!(await fromPoker.evaluate(COVER)));
     check('누가 가렸는지 관리 로그에 남는다',
       serverLog.some((l) => l.includes('[보스 키] 포커 무 > 모두의 화면을 가림')), serverLog.filter((l) => l.includes('보스 키')).join(' / '));
+    // [모바일] 폰에는 우클릭도 Esc도 없다. 남이 가린 화면은 손가락으로 한 번 누르면 풀린다.
+    check('폰: 남이 가린 화면이 폰에도 뜬다', !!(await phone.evaluate(COVER)));
+    await fromPoker.mouse.click(700, 400);
+    await wait(150);
+    check('데스크톱: 마우스 왼쪽 클릭으로는 풀리지 않는다(우클릭·Esc만)', !!(await fromPoker.evaluate(COVER)));
+    const readyLabel = () => phone.evaluate(() => document.getElementById('ready').textContent);
+    const readyBefore = await readyLabel();
+    const readyBox = await phone.evaluate(() => { const r = document.getElementById('ready').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await phone.touchscreen.tap(readyBox.x, readyBox.y); // 그림을 한 번 누른다
+    await phone.touchscreen.tap(readyBox.x, readyBox.y); // 풀리는지 몰라 연달아 누른 손가락
+    await wait(250);
+    check('폰: 가린 그림을 한 번 누르면 돌아온다', !(await phone.evaluate(COVER)));
+    check('폰: 풀자마자 연달아 누른 손가락은 드러난 버튼을 누르지 않는다', (await readyLabel()) === readyBefore, `${readyBefore} → ${await readyLabel()}`);
+    await wait(400);
+    await phone.touchscreen.tap(readyBox.x, readyBox.y);
+    await wait(300);
+    check('폰: 조금 지나면 버튼은 그대로 눌린다', (await readyLabel()) !== readyBefore, await readyLabel());
+    await fromPoker.keyboard.press('Escape');
+    await fromPoker.mouse.click(700, 400, { button: 'right' });
+    await wait(500);
+    // 길게 누르기: 헤드리스 Chromium은 실제 폰처럼 길게 누르기를 알아보지 못하므로(떼면 click이 난다)
+    // 폰이 보내는 순서(터치 pointerdown → contextmenu)를 그대로 흉내 낸다.
+    await phone.locator('#boss-cover').dispatchEvent('pointerdown', { pointerType: 'touch' });
+    const menuBlocked = await phone.evaluate(() => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      document.getElementById('boss-cover').dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    check('폰: 가린 그림을 길게 눌러도 풀리지 않고 이미지 저장 메뉴도 뜨지 않는다', !!(await phone.evaluate(COVER)) && menuBlocked);
+    await phone.touchscreen.tap(60, 300);
+    await wait(250);
+    check('폰: 그다음 한 번 누르면 풀린다', !(await phone.evaluate(COVER)));
+    // 아래 검사는 포털 화면이 풀려 있어야 한다(방금 다시 가린 것을 되돌린다).
+    await onPortal.keyboard.press('Escape');
     // [요청] 포털에서 눌러도 게임 중인 사람까지 가려진다.
     await inLiar.keyboard.press('Escape');
     await wait(150);

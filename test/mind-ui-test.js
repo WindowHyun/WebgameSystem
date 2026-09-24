@@ -9,7 +9,7 @@
  *   - 카드 내기를 두 번 눌러도 한 장만 나간다(두 번째는 대개 실수가 된다)
  *   - 수리검: 다른 사람에게 투표 창이 뜨고, 모두 동의하면 각자 가장 작은 카드가 버려진다
  *   - 실수하면 무엇이 버려졌는지 크게 보인다
- *   - 보스 키로 누가 화면을 가리면 모두 멈춘다(집중 단계)
+ *   - 보스 키로 누가 화면을 가리면 모두 멈춘다(집중 단계). 폰은 가린 그림을 한 번 눌러 돌아온다
  *   - 폰(375px)에서 가로로 넘치지 않고 카드 내기 버튼이 화면 안에 있다
  *
  * 실행: node test/mind-ui-test.js
@@ -130,7 +130,14 @@ function check(name, ok, detail) {
       await wait(400);
       check('진행 중에 누가 화면을 가리면 모두 멈춘다(집중 단계)', await phase(a) === 'focus' && /화면이 가려져/.test(await a.textContent('#message')),
         await a.textContent('#message'));
-      for (const p of pages) if (await p.evaluate(() => !!document.getElementById('boss-cover'))) { await p.keyboard.press('Escape'); await wait(80); }
+      // [모바일] 폰에는 Esc가 없다. 가린 그림을 한 번 눌러 돌아오고, 모두 다시 집중하면 이어서 진행한다.
+      check('가린 사람 말고 폰 화면도 가려진다', await phone.evaluate(() => !!document.getElementById('boss-cover')));
+      for (const p of [a, b]) if (await p.evaluate(() => !!document.getElementById('boss-cover'))) { await p.keyboard.press('Escape'); await wait(80); }
+      await phone.touchscreen.tap(180, 300);
+      await wait(700); // 푼 직후 잠깐은 손가락을 흘려보낸다(public/cover.js)
+      check('폰: 가린 그림을 한 번 누르면 돌아온다', !(await phone.evaluate(() => !!document.getElementById('boss-cover'))));
+      await focusAll(pages);
+      check('폰이 돌아와 모두 집중하면 이어서 진행한다(폰 때문에 멈춰 있지 않다)', await phase(a) === 'playing', await a.textContent('#message'));
     } else {
       check('보스 키 검사를 위해 진행 중이어야 한다', false, await phase(a));
     }
