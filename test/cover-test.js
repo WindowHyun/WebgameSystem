@@ -10,6 +10,8 @@
  *   - 라이어 참가자 목록 우클릭(강퇴 메뉴)은 그대로 둔다
  *   - 카드 게임 기부 창은 왼쪽 클릭으로 계속 열린다
  *   - 폰 길게 누르기로는 덮이지 않는다
+ *   - [요청] 세로로 든 폰은 모바일 쇼핑몰 화면(5장 중 무작위)으로 가린다. 가로로 돌린 폰과
+ *     PC의 세로 창은 PC 쇼핑몰 화면이다
  *   - [모바일] 폰(우클릭·Esc가 없다)은 남이 가린 화면을 한 번 눌러 푼다. 연달아 누른 손가락은
  *     드러난 버튼을 누르지 않는다. 데스크톱 마우스 왼쪽 클릭으로는 풀리지 않는다
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
@@ -149,6 +151,39 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     await phone.locator('#table').dispatchEvent('contextmenu');
     await wait(200);
     check('폰: 길게 누르기(터치에서 온 우클릭)로는 덮이지 않는다', !(await phone.evaluate(COVER)));
+
+    // [요청] 세로로 든 폰은 모바일 쇼핑몰 화면으로 가린다(PC 캡처를 세로로 꽉 채우면 가운데만 잘려 보였다).
+    const phoneSeen = new Set();
+    const phoneTitles = new Set();
+    let repeated = false;
+    let previous = null;
+    let firstShown = null;
+    for (let i = 0; i < 40; i += 1) {
+      await phone.evaluate(() => window.bossCover.show());
+      if (i === 0) {
+        await phone.waitForFunction(() => { const img = document.querySelector('#boss-cover img'); return img && img.complete && img.naturalWidth > 0; });
+        firstShown = await phone.evaluate(COVER);
+      }
+      const st = await phone.evaluate(COVER);
+      phoneSeen.add(st.src);
+      phoneTitles.add(st.title);
+      if (st.src === previous) repeated = true;
+      previous = st.src;
+      await phone.keyboard.press('Escape');
+    }
+    check('폰(세로): 모바일 쇼핑몰 화면으로 화면 전체를 가리고 그림이 실제로 뜬다',
+      !!firstShown && firstShown.full && firstShown.loaded && [...phoneSeen].every((src) => /^cover-phone-[1-5]\.webp$/.test(src)),
+      JSON.stringify(firstShown) + ' ' + [...phoneSeen].join(', '));
+    check('폰(세로): 여러 번 가리면 다섯 그림이 모두 나오고 같은 그림이 연달아 나오지 않는다', phoneSeen.size === 5 && !repeated,
+      `${phoneSeen.size}종, 연달아 ${repeated}`);
+    check('폰(세로): 탭 제목도 그림에 맞는 올리브영 제목이다', [...phoneTitles].every((t) => /올리브영/.test(t)) && phoneTitles.size >= 4, [...phoneTitles].join(' / '));
+    for (const [label, device] of [['폰을 가로로 돌리면', devices['iPhone 13 Pro landscape']], ['PC에서 창을 반쪽으로 띄운 세로 창은', { viewport: { width: 960, height: 1040 } }]]) {
+      const page = await enter(browser, port, null, '구경', device);
+      await page.evaluate(() => window.bossCover.show());
+      const st = await page.evaluate(COVER);
+      check(`${label} PC 쇼핑몰 화면으로 가린다`, !!st && /^cover-\d\.webp$/.test(st.src), JSON.stringify(st));
+      await page.context().close();
+    }
 
     console.log('\n=== 모두의 화면 ===');
     const fromPoker = await enter(browser, port, 'poker', '무');

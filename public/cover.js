@@ -2,8 +2,8 @@
  * [요청] 보스 키 - 마우스 우클릭 한 번으로 화면 전체를 업무 화면처럼 보이는 그림으로 덮는다.
  *
  * 업무 중에 하는 게임이라 누가 다가오면 바로 가릴 수 있어야 한다. 덮는 그림은 매번
- * 무작위로 고르고, 브라우저 탭 제목도 그 그림에 맞게 바꾼다("인디언 포커"가 탭에 그대로
- * 보이면 소용없다). 다시 우클릭하거나 Esc를 누르면 원래 화면으로 돌아온다.
+ * 무작위로 고르고(PC는 PC 쇼핑몰 화면, 세로로 든 폰은 모바일 쇼핑몰 화면), 브라우저 탭 제목도
+ * 그 그림에 맞게 바꾼다("인디언 포커"가 탭에 그대로 보이면 소용없다). 다시 우클릭하거나 Esc를 누르면 원래 화면으로 돌아온다.
  * 폰(우클릭도 Esc도 없다)에서는 가린 그림을 손가락으로 한 번 누르면 돌아온다.
  *
  * 다른 우클릭 기능과의 관계:
@@ -26,26 +26,57 @@
  */
 (function () {
   'use strict';
-  var COVERS = [
+  // PC로 본 쇼핑몰 화면(가로로 긴 캡처).
+  var WIDE_COVERS = [
     { src: 'cover-1.webp', title: '올리브영 온라인몰' },
     { src: 'cover-2.webp', title: '[1등미백앰플]메디큐브 PDRN 핑크 펩타이드 앰플 | 올리브영' },
   ];
+  // [요청] 폰에서는 폰으로 본 모바일 쇼핑몰 화면(세로로 긴 캡처)을 띄운다. PC 캡처를 세로 화면에
+  // 꽉 채우면 한가운데만 크게 잘려 쇼핑몰로 보이지 않았다.
+  var TALL_COVERS = [
+    { src: 'cover-phone-1.webp', title: '올리브영 명동 타운 | 올리브영' },
+    { src: 'cover-phone-2.webp', title: '올영매장 | 올리브영' },
+    { src: 'cover-phone-3.webp', title: '선케어 | 올리브영' },
+    { src: 'cover-phone-4.webp', title: '카테고리 | 올리브영' },
+    { src: 'cover-phone-5.webp', title: '올리브영 온라인몰' },
+  ];
+  // 세로 화면인 폰(폭이 폰 화면 기준 이하이거나 손가락으로 쓰는 기기)만 모바일 캡처를 쓴다.
+  // 폰을 가로로 돌리면 가로 캡처가 더 잘 맞고, PC에서 창을 반쪽으로 띄운 세로 창에는 PC 화면이 자연스럽다.
+  var tallQuery = window.matchMedia
+    ? window.matchMedia('(orientation: portrait) and (max-width: 760px), (orientation: portrait) and (pointer: coarse)')
+    : null;
   var overlay = null;
   var savedTitle = null;
   var savedOverflow = '';
-  var lastIndex = -1;
+  var lastSrc = null;
   var lastPointer = 'mouse';
   var swallowUntil = 0;
   var TAP_GUARD_MS = 500;
 
-  // 미리 받아 둔다. 급할 때 누르는 기능인데, 그때 그림을 받느라 한 박자 늦으면 안 된다.
-  COVERS.forEach(function (cover) { var img = new Image(); img.src = cover.src; });
+  function covers() { return tallQuery && tallQuery.matches ? TALL_COVERS : WIDE_COVERS; }
 
+  // 미리 받아 둔다. 급할 때 누르는 기능인데, 그때 그림을 받느라 한 박자 늦으면 안 된다.
+  // 지금 화면에 맞는 쪽만 받고(폰 데이터를 아낀다), 폰을 돌리면 그쪽 그림을 마저 받는다.
+  var preloaded = {};
+  function preload() {
+    covers().forEach(function (cover) {
+      if (preloaded[cover.src]) return;
+      preloaded[cover.src] = true;
+      var img = new Image();
+      img.src = cover.src;
+    });
+  }
+  preload();
+  if (tallQuery && tallQuery.addEventListener) tallQuery.addEventListener('change', preload);
+  else if (tallQuery && tallQuery.addListener) tallQuery.addListener(preload);
+
+  // 매번 무작위로 고르되 방금 것과 같은 그림은 피한다.
   function pick() {
-    if (COVERS.length === 1) return 0;
-    var index;
-    do { index = Math.floor(Math.random() * COVERS.length); } while (index === lastIndex);
-    return index;
+    var list = covers();
+    var cover;
+    do { cover = list[Math.floor(Math.random() * list.length)]; } while (list.length > 1 && cover.src === lastSrc);
+    lastSrc = cover.src;
+    return cover;
   }
 
   // 내 화면이 가려졌는지/돌아왔는지 페이지에 알린다. 페이지가 자기 연결로 서버에 전하고,
@@ -56,9 +87,7 @@
 
   function show() {
     if (overlay) return; // 이미 가려져 있다(남이 가린 신호가 겹쳐 와도 그대로)
-    var index = pick();
-    lastIndex = index;
-    var cover = COVERS[index];
+    var cover = pick();
     overlay = document.createElement('div');
     overlay.id = 'boss-cover';
     overlay.setAttribute('aria-hidden', 'true');
