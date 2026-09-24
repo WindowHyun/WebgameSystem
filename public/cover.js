@@ -13,11 +13,14 @@
  *     표시한다.
  *   - 폰의 길게 누르기도 contextmenu로 오지만, 폰에는 우클릭이 없으니 원래 동작을 둔다.
  *
+ * [요청] 폰에서는 두 손가락으로 화면을 동시에 톡 치면 우클릭과 똑같이 가린다(다시 치면 돌아온다).
+ * 한 손가락으로 누르는 게임 버튼과 겹치지 않고, 두 손가락 확대·스크롤이나 오래 누르기와는 구분한다.
+ *
  * 모든 페이지(포털·라이어·포커·블랙잭·더 마인드)가 이 파일 하나를 같이 쓴다.
  *
  * [요청] 한 명이 가리면 접속한 모든 사람의 화면도 같이 가린다 - 누가 어디서 누르든
  * 무조건(포털·게임 참가 전·입력칸 위 포함). 예외는 위의 두 가지뿐이다(라이어 참가자 목록의
- * 강퇴 메뉴, 폰 길게 누르기). 내가 우클릭으로 가리면
+ * 강퇴 메뉴, 폰 길게 누르기). 내가 우클릭(폰은 두 손가락 톡)으로 가리면
  * 'boss-cover' 이벤트를 쏘고, 각 페이지가 자기 연결로 서버에 알린다. 서버가 {type:'cover'}를
  * 보내오면 페이지가 window.bossCover.show()를 부른다. 돌아오는 것은 각자 한다.
  *
@@ -52,6 +55,9 @@
   var lastPointer = 'mouse';
   var swallowUntil = 0;
   var TAP_GUARD_MS = 500;
+  var TWO_FINGER_MS = 500;  // 첫 손가락이 닿고 두 손가락을 다 뗄 때까지. 이보다 길면 누르고 있던 것이다
+  var TWO_FINGER_MOVE = 24; // 한 손가락이라도 이만큼(px) 넘게 움직이면 확대·스크롤로 본다
+  var gesture = null;
 
   function covers() { return tallQuery && tallQuery.matches ? TALL_COVERS : WIDE_COVERS; }
 
@@ -160,11 +166,40 @@
     }
     event.preventDefault();
     event.stopPropagation();
+    toggle();
+  }, true);
+
+  // 내가 직접 누른 보스 키(우클릭·두 손가락 톡). 가려져 있으면 돌아오고, 아니면 가린다.
+  function toggle() {
     if (overlay) { hide(); return; }
     show();
     // 다른 사람들 화면도 가리도록 각 페이지에 알린다(페이지가 자기 연결로 서버에 보낸다).
     try { document.dispatchEvent(new CustomEvent('boss-cover')); } catch (error) { /* 알림 실패해도 내 화면은 가려져 있다 */ }
-  }, true);
+  }
+
+  // [요청] 폰: 두 손가락 톡. 손가락이 모두 떨어졌을 때, 정확히 두 손가락이 짧게 닿았다 떨어졌고
+  // 거의 움직이지 않았으면 보스 키로 본다. 스크롤을 막지 않도록 수동(passive)으로만 듣는다.
+  var watch = { capture: true, passive: true };
+  window.addEventListener('touchstart', function (event) {
+    // 닿아 있던 손가락이 없으면 새 동작의 시작이다(두 손가락이 한꺼번에 닿아도 여기서 시작한다).
+    if (!gesture || event.touches.length === event.changedTouches.length) gesture = { start: Date.now(), fingers: 0, moved: false, from: {} };
+    gesture.fingers = Math.max(gesture.fingers, event.touches.length);
+    Array.prototype.forEach.call(event.changedTouches, function (touch) { gesture.from[touch.identifier] = { x: touch.clientX, y: touch.clientY }; });
+  }, watch);
+  window.addEventListener('touchmove', function (event) {
+    if (!gesture) return;
+    Array.prototype.forEach.call(event.changedTouches, function (touch) {
+      var from = gesture.from[touch.identifier];
+      if (from && Math.abs(touch.clientX - from.x) + Math.abs(touch.clientY - from.y) > TWO_FINGER_MOVE) gesture.moved = true;
+    });
+  }, watch);
+  window.addEventListener('touchend', function (event) {
+    if (!gesture || event.touches.length > 0) return; // 아직 손가락이 남아 있다
+    var done = gesture;
+    gesture = null;
+    if (done.fingers === 2 && !done.moved && Date.now() - done.start <= TWO_FINGER_MS) toggle();
+  }, watch);
+  window.addEventListener('touchcancel', function () { gesture = null; }, watch);
 
   // 가려진 동안에는 Esc만 받는다(돌아가기). 다른 키는 뒤의 게임으로 보내지 않는다.
   window.addEventListener('keydown', function (event) {
