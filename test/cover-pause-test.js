@@ -329,12 +329,60 @@ async function testServer() {
   }
 }
 
+/**
+ * [이슈] 보스 키 남용 방지. 예전에는 사이트에 접속만 하면(포털에 있거나 게임에 참가하지
+ * 않은 연결이어도) 누구든 1초마다 모두의 화면을 가릴 수 있었다.
+ */
+async function testCoverAbuse() {
+  console.log('\n=== 보스 키 남용 방지 ===');
+  const original = console.error;
+  console.error = () => {};
+  const port = 4534;
+  const server = createGameServer({ port, host: '127.0.0.1' });
+  const sockets = [];
+  try {
+    await server.start();
+    const connect = async (game, nickname) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/api/ws?game=${game}`, { origin: `http://127.0.0.1:${port}` });
+      const inbox = [];
+      ws.on('message', (raw) => inbox.push(JSON.parse(String(raw))));
+      await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
+      if (nickname) ws.send(JSON.stringify({ type: 'join', nickname }));
+      sockets.push(ws);
+      await wait(80);
+      return { ws, covers: () => inbox.filter((m) => m.type === 'cover').length, cover: () => ws.send(JSON.stringify({ type: 'cover' })) };
+    };
+    const a = await connect('poker', '갑');
+    const b = await connect('blackjack', '을');
+    const portal = await connect('portal');
+    const stranger = await connect('liar'); // 이름을 넣기 전(참가하지 않은) 라이어 연결
+    portal.cover(); await wait(150);
+    check('포털에만 있는 사람의 우클릭은 남의 화면을 가리지 않는다', a.covers() === 0 && b.covers() === 0);
+    stranger.cover(); await wait(150);
+    check('게임에 참가하지 않은 연결도 남의 화면을 가리지 않는다', a.covers() === 0 && b.covers() === 0);
+    a.cover(); await wait(150);
+    check('게임에 참가한 사람이 가리면 다른 게임에 있는 사람과 포털 화면도 가려진다',
+      b.covers() === 1 && portal.covers() === 1 && stranger.covers() === 1, `${b.covers()} ${portal.covers()} ${stranger.covers()}`);
+    await wait(1100); // 전체 쿨다운(1초)은 지났다
+    a.cover(); await wait(150);
+    check('같은 사람은 3초 안에 다시 퍼뜨리지 못한다', b.covers() === 1, `${b.covers()}`);
+    b.cover(); await wait(150);
+    check('다른 사람은 퍼뜨릴 수 있다', a.covers() === 1, `${a.covers()}`);
+  } finally {
+    for (const ws of sockets) ws.close();
+    await wait(100);
+    await server.stop();
+    console.error = original;
+  }
+}
+
 async function main() {
   await testPoker();
   await testBlackjack();
   testLiar();
   await testServer();
-  console.log(`\n보스 키 제한시간 멈춤: ${pass}개 통과, ${fail}개 실패`);
+  await testCoverAbuse();
+  console.log(`\n보스 키 제한시간 멈춤·남용 방지: ${pass}개 통과, ${fail}개 실패`);
   if (fail) process.exit(1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

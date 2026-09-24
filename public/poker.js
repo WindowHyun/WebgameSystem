@@ -247,7 +247,10 @@
         showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
         return;
       }
-      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
+      // [이슈] 나가도 토큰은 지우지 않는다. 서버는 나간 사람의 칩을 이 토큰에 묶어 보관하는데,
+      // 예전에는 여기서 지워 버려서 다시 들어오면 칩이 100만 원으로 되살아났다(지고 있으면
+      // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
+      if (data.type === 'left') { location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'pokerState') { state = data; render(); }
     };
@@ -401,8 +404,7 @@
       send('leave');
       setTimeout(function () { location.href = '/'; }, 1200);
     } else {
-      saveToken(null);
-      location.href = '/';
+      location.href = '/'; // 토큰은 남긴다(위 'left' 참고)
     }
   };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };

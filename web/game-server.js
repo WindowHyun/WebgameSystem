@@ -270,7 +270,7 @@ function createGameServer(options) {
         try {
           const type = JSON.parse(raw).type;
           if (type === 'ping') sendTo(ws, { type: 'pong' });
-          else if (type === 'cover') broadcastCover(client, '포털 접속자');
+          // 포털에 있는 사람은 게임에 참가하지 않았으므로 자기 화면만 가린다(broadcastCover 참고).
         } catch {}
       });
       broadcastPortal();
@@ -465,8 +465,15 @@ function createGameServer(options) {
    * 화면까지 풀리면 안 된다.
    *
    * 장난으로 연타해도 퍼지는 것은 1초에 한 번이다. 누가 가렸는지는 관리 로그에 남긴다.
+   *
+   * [이슈] 남용 방지. 예전에는 사이트에 접속만 하면(이름만 넣고 포털에 있거나, 게임에
+   * 참가하지 않은 연결이어도) 누구든 1초마다 모두의 화면을 가릴 수 있었다. 이제는
+   * 게임에 참가한 사람만 모두에게 퍼뜨린다 - 로그에 닉네임이 남고, 라이어 게임에서는
+   * 강퇴할 수도 있다. 참가하지 않은 사람의 우클릭은 자기 화면만 가린다(화면 쪽에서 처리).
+   * 같은 사람은 3초에 한 번까지만 퍼뜨린다.
    */
   const COVER_COOLDOWN_MS = 1000;
+  const COVER_PER_PERSON_MS = 3000;
   let lastCoverAt = 0;
   function nicknameOf(gameRoom, playerId) {
     try {
@@ -476,9 +483,12 @@ function createGameServer(options) {
     } catch { return '알 수 없음'; }
   }
   function broadcastCover(from, label) {
+    if (!from.playerId) return;
     const now = Date.now();
     if (now - lastCoverAt < COVER_COOLDOWN_MS) return;
+    if (now - (from.lastCoverAt || 0) < COVER_PER_PERSON_MS) return;
     lastCoverAt = now;
+    from.lastCoverAt = now;
     log(`[보스 키] ${cleanLogText(label)} > 모두의 화면을 가림`);
     for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
       if (client !== from) sendTo(client.ws, { type: 'cover' });
@@ -554,7 +564,9 @@ function createGameServer(options) {
         }
         if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
         let reason = null;
-        if (msg.type === 'leave') { pokerRoom.leave(client.playerId); client.playerId = null; sendTo(ws, { type: 'left' }); return; }
+        // 연결에서 자리를 먼저 떼고 방에서 뺀다. 거꾸로 하면 방이 알리는 상태가 방금 나간
+        // 사람에게도 가서("나"가 없는 상태) 그 화면에서 오류가 났다(라이어의 leave와 같은 순서).
+        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; pokerRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
         if (msg.type === 'ready') reason = pokerRoom.setReady(client.playerId, msg.ready);
         else if (msg.type === 'baseBet') reason = pokerRoom.setBaseBet(client.playerId, msg.amount);
         else if (msg.type === 'baseBetVote') reason = pokerRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
@@ -601,7 +613,7 @@ function createGameServer(options) {
         }
         if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
         let reason = null;
-        if (msg.type === 'leave') { blackjackRoom.leave(client.playerId); client.playerId = null; sendTo(ws, { type: 'left' }); return; }
+        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; blackjackRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
         if (msg.type === 'ready') reason = blackjackRoom.setReady(client.playerId, msg.ready);
         else if (msg.type === 'baseBet') reason = blackjackRoom.proposeBaseBet(client.playerId, msg.amount);
         else if (msg.type === 'baseBetVote') reason = blackjackRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);

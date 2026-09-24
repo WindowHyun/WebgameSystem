@@ -54,6 +54,10 @@ function createBlackjackRoom(options) {
   const dropTimers = new Map();
   // 포커 방과 같은 이유로 나간 사람의 칩을 토큰에 묶어 둔다(web/poker-room.js의 chipBank 참고).
   const chipBank = new Map(); // token -> chips
+  // 판 도중에 떠난 사람이 이 판에 이미 낸 돈. 판이 무효로 끝나 모두에게 돌려줄 때 떠난
+  // 사람 몫도 돌려주려고 기억한다(web/poker-room.js의 departedStakes 참고). 예전에는
+  // "모두 21 초과"로 환불할 때 떠난 사람의 앤티가 팟과 함께 사라졌다.
+  const departedStakes = new Map(); // token -> { paid: 이번 판에 내고 떠난 돈, nickname }
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
@@ -96,18 +100,63 @@ function createBlackjackRoom(options) {
     cancelDrop(playerId);
     const timer = safeTimeout(() => {
       dropTimers.delete(playerId);
-      const index = players.findIndex((p) => p.id === playerId && !p.connected);
-      if (index < 0) return;
-      // 올인하고 결과를 기다리는 사람은 판이 끝날 때까지 자리를 남긴다(web/poker-room.js 참고).
-      if (phase === 'betting' && contenders.includes(playerId) && players[index].isAllIn) { scheduleDrop(playerId); return; }
-      act(players[index].nickname, `자리 정리 (돌아오지 않음, 칩 ${money(players[index].chips)} 보관)`);
-      chipBank.set(players[index].token, players[index].chips);
-      players.splice(index, 1);
+      const player = players.find((p) => p.id === playerId && !p.connected);
+      if (!player) return;
+      const inHand = (phase === 'playing' || phase === 'betting') && contenders.includes(playerId) && !player.isFolded;
+      // 올인한 사람은 판이 끝날 때까지 자리를 남긴다(web/poker-room.js 참고). 카드를
+      // 고르는 중이었다면 더 뽑지 않고 스탠드해 둔다 - 이미 전부 걸었으니 폴드시키면 잃기만 한다.
+      if (inHand && player.isAllIn) {
+        if (phase === 'playing' && !player.isStanding) {
+          const wasTurn = (currentPlayingPlayer() || {}).id === playerId;
+          player.isStanding = true;
+          note(`${player.nickname}님이 돌아오지 않아 자동 스탠드되었습니다.`);
+          act(player.nickname, `스탠드 (연결이 끊긴 채 돌아오지 않음) → ${handLine(player)}`);
+          if (wasTurn) advancePlaying(false);
+          changed();
+        }
+        scheduleDrop(playerId);
+        return;
+      }
+      // 유예가 다 지나도록 돌아오지 않았다. 이제야 폴드한다(disconnect 참고).
+      if (inHand) {
+        const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : (currentBetPlayer() || {}).id;
+        forceFold(player, '돌아오지 않아 폴드 처리되었습니다.', '폴드 (연결이 끊긴 채 돌아오지 않음)');
+        if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
+        else continueAfterDeparture(previousTurnId, playerId);
+      }
+      // [이슈] 카드 선택 중에는 차례가 inRound() 목록의 위치(turn)로 정해진다. 자리를 빼면
+      // 목록이 한 칸 당겨져, 아무것도 안 한 사람을 건너뛰고 다음 사람에게 차례가 갔다.
+      // 게다가 제한시간은 원래 사람 앞으로 걸려 있어 새 차례에는 제한시간도 없었다.
+      // 자리를 빼기 전의 차례인 사람을 기억해 두었다가 그 사람 위치로 다시 맞춘다.
+      const keepTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : null;
+      act(player.nickname, `자리 정리 (돌아오지 않음, 칩 ${money(player.chips)} 보관)`);
+      rememberStake(player);
+      chipBank.set(player.token, player.chips);
+      players.splice(players.indexOf(player), 1);
       contenders = contenders.filter((id) => id !== playerId);
+      if (keepTurnId) {
+        const index = inRound().findIndex((p) => p.id === keepTurnId);
+        if (index >= 0) turn = index;
+      }
       changed();
     }, Math.max(0, disconnectGraceMs));
     if (timer.unref) timer.unref();
     dropTimers.set(playerId, timer);
+  }
+  /** 판 도중에 떠나는 사람이 이미 낸 돈을 기억한다(departedStakes 참고). */
+  function rememberStake(player) {
+    if ((phase !== 'playing' && phase !== 'betting') || player.roundBet <= 0) return;
+    const before = departedStakes.get(player.token);
+    departedStakes.set(player.token, { paid: (before ? before.paid : 0) + player.roundBet, nickname: player.nickname });
+  }
+  /** 무효가 된 판: 떠난 사람이 낸 돈을 보관 칩(돌아와 있으면 그 자리)으로 돌려준다. */
+  function returnDepartedStakes() {
+    for (const [owner, { paid, nickname }] of departedStakes) {
+      const back = players.find((p) => p.token === owner);
+      if (back) back.chips += paid; else chipBank.set(owner, (chipBank.get(owner) || 0) + paid);
+      act(back ? back.nickname : nickname, `환불 - 판 도중에 떠나며 두고 간 ${money(paid)} 돌려받음${back ? '' : ' (보관 칩에 더함)'}`);
+    }
+    departedStakes.clear();
   }
   function rebaseBettingTurn(previousTurnId, departedId) {
     const list = bettingPlayers();
@@ -207,7 +256,7 @@ function createBlackjackRoom(options) {
     clearActionTimer(); clearProposalTimer(); pause.reset();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
-    chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
+    chipBank.clear(); departedStakes.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; hostId = null; baseBet = 100;
     baseBetProposal = null; pot = 0; deck = []; contenders = []; turn = 0; currentBet = 0; minRaise = 100;
     allInCap = null; acted = new Set(); result = null;
@@ -230,7 +279,8 @@ function createBlackjackRoom(options) {
     // 같은 토큰으로 돌아왔다면 나갈 때 들고 있던 칩을 그대로 돌려준다.
     const kept = chipBank.get(oldToken);
     if (oldToken) chipBank.delete(oldToken);
-    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), chips: kept === undefined ? INITIAL_CHIPS : kept, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: waiting, isFolded: waiting, isAllIn: false, roundBet: 0 };
+    // 보관 칩을 되찾은 사람은 토큰도 그대로 쓴다(web/poker-room.js의 join 참고).
+    const player = { id: makeId(), token: kept === undefined ? makeToken() : oldToken, nickname: uniqueNickname(clean), chips: kept === undefined ? INITIAL_CHIPS : kept, connected: true, ready: false, hand: [], tieCards: [], score: 0, isBusted: false, isStanding: waiting, isFolded: waiting, isAllIn: false, roundBet: 0 };
     players.push(player);
     if (!hostId) hostId = player.id;
     act(player.nickname, `입장 (칩 ${money(player.chips)}${kept === undefined ? '' : ', 보관해 둔 칩 복구'}${waiting ? ', 다음 판부터' : ''})`);
@@ -238,31 +288,30 @@ function createBlackjackRoom(options) {
     return { playerId: player.id, token: player.token, restored: false };
   }
 
-  function forceFold(player) {
+  function forceFold(player, why, logText) {
     if (!contenders.includes(player.id) || player.isFolded) return;
     player.isFolded = true;
     if (phase === 'playing') player.isStanding = true;
-    note(`${player.nickname}님의 연결이 끊겨 제외되었습니다.`);
-    act(player.nickname, player.connected ? '폴드 (방을 나감)' : '폴드 (연결 끊김)');
+    note(`${player.nickname}님이 ${why}`);
+    act(player.nickname, logText);
   }
 
   function disconnect(playerId) {
     const player = players.find((p) => p.id === playerId);
     if (!player) return;
-    const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     player.connected = false;
     pause.forget(playerId);
     act(player.nickname, '연결 끊김');
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
-    // 올인한 사람은 끊겨도 폴드하지 않는다. 더 정할 것이 없고, 폴드시키면 잠깐 끊긴
-    // 것만으로 이미 건 칩을 전부 잃는다(web/poker-room.js의 disconnect 참고).
+    // [규칙] 끊겼다고 곧바로 폴드하지 않는다. 유예 동안 돌아오면 그대로 이어서 하고,
+    // 그래도 안 돌아오면 그때 폴드한다(scheduleDrop). 예전에는 끊기는 순간 폴드해서,
+    // 남의 차례에 새로고침만 해도 앤티와 건 돈을 잃었다(web/poker-room.js의 disconnect 참고).
+    // 올인한 사람은 판이 끝날 때까지 남는다.
     const waitingAllIn = phase === 'betting' && player.isAllIn;
-    if ((phase === 'playing' || phase === 'betting') && !waitingAllIn) forceFold(player);
+    if ((phase === 'playing' || phase === 'betting') && contenders.includes(playerId) && !player.isFolded && !waitingAllIn) {
+      note(`${player.nickname}님의 연결이 끊겼습니다. ${Math.max(1, Math.round(disconnectGraceMs / 1000))}초 안에 돌아오지 않으면 ${player.isAllIn ? '스탠드' : '폴드'}됩니다.`);
+    }
     if (hostId === playerId) hostId = (players.find((p) => p.connected) || {}).id || null;
-    if (phase === 'playing') rebasePlayingTurn(previousTurnId, playerId);
-    // 올인하고 기다리던 사람이 끊긴 것은 판의 흐름을 바꾸지 않는다. 여기서 이어 가기를
-    // 부르면 지금 차례인 사람의 제한시간만 괜히 처음부터 다시 걸린다.
-    else if (phase === 'betting' && !waitingAllIn) continueAfterDeparture(previousTurnId, playerId);
     if (players.some((p) => p.connected)) scheduleDrop(playerId);
     else resetIfEmpty();
     changed();
@@ -275,7 +324,8 @@ function createBlackjackRoom(options) {
     pause.forget(playerId);
     const previousTurnId = phase === 'playing' ? (currentPlayingPlayer() || {}).id : phase === 'betting' ? (currentBetPlayer() || {}).id : null;
     act(player.nickname, `나감 (칩 ${money(player.chips)} 보관)`);
-    forceFold(player); player.connected = false;
+    forceFold(player, '방을 나가 폴드 처리되었습니다.', '폴드 (방을 나감)'); player.connected = false;
+    rememberStake(player);
     chipBank.set(player.token, player.chips);
     players.splice(players.indexOf(player), 1);
     if (baseBetProposal) { clearProposalTimer(); baseBetProposal = null; note('참가 인원이 바뀌어 기본 배팅금 투표가 취소되었습니다.'); act('투표', '기본 배팅금 투표 취소 (인원 변경)'); }
@@ -348,7 +398,7 @@ function createBlackjackRoom(options) {
     if (baseBetProposal) return '기본 배팅금 투표가 끝난 뒤 시작해 주세요.';
     const ready = players.filter((p) => p.connected && p.ready && p.chips > 0);
     if (ready.length < MIN_PLAYERS) return '준비한 참가자가 2명 이상이어야 합니다.';
-    phase = 'playing'; result = null; pot = 0; deck = freshDeck(); contenders = ready.map((p) => p.id); turn = 0;
+    phase = 'playing'; result = null; pot = 0; deck = freshDeck(); contenders = ready.map((p) => p.id); turn = 0; departedStakes.clear();
     currentBet = baseBet; minRaise = baseBet; allInCap = null; acted = new Set();
     for (const player of players) {
       player.hand = []; player.tieCards = []; player.score = 0; player.isBusted = false; player.isStanding = false;
@@ -562,7 +612,7 @@ function createBlackjackRoom(options) {
   function settle(winner) {
     if (!winner) return;
     clearActionTimer();
-    const amount = pot; winner.chips += pot; pot = 0; phase = 'result';
+    const amount = pot; winner.chips += pot; pot = 0; phase = 'result'; departedStakes.clear();
     result = { winnerId: winner.id, nickname: winner.nickname, amount, noWinner: false };
     note(`${winner.nickname}님이 ${winner.score}점으로 팟 ${amount.toLocaleString()}원을 획득했습니다.`);
     act(winner.nickname, `팟 ${money(amount)} 획득 (${winner.score}점) → 칩 ${money(winner.chips)}`);
@@ -572,6 +622,7 @@ function createBlackjackRoom(options) {
   function refundAndFinish(message) {
     clearActionTimer();
     for (const player of players) { player.chips += player.roundBet; player.roundBet = 0; player.ready = false; player.isAllIn = false; }
+    returnDepartedStakes();
     pot = 0; phase = 'result'; result = { noWinner: true, message }; note(message); act('진행', `환불 - ${message}`); changed();
   }
 

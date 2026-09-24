@@ -52,3 +52,29 @@
   }
   .portal-page .name-copy h1{font-size:clamp(30px,8.5vw,36px)}
 }
+
+/* [이슈] 작은 폰(iPhone SE)에서 다섯 명이면 칸이 70px 남짓으로 쪼개져, 이름은 "김…" 한
+   글자, 칩은 "99...."만 남고 상태 배지는 "차/례", "다/음/판/대/기"처럼 세로로 쪼개졌다.
+   칸마다 최소 폭을 두고 넘치면 다음 줄로 내린다(폭 320px 폰도 한 줄에 세 칸, 다섯 명이면
+   두 줄). 모두가 한눈에 보이니 "옆에 더 있다"는 가장자리 그림자도 필요 없다. */
+@media(max-width:760px){
+  .poker-page #players,.blackjack-page #players{display:grid;grid-template-columns:repeat(auto-fit,minmax(94px,1fr));gap:5px;overflow:visible}
+  .poker-page .player,.blackjack-page .player{flex:none;min-width:0;margin:0}
+  .poker-page .player .status,.blackjack-page .player .status,
+  .poker-page .player.turn:after,.blackjack-page .player.turn:after{white-space:nowrap}
+  .poker-page .players-panel:after,.blackjack-page .players-panel:after{display:none}
+}
+
+/* [이슈] 블랙잭 폰 화면에서 손패가 겹쳐 카드가 가려졌다. 6장이면 2장이 통째로 덮여,
+   결과 화면에서도 34점이 맞는지 확인할 수 없었다.
+     - 4장 이하: 조금 덜 겹치고, 덮인 카드의 글자를 보이는 왼쪽 가장자리로 붙인다
+       (넓은 화면에서 쓰는 방식과 같다).
+     - 5장 이상(.many): 작은 카드로 겹치지 않게 늘어놓고 넘치면 다음 줄로 내린다. */
+@media(max-width:760px){
+  .hand:not(.many) .card:not(:first-child){margin-left:-24px}
+  .hand:not(.many) .card:not(:last-child){justify-items:start;padding-left:3px}
+  .hand.many{flex-wrap:wrap;justify-content:center;gap:3px}
+  .hand.many .card,.hand.many .card:first-child{width:34px;height:48px;margin-left:0;padding-left:0;justify-items:center;font-size:13px}
+  .hand.many .card.hidden-card{border-width:3px}
+  .blackjack-page .hand.many .card.hidden-card:after{font-size:12px}
+}

@@ -188,7 +188,10 @@
         showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
         return;
       }
-      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
+      // [이슈] 나가도 토큰은 지우지 않는다. 서버는 나간 사람의 칩을 이 토큰에 묶어 보관하는데,
+      // 예전에는 여기서 지워 버려서 다시 들어오면 칩이 100만 원으로 되살아났다(지고 있으면
+      // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
+      if (data.type === 'left') { location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'blackjackState') { state = data; render(); }
     };
@@ -271,7 +274,7 @@
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var score = player.score === null ? player.cards.length + '장' : player.score + '점';
-      return '<div class="seat blackjack-seat ' + (player.isFolded ? 'folded' : '') + '"><div class="hand">' + cards + '</div>' + (tieCards ? '<div class="tie-hand"><small>재대결</small>' + tieCards + '</div>' : '') + '<b>' + escapeHtml(player.nickname) + '</b><span class="score ' + (player.isBusted ? 'bust' : '') + '">' + score + '</span></div>';
+      return '<div class="seat blackjack-seat ' + (player.isFolded ? 'folded' : '') + '"><div class="hand' + (player.cards.length >= 5 ? ' many' : '') /* 폰에서 5장 이상이면 겹치지 않게 줄을 바꿔 놓는다(responsive-fixes.css) */ + '">' + cards + '</div>' + (tieCards ? '<div class="tie-hand"><small>재대결</small>' + tieCards + '</div>' : '') + '<b>' + escapeHtml(player.nickname) + '</b><span class="score ' + (player.isBusted ? 'bust' : '') + '">' + score + '</span></div>';
     }).join('');
     $('history').innerHTML = state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join('');
     function openDonation(element, event) { event.preventDefault(); event.stopPropagation(); if (state.phase !== 'lobby' && state.phase !== 'result') { showError('기부는 대기 중에만 할 수 있습니다.'); return; } if (element.dataset.id === state.you.id) return; donationTarget = element.dataset.id; var target = state.players.find(function (p) { return p.id === donationTarget; }); var rect = element.getBoundingClientRect(); $('donate-name').textContent = target.nickname + '님에게'; $('donate').style.left = Math.min(event.clientX || rect.right, innerWidth - 190) + 'px'; $('donate').style.top = Math.min(event.clientY || rect.bottom, innerHeight - 150) + 'px'; $('donate').classList.remove('hidden'); }
@@ -280,7 +283,7 @@
     renderStartConfirm();
   }
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
-  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { saveToken(null); location.href = '/'; } };
+  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { location.href = '/'; /* 토큰은 남긴다(위 'left' 참고) */ } };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };

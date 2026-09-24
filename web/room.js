@@ -109,6 +109,11 @@ function createRoom(options) {
     onAction: act,
     onKick: (id) => {
       pushChat({ kind: 'system', code: 'kicked', text: `${nameOf(id)}님이 다수결로 강퇴되었습니다.`, at: now() });
+      // [이슈] 진행 중에 라이어가 강퇴되면 예전에는 "라이어가 나감"으로 곧바로 시민 승리였다.
+      // 라이어는 지목되면 제시어를 맞혀 뒤집을 기회가 있는데, 강퇴는 그 기회를 건너뛴다 -
+      // 의심 가는 사람을 투표 대신 강퇴로 찍어 이기는 길이 됐다. 이번 판은 무효로 한다
+      // (승패·전적에 넣지 않는다). 스스로 나가거나 끊겨 돌아오지 않은 것은 그대로 기권이다.
+      if (round && phase !== 'lobby' && phase !== 'result' && round.liarId === id) voidRoundForKickedLiar();
       leave(id);
       if (opts.onKick) opts.onKick(id);
     },
@@ -198,6 +203,16 @@ function createRoom(options) {
 
   function inRound(playerId) {
     return !!round && round.roster.some((r) => r.id === playerId);
+  }
+
+  /** 라이어가 강퇴되어 이번 판을 무효로 한다(onKick 참고). */
+  function voidRoundForKickedLiar() {
+    clearPhaseTimer();
+    round = null;
+    result = null;
+    phase = 'lobby';
+    pushChat({ kind: 'system', code: 'liarKicked', at: now(),
+      text: '강퇴된 사람이 담당자였습니다. 이번 판은 무효로 하고 전적에 넣지 않습니다.' });
   }
 
   /**

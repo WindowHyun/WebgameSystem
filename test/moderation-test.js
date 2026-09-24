@@ -172,12 +172,18 @@ test('empty room cancels pending kick timer so it cannot publish a result in a n
   r.dispose();
 });
 
-test('kicking the liar finishes the round and dispose clears every timer', () => {
+test('kicking the liar voids the round (no free win without the guess) and dispose clears every timer', () => {
   const f = fixture(); const { room: r, players: p } = f;
   r.start(); r.requestKick(p[1].playerId, p[0].playerId);
   const proposal = r.stateFor(p[1].playerId).moderation.proposal;
   r.voteKick(p[2].playerId, proposal.id, true);
-  assert.equal(r.stateFor(p[1].playerId).result.reason, 'liarLeft');
+  const after = r.stateFor(p[1].playerId);
+  // 예전에는 곧바로 시민 승리(liarLeft)였다 - 라이어가 제시어를 맞힐 기회를 건너뛴다.
+  assert.equal(after.phase, 'lobby');
+  assert.equal(after.result, null);
+  assert.deepEqual(after.record, { rounds: 0, liarWins: 0, citizenWins: 0 });
+  assert.ok(after.chat.some((m) => m.code === 'liarKicked'));
+  r.start();
   r.disconnect(p[3].playerId); assert.ok(f.pending() > 0);
   r.dispose(); assert.equal(f.pending(), 0);
 });

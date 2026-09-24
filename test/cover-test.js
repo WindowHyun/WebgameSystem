@@ -13,6 +13,7 @@
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
  *     돌아오는 것은 각자 하고, 누가 가렸는지 관리 로그에 남는다
  *   - [요청] 가려진 동안은 그 사람을 기다리는 제한시간도 멈추고, 화면의 남은 시간도 멈춰 보인다
+ *   - [이슈] 입력칸·고른 글자 위 우클릭은 원래 메뉴를 둔다(복사·붙여넣기하다 모두가 가려지지 않게)
  */
 
 const { chromium, devices } = require('playwright');
@@ -108,6 +109,30 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     const typed = await liar.inputValue('#chat-input');
     const chat = await other.textContent('#chat-messages');
     check('라이어: 가려진 동안 친 글자는 입력창에도 대화에도 들어가지 않는다', typed === '' && !chat.includes('비밀'), `입력창 "${typed}"`);
+    // [이슈] 실수로 가리지 않게: 입력칸(붙여넣기)과 고른 글자(복사) 위에서는 원래 메뉴를 둔다.
+    await liar.locator('#chat-input').click({ button: 'right' });
+    await wait(200);
+    check('라이어: 입력칸 위 우클릭은 원래 메뉴(붙여넣기)를 둔다 - 가리지 않는다', !(await liar.evaluate(COVER)));
+    const picked = await liar.evaluate(() => {
+      const el = [...document.querySelectorAll('#chat-messages *')].find((node) => node.children.length === 0 && node.textContent.trim().length > 4);
+      if (!el) return null;
+      const range = document.createRange(); range.selectNodeContents(el);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      const box = el.getBoundingClientRect();
+      return { x: box.left + Math.min(20, box.width / 2), y: box.top + box.height / 2 };
+    });
+    if (picked) {
+      await liar.mouse.click(picked.x, picked.y, { button: 'right' });
+      await wait(200);
+      check('라이어: 고른 글자 위 우클릭은 원래 메뉴(복사)를 둔다 - 가리지 않는다', !(await liar.evaluate(COVER)));
+      await liar.mouse.click(1300, 450, { button: 'right' });
+      await wait(200);
+      check('라이어: 글자를 골라 둔 채 그 밖을 우클릭하면 가려진다', !!(await liar.evaluate(COVER)));
+      await liar.keyboard.press('Escape');
+      await liar.evaluate(() => getSelection().removeAllRanges());
+    } else {
+      check('라이어: 고를 글자가 대화창에 있어야 검사할 수 있다', false);
+    }
     const profile = liar.locator('#participant-list [data-player-id]').last();
     await profile.click({ button: 'right' });
     await wait(300);
