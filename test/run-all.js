@@ -17,6 +17,7 @@ const suites = [
   'action-log-test.js',                   // 관리 로그: [게임] 닉네임 > 행동, 제시어·카드·점수는 새지 않는다
   'cover-pause-test.js',                   // 보스 키: 가려진 동안 제한시간 멈춤
   'reconnect-fold-test.js',                // 끊김·새로고침은 유예 뒤 폴드, 무효 판에서 떠난 사람 몫 환불, 스탠드 뒤 자리 정리
+  'mind-room-test.js',                     // 더 마인드: 레벨·오름차순·실수·수리검·보상·승패·집중·끊김·로그
   'card-server-leave-test.js',             // 명시적 퇴장 즉시 제거·중복 입장 방지
   'liar-reconnect-test.js',                // 라이어 게임: 모바일 백그라운드 재접속 자리 인계
   'moderation-test.js',                   // 관전·강퇴 및 재접속 회귀

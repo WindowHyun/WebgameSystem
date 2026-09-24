@@ -1,0 +1,55 @@
+/* 더 마인드 - 포커 화면(poker.css, responsive-fixes.css)의 틀 위에 게임판만 얹는다. */
+
+/* 제한시간이 없는 게임이다. 포커의 "30초 내 선택" 표시를 지운다. */
+.mind-page .round-info:after{content:none}
+
+#board{min-height:330px;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:22px 18px;border:1px solid #350d36;border-radius:8px;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a;color:#f4e8f5;text-align:center}
+.rules{max-width:620px;text-align:left;font-size:13px;line-height:1.65}
+.rules b{display:block;margin-bottom:6px;color:#fff;font-size:15px}
+.rules p{margin:0 0 8px}
+.rules strong{color:#ecb22e}
+#game-view{display:flex;width:100%;flex-direction:column;align-items:center;gap:14px}
+#game-view.hidden{display:none}
+
+.gauges{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;font-size:14px;font-weight:700}
+.gauges span{padding:4px 10px;border-radius:12px;background:#ffffff1f}
+.gauges span:empty{display:none}
+
+.event{max-width:100%;padding:8px 14px;border-radius:6px;background:#ffffff1f;font-size:14px;font-weight:700;overflow-wrap:anywhere}
+.event.mistake{background:#fcebeb;color:#a52323}
+.event.clear{background:#e3f6ed;color:#0b6b4b}
+.event.star{background:#fff8e6;color:#6b4a00}
+.event.left{background:#eef0f4;color:#3a3f4b}
+
+.pile-area{display:flex;flex-direction:column;align-items:center;gap:8px}
+.pile-label,.hand-label{color:#d8c9d9;font-size:12px;font-weight:700}
+.mind-card{width:92px;height:128px;display:grid;place-items:center;border:1px solid #d8d8da;border-radius:8px;background:#fff;color:#1d1c1d;font-size:40px;font-weight:700;font-variant-numeric:tabular-nums;box-shadow:0 8px 20px #0004}
+.mind-card.empty{border:2px dashed #ffffff55;background:transparent;color:#ffffff66;box-shadow:none;font-size:22px}
+.pile-list{display:flex;flex-wrap:wrap;justify-content:center;gap:4px;max-width:520px;min-height:20px}
+.pile-list span{padding:2px 7px;border-radius:9px;background:#ffffff26;font-size:12px;font-variant-numeric:tabular-nums}
+
+.discards{max-width:560px;color:#f1c7c7;font-size:12px;line-height:1.6}
+.discards.hidden{display:none}
+
+.hand-area{display:flex;flex-direction:column;align-items:center;gap:8px}
+.mind-hand{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;min-height:74px}
+.mind-hand .mind-card{width:56px;height:76px;font-size:24px;box-shadow:0 4px 12px #0004}
+.mind-hand .mind-card:first-child{outline:3px solid #ecb22e;outline-offset:2px}
+.mind-hand .none{align-self:center;color:#d8c9d9;font-size:13px}
+
+.reveal{max-width:560px;color:#f4e8f5;font-size:13px;line-height:1.7}
+.reveal.hidden{display:none}
+
+.play-button{min-width:160px;font-size:16px}
+.star-button:disabled{opacity:.45}
+
+/* 폰: 카드와 여백을 줄인다. 조작부는 poker.css처럼 화면 아래에 붙는다. */
+@media(max-width:760px){
+  #board{min-height:210px;gap:10px;padding:14px 10px}
+  .rules{font-size:12px}
+  .mind-card{width:72px;height:100px;font-size:32px}
+  .mind-hand .mind-card{width:44px;height:60px;font-size:19px}
+  .mind-hand{gap:6px;min-height:60px}
+  .controls#focus-controls,.controls#play-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .controls#play-controls .play-button{grid-column:1/-1;min-height:52px}
+}

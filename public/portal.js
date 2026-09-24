@@ -38,6 +38,9 @@
       Object.keys(data.games).forEach(function (id) {
         var game = data.games[id];
         var card = document.querySelector('.game-card.' + id);
+        // 배포 전에 열어 둔 화면에는 새로 생긴 게임의 칸이 없다. 없는 칸은 건너뛴다
+        // (예전에는 여기서 오류가 나 그 뒤 게임들이 갱신되지 않았다).
+        if (!card || !document.getElementById(id + '-status')) return;
         document.getElementById(id + '-status').textContent = game.status;
         document.getElementById(id + '-count').textContent = game.playerCount + '명';
         card.classList.toggle('running', game.status === '진행중');
@@ -66,8 +69,10 @@
     card.onclick = function () { location.href = card.dataset.url; };
   });
 
-  // [보스 키] 포털에서 우클릭하면 내 화면만 가린다. 모두의 화면을 가리는 것은 게임에
-  // 참가한 사람만 할 수 있다(web/game-server.js의 broadcastCover 참고 - 남용 방지).
+  // [보스 키] 포털에서 가려도 게임 중인 사람들 화면까지 가린다(누가 눌러도 무조건 모두).
+  document.addEventListener('boss-cover', function () {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cover' }));
+  });
 
   var saved = sessionStorage.getItem(KEY);
   if (saved) { input.value = saved; showGames(saved); }

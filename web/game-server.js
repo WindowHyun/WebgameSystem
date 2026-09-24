@@ -17,6 +17,7 @@ const { WebSocketServer } = require('ws');
 const { createRoom } = require('./room');
 const { createPokerRoom } = require('./poker-room');
 const { createBlackjackRoom } = require('./blackjack-room');
+const { createMindRoom } = require('./mind-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
@@ -77,6 +78,7 @@ function createGameServer(options) {
   const clients = new Set(); // { ws, playerId }
   const pokerClients = new Set();
   const blackjackClients = new Set();
+  const mindClients = new Set();
   const portalClients = new Set();
   const ipConnectionCounts = new Map(); // ip -> 현재 열려 있는 소켓 수
   let server = null;
@@ -84,6 +86,7 @@ function createGameServer(options) {
   let room = null;
   let pokerRoom = null;
   let blackjackRoom = null;
+  let mindRoom = null;
   let pingTimer = null;
   let initialized = false;
 
@@ -118,16 +121,24 @@ function createGameServer(options) {
     broadcastPortal();
   }
 
+  function broadcastMind() {
+    if (!mindRoom) return;
+    for (const client of mindClients) if (client.playerId) sendTo(client.ws, mindRoom.stateFor(client.playerId));
+    broadcastPortal();
+  }
+
   function broadcastPortal() {
-    if (!room || !pokerRoom || !blackjackRoom) return;
+    if (!room || !pokerRoom || !blackjackRoom || !mindRoom) return;
     const liar = room._debug();
     const poker = pokerRoom.status();
     const blackjack = blackjackRoom.status();
+    const mind = mindRoom.status();
     const label = (info) => info.phase !== 'lobby' && info.phase !== 'result' ? '진행중' : (info.playerCount ? '진행 대기중' : '대기중');
     const payload = { type: 'games', games: {
       liar: { label: '라이어 게임', playerCount: [...clients].filter((c) => c.playerId).length, status: label({ phase: liar.phase, playerCount: [...clients].filter((c) => c.playerId).length }) },
       poker: { label: '인디언 포커', playerCount: poker.playerCount, status: label(poker) },
       blackjack: { label: '블랙잭 21', playerCount: blackjack.playerCount, status: label(blackjack) },
+      mind: { label: '더 마인드', playerCount: mind.playerCount, status: label(mind) },
     } };
     for (const client of portalClients) sendTo(client.ws, payload);
   }
@@ -217,7 +228,7 @@ function createGameServer(options) {
    */
   function startHeartbeat() {
     pingTimer = setInterval(() => {
-      for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
+      for (const client of [...clients, ...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
         if (client.missedPongs >= PONG_GRACE) {
           warn(`[연결 끊김] ${client.playerId || '미참가'} 응답이 없어 정리합니다`);
           try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
@@ -270,13 +281,14 @@ function createGameServer(options) {
         try {
           const type = JSON.parse(raw).type;
           if (type === 'ping') sendTo(ws, { type: 'pong' });
-          // 포털에 있는 사람은 게임에 참가하지 않았으므로 자기 화면만 가린다(broadcastCover 참고).
+          else if (type === 'cover') broadcastCover(client, '포털 접속자');
         } catch {}
       });
       broadcastPortal();
       return;
     }
     if (game === 'poker') { handlePokerConnection(ws, ip); return; }
+    if (game === 'mind') { handleMindConnection(ws, ip); return; }
     if (game === 'blackjack') { handleBlackjackConnection(ws, ip); return; }
     const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     clients.add(client);
@@ -459,22 +471,17 @@ function createGameServer(options) {
   }
 
   /**
-   * [보스 키] 한 명이 우클릭으로 화면을 가리면, 접속한 모든 사람(포털·라이어·포커·블랙잭)의
+   * [보스 키] 한 명이 우클릭으로 화면을 가리면, 접속한 모든 사람(포털·라이어·포커·블랙잭·더 마인드)의
    * 화면도 같이 가린다. 같은 사무실에서 여럿이 하다가 누가 다가오면, 먼저 본 사람이 누르는
    * 순간 모두가 가려져야 한다. 돌아오는 것은 각자 한다 - 한 사람이 먼저 돌아왔다고 남의
    * 화면까지 풀리면 안 된다.
    *
-   * 장난으로 연타해도 퍼지는 것은 1초에 한 번이다. 누가 가렸는지는 관리 로그에 남긴다.
-   *
-   * [이슈] 남용 방지. 예전에는 사이트에 접속만 하면(이름만 넣고 포털에 있거나, 게임에
-   * 참가하지 않은 연결이어도) 누구든 1초마다 모두의 화면을 가릴 수 있었다. 이제는
-   * 게임에 참가한 사람만 모두에게 퍼뜨린다 - 로그에 닉네임이 남고, 라이어 게임에서는
-   * 강퇴할 수도 있다. 참가하지 않은 사람의 우클릭은 자기 화면만 가린다(화면 쪽에서 처리).
-   * 같은 사람은 3초에 한 번까지만 퍼뜨린다.
+   * [요청] 누가 어디서 누르든(포털·게임 참가 전 포함) 무조건 모두의 화면을 가린다.
+   * 한때 게임에 참가한 사람만, 같은 사람은 3초에 한 번, 전체는 1초에 한 번으로 막았는데,
+   * 그러면 급하게 누른 우클릭이 남의 화면을 못 가리는 때가 생긴다. 막지 않는다.
+   * 화면 쪽은 이미 가려져 있으면 그대로 두므로 여러 번 와도 문제없다. 연타 폭주는
+   * 연결마다 걸린 요청 수 제한(5초에 60개)이 막는다. 누가 가렸는지는 관리 로그에 남긴다.
    */
-  const COVER_COOLDOWN_MS = 1000;
-  const COVER_PER_PERSON_MS = 3000;
-  let lastCoverAt = 0;
   function nicknameOf(gameRoom, playerId) {
     try {
       const view = gameRoom && playerId ? gameRoom.stateFor(playerId) : null;
@@ -483,14 +490,8 @@ function createGameServer(options) {
     } catch { return '알 수 없음'; }
   }
   function broadcastCover(from, label) {
-    if (!from.playerId) return;
-    const now = Date.now();
-    if (now - lastCoverAt < COVER_COOLDOWN_MS) return;
-    if (now - (from.lastCoverAt || 0) < COVER_PER_PERSON_MS) return;
-    lastCoverAt = now;
-    from.lastCoverAt = now;
     log(`[보스 키] ${cleanLogText(label)} > 모두의 화면을 가림`);
-    for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
+    for (const client of [...clients, ...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
       if (client !== from) sendTo(client.ws, { type: 'cover' });
     }
   }
@@ -518,6 +519,7 @@ function createGameServer(options) {
       });
       pokerRoom = createPokerRoom({ onChange: broadcastPoker, onAction: actionLogger('포커') });
       blackjackRoom = createBlackjackRoom({ onChange: broadcastBlackjack, onAction: actionLogger('블랙잭') });
+      mindRoom = createMindRoom({ onChange: broadcastMind, onAction: actionLogger('마인드') });
       startHeartbeat();
       server = http.createServer(handleHttp);
       // [S-1] 이 서버는 자기가 내려준 화면(같은 출처)이나 Electron 창(로컬 출처)만
@@ -634,6 +636,54 @@ function createGameServer(options) {
     });
   }
 
+  /** [더 마인드] 소켓 처리. 포커·블랙잭과 같은 틀이다(web/mind-room.js 참고). */
+  function handleMindConnection(ws, ip) {
+    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
+    mindClients.add(client);
+    ws.on('error', (err) => warn(`[더 마인드 연결 오류] ${ip} ${err.message}`));
+    ws.on('pong', () => { client.missedPongs = 0; });
+    ws.on('close', () => { mindClients.delete(client); if (mindRoom && client.playerId) mindRoom.disconnect(client.playerId); });
+    ws.on('message', (raw) => {
+      try {
+        const now = Date.now();
+        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
+        client.count += 1;
+        if (client.count > RATE_MAX) return;
+        const msg = JSON.parse(raw);
+        if (!msg || typeof msg !== 'object') return;
+        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'cover') { broadcastCover(client, `더 마인드 ${nicknameOf(mindRoom, client.playerId)}`); return; }
+        if (msg.type === 'coverState') { if (client.playerId) mindRoom.setCovered(client.playerId, msg.covered === true); return; }
+        if (msg.type === 'join') {
+          if (client.playerId) return;
+          const joined = mindRoom.join({ nickname: msg.nickname, token: msg.token });
+          if (joined.error) { warn(`[더 마인드 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
+          replaceConnection(mindClients, client, joined.playerId);
+          client.playerId = joined.playerId;
+          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
+          sendTo(ws, mindRoom.stateFor(joined.playerId));
+          return;
+        }
+        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
+        let reason = null;
+        // 연결에서 자리를 먼저 떼고 방에서 뺀다(포커의 leave와 같은 순서).
+        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; mindRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
+        if (msg.type === 'ready') reason = mindRoom.setReady(client.playerId, msg.ready);
+        else if (msg.type === 'start') reason = mindRoom.begin(client.playerId);
+        else if (msg.type === 'focus') reason = mindRoom.focus(client.playerId, msg.focused !== false);
+        else if (msg.type === 'pause') reason = mindRoom.pause(client.playerId);
+        else if (msg.type === 'play') reason = mindRoom.play(client.playerId);
+        else if (msg.type === 'star') reason = mindRoom.proposeStar(client.playerId);
+        else if (msg.type === 'starVote') reason = mindRoom.voteStar(client.playerId, msg.voteId, msg.agree === true);
+        else reason = '지원하지 않는 요청입니다.';
+        if (reason) sendTo(ws, { type: 'error', message: reason });
+      } catch (err) {
+        error(`[더 마인드 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
+        sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
+      }
+    });
+  }
+
   function replaceConnection(gameClients, incoming, playerId) {
     for (const existing of gameClients) {
       if (existing === incoming || existing.playerId !== playerId) continue;
@@ -674,22 +724,25 @@ function createGameServer(options) {
     if (room) room.dispose();
     if (pokerRoom) pokerRoom.dispose();
     if (blackjackRoom) blackjackRoom.dispose();
+    if (mindRoom) mindRoom.dispose();
     if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     for (const client of clients) {
       try { client.ws.terminate(); } catch { /* 이미 끊김 */ }
     }
     clients.clear();
-    for (const client of [...pokerClients, ...blackjackClients, ...portalClients]) {
+    for (const client of [...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
       try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
     }
     pokerClients.clear();
     blackjackClients.clear();
+    mindClients.clear();
     portalClients.clear();
     if (wss) { try { wss.close(); } catch { /* 무시 */ } wss = null; }
     if (server) { try { server.close(); } catch { /* 무시 */ } server = null; }
     room = null;
     pokerRoom = null;
     blackjackRoom = null;
+    mindRoom = null;
     initialized = false;
   }
 
