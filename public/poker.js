@@ -235,14 +235,22 @@
       if (data.type === 'pong') return;
       // [보스 키] 누군가 화면을 가렸다 - 내 화면도 가린다(public/cover.js).
       if (data.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
-      if (data.type === 'welcome') { saveToken(data.token); return; }
+      if (data.type === 'welcome') {
+        saveToken(data.token);
+        // [보스 키] 가려진 채로 다시 연결됐으면 서버에 다시 알린다(서버는 이전 연결의 상태를 버린다).
+        if (window.bossCover && window.bossCover.isShown()) send('coverState', { covered: true });
+        return;
+      }
       if (data.type === 'replaced') {
         superseded = true;
         setOffline(true);
         showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
         return;
       }
-      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
+      // [이슈] 나가도 토큰은 지우지 않는다. 서버는 나간 사람의 칩을 이 토큰에 묶어 보관하는데,
+      // 예전에는 여기서 지워 버려서 다시 들어오면 칩이 100만 원으로 되살아났다(지고 있으면
+      // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
+      if (data.type === 'left') { location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'pokerState') { state = data; render(); }
     };
@@ -337,6 +345,8 @@
       else if (you.isFolded) message = '폴드했습니다. 남은 판을 관전하고 있습니다.';
     }
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
+    // [보스 키] 차례인 사람이 화면을 가려 두는 동안에는 그 사람의 제한시간이 멈춘다(web/cover-pause.js).
+    if (state.paused && !state.result) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     $('message').textContent = message;
 
     $('players').innerHTML = state.players.map(function (player) {
@@ -382,6 +392,8 @@
 
   // [보스 키] 내가 가리면 다른 사람들 화면도 가리도록 서버에 알린다(public/cover.js).
   document.addEventListener('boss-cover', function () { send('cover'); });
+  // [보스 키] 내 화면이 가려졌는지/돌아왔는지 알린다. 가려진 동안 내 차례의 제한시간이 멈춘다.
+  document.addEventListener('boss-cover-state', function (event) { send('coverState', { covered: !!(event.detail && event.detail.covered) }); });
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
   $('leave').onclick = function (event) {
     event.preventDefault();
@@ -392,8 +404,7 @@
       send('leave');
       setTimeout(function () { location.href = '/'; }, 1200);
     } else {
-      saveToken(null);
-      location.href = '/';
+      location.href = '/'; // 토큰은 남긴다(위 'left' 참고)
     }
   };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };

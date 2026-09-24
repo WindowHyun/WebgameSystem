@@ -27,8 +27,8 @@ function check(name, ok, detail) {
 const total = (s) => s.players.reduce((sum, p) => sum + p.chips, 0) + s.pot;
 
 /** 방을 열고, 필요하면 투표로 기본 배팅금을 바꾼 뒤 판을 시작한다. */
-function open(make, names, baseBet) {
-  const room = make({ onChange() {}, actionTimeoutMs: 0, proposalTimeoutMs: 0 });
+function open(make, names, baseBet, extra) {
+  const room = make(Object.assign({ onChange() {}, actionTimeoutMs: 0, proposalTimeoutMs: 0 }, extra || {}));
   const joined = names.map((nickname) => room.join({ nickname }));
   const ids = joined.map((p) => p.playerId);
   if (baseBet) {
@@ -141,14 +141,15 @@ function testPokerTieRematchNoSecondAnte() {
   check('동점이 한 번은 나와야 검사할 수 있다', false);
 }
 
-function testBlackjackAnte() {
+async function testBlackjackAnte() {
   console.log('\n=== 블랙잭 ===');
-  const { room, ids, view } = open(createBlackjackRoom, ['A', 'B', 'C'], 1000);
+  const { room, ids, view } = open(createBlackjackRoom, ['A', 'B', 'C'], 1000, { disconnectGraceMs: 20 });
   start(room, ids);
   check('카드를 고르기 전에 앤티가 걷힌다', view().phase === 'playing' && view().pot === 3000, `${view().phase} 팟 ${view().pot}`);
-  // 카드 선택 중에 한 명이 끊기면 제외된다 - 낸 앤티는 팟에 남는다.
+  // 카드 선택 중에 한 명이 끊겨 돌아오지 않으면 제외된다 - 낸 앤티는 팟에 남는다.
   const gone = view().turnPlayerId;
   room.disconnect(gone);
+  await new Promise((resolve) => setTimeout(resolve, 80));
   for (let i = 0; i < 6 && view(ids.find((id) => id !== gone)).phase === 'playing'; i += 1) {
     room.stand(view(ids.find((id) => id !== gone)).turnPlayerId);
   }
@@ -171,6 +172,7 @@ testPokerFirstFold();
 testPokerRaiseOnTopOfAnte();
 testPokerShortAnte();
 testPokerTieRematchNoSecondAnte();
-testBlackjackAnte();
-console.log(`\n앤티: ${pass}개 통과, ${fail}개 실패`);
-if (fail) process.exit(1);
+testBlackjackAnte().then(() => {
+  console.log(`\n앤티: ${pass}개 통과, ${fail}개 실패`);
+  if (fail) process.exit(1);
+}).catch((e) => { console.error(e); process.exit(1); });

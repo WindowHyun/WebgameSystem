@@ -9,6 +9,7 @@
  *   2. A 올인 → B 콜 → C가 자기 차례에 나가면, 배팅은 이미 끝났는데 종료 판정을
  *      건너뛰고 차례가 올인한 A에게 갔다. A는 할 수 있는 게 없어 자동 폴드되었다.
  *   3. 올인하고 기다리는 사람은 1초만 끊겨도 폴드되었다. 더 정할 것이 없는데도.
+ *      (지금은 올인이 아니어도 곧바로 폴드하지 않는다 - test/reconnect-fold-test.js 참고)
  *   4. 블랙잭은 21을 넘은 사실을 본인만 알아야 블러핑이 되는데, 모두가 보는 기록에
  *      "21을 넘었지만"이 찍혔다.
  *
@@ -77,7 +78,9 @@ function testAllInTieRematch() {
 // ─────────────────────────────── 2 ───────────────────────────────
 
 async function testLeaveAfterAllInAndCall(game, make, how) {
-  const { room, ids } = seat(make, ['A', 'B', 'C'], { actionTimeoutMs: 150 });
+  // 끊긴 사람은 곧바로 폴드되지 않고, 자리 유예가 지나도록 돌아오지 않으면 그때 폴드된다.
+  // 유예(50ms)를 제한시간(150ms)보다 짧게 잡아, 유예 뒤의 폴드가 판을 이어 가는지 본다.
+  const { room, ids } = seat(make, ['A', 'B', 'C'], { actionTimeoutMs: 150, disconnectGraceMs: 50 });
   if (game === '블랙잭') skipToBetting(room, ids[0]);
   const view = () => room.stateFor(ids[0]);
   const start = INITIAL_CHIPS * 3;
@@ -86,8 +89,13 @@ async function testLeaveAfterAllInAndCall(game, make, how) {
   const leaver = view().turnPlayerId;
   if (how === '끊김') room.disconnect(leaver); else room.leave(leaver);
 
+  if (how === '끊김') {
+    check(`${game}/끊김: 끊기자마자 폴드하지 않고 돌아올 틈을 준다`, view().phase === 'betting'
+      && !view().history.some((h) => h.text.includes('폴드 처리')), view().history.slice(-1)[0].text);
+    await wait(100); // 유예가 지났다
+  }
   const now = view();
-  check(`${game}/${how}: 배팅이 이미 끝났으니 곧바로 결과로 간다`, now.phase === 'result', `단계 ${now.phase}`);
+  check(`${game}/${how}: 배팅이 이미 끝났으니 ${how === '끊김' ? '유예가 지나면' : '곧바로'} 결과로 간다`, now.phase === 'result', `단계 ${now.phase}`);
   await wait(400); // 예전에는 여기서 올인한 사람이 제한시간에 걸려 자동 폴드됐다
   const later = view();
   check(`${game}/${how}: 올인한 사람이 자동 폴드되지 않았다`,
@@ -95,7 +103,7 @@ async function testLeaveAfterAllInAndCall(game, make, how) {
   check(`${game}/${how}: 결과가 카드 비교로 났다`,
     !!later.result && (later.result.revealed !== false || later.result.noWinner === true), JSON.stringify(later.result));
   if (how === '끊김') {
-    // 끊긴 C는 폴드되어 목록에서 빠져 있다. C가 낸 것은 앤티(기본 배팅금 100원)뿐이다.
+    // 끊긴 C는 돌아오지 않아 폴드되고 자리도 정리되어 목록에 없다. C가 낸 것은 앤티(100원)뿐이다.
     const chips = later.players.map((p) => p.chips).concat(INITIAL_CHIPS - 100);
     check(`${game}/${how}: 칩 총액이 그대로다`, total(chips, later.pot) === start,
       `${total(chips, later.pot)} vs ${start}`);

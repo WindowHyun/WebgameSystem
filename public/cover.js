@@ -14,9 +14,13 @@
  *
  * 모든 페이지(포털·라이어·포커·블랙잭)가 이 파일 하나를 같이 쓴다.
  *
- * [요청] 한 명이 가리면 접속한 모든 사람의 화면도 같이 가린다. 내가 우클릭으로 가리면
+ * [요청] 한 명이 가리면 접속한 모든 사람의 화면도 같이 가린다(게임에 참가한 사람이 가린
+ * 경우. 포털에만 있는 사람은 자기 화면만 가린다 - 남용 방지). 내가 우클릭으로 가리면
  * 'boss-cover' 이벤트를 쏘고, 각 페이지가 자기 연결로 서버에 알린다. 서버가 {type:'cover'}를
  * 보내오면 페이지가 window.bossCover.show()를 부른다. 돌아오는 것은 각자 한다.
+ *
+ * [요청] 가려진 동안은 제한시간도 멈춘다. 가리거나 돌아올 때마다(남이 가린 경우도)
+ * 'boss-cover-state' 이벤트를 쏘고, 각 페이지가 서버에 {type:'coverState'}로 알린다.
  */
 (function () {
   'use strict';
@@ -38,6 +42,12 @@
     var index;
     do { index = Math.floor(Math.random() * COVERS.length); } while (index === lastIndex);
     return index;
+  }
+
+  // 내 화면이 가려졌는지/돌아왔는지 페이지에 알린다. 페이지가 자기 연결로 서버에 전하고,
+  // 서버는 가려진 동안 나를 기다리는 제한시간을 멈춘다(web/cover-pause.js).
+  function announce(covered) {
+    try { document.dispatchEvent(new CustomEvent('boss-cover-state', { detail: { covered: covered } })); } catch (error) { /* 알리지 못해도 화면은 그대로 */ }
   }
 
   function show() {
@@ -71,6 +81,7 @@
     document.documentElement.style.overflow = 'hidden';
     // 입력창에 커서가 있으면 치던 글자가 게임으로 들어가지 않게 뺀다.
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    announce(true);
   }
 
   function hide() {
@@ -79,6 +90,31 @@
     overlay = null;
     document.title = savedTitle;
     document.documentElement.style.overflow = savedOverflow;
+    announce(false);
+  }
+
+  /**
+   * [이슈] 실수로 가리지 않게, 원래 우클릭 메뉴가 필요한 자리는 양보한다.
+   *   - 입력칸 위: 붙여넣기
+   *   - 드래그해서 고른 글자 위: 복사
+   * 예전에는 어디를 우클릭하든 가려져서, 대화를 복사하거나 붙여넣으려다 모두의 화면이
+   * 가려졌다(한 명이 가리면 모두 가려진다). 급할 때는 그 밖의 아무 곳이나 누르면 된다.
+   */
+  function wantsNativeMenu(event, target) {
+    if (!target || !target.closest) return false;
+    if (target.closest('input, textarea, [contenteditable="true"], [contenteditable=""]')) return true;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (!selection || selection.isCollapsed || !selection.rangeCount || !String(selection).trim()) return false;
+    // 고른 글자 "위"인지는 누른 자리가 고른 글자의 실제 영역 안인지로 본다. 요소로 따지면
+    // 대화창처럼 고른 글자를 품은 넓은 영역까지 "위"로 쳐서, 빈 곳을 눌러도 가려지지 않았다.
+    try {
+      var rects = selection.getRangeAt(0).getClientRects();
+      for (var i = 0; i < rects.length; i += 1) {
+        var r = rects[i];
+        if (event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom) return true;
+      }
+    } catch (error) { /* 못 따지면 가린다 */ }
+    return false;
   }
 
   document.addEventListener('pointerdown', function (event) { lastPointer = event.pointerType || 'mouse'; }, true);
@@ -90,6 +126,7 @@
       var target = event.target && event.target.closest ? event.target : null;
       var zone = target && target.closest('[data-keep-contextmenu]');
       if (zone && target.closest(zone.getAttribute('data-keep-contextmenu'))) return;
+      if (wantsNativeMenu(event, target)) return;
     }
     event.preventDefault();
     event.stopPropagation();

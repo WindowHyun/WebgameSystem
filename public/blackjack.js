@@ -176,14 +176,22 @@
       if (data.type === 'pong') return;
       // [보스 키] 누군가 화면을 가렸다 - 내 화면도 가린다(public/cover.js).
       if (data.type === 'cover') { if (window.bossCover) window.bossCover.show(); return; }
-      if (data.type === 'welcome') { saveToken(data.token); return; }
+      if (data.type === 'welcome') {
+        saveToken(data.token);
+        // [보스 키] 가려진 채로 다시 연결됐으면 서버에 다시 알린다(서버는 이전 연결의 상태를 버린다).
+        if (window.bossCover && window.bossCover.isShown()) send('coverState', { covered: true });
+        return;
+      }
       if (data.type === 'replaced') {
         superseded = true;
         setOffline(true);
         showFatal('다른 창에서 같은 참가자로 접속해 이 창의 연결이 닫혔습니다.');
         return;
       }
-      if (data.type === 'left') { saveToken(null); location.href = '/'; return; }
+      // [이슈] 나가도 토큰은 지우지 않는다. 서버는 나간 사람의 칩을 이 토큰에 묶어 보관하는데,
+      // 예전에는 여기서 지워 버려서 다시 들어오면 칩이 100만 원으로 되살아났다(지고 있으면
+      // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
+      if (data.type === 'left') { location.href = '/'; return; }
       if (data.type === 'error') { showError(data.message); return; }
       if (data.type === 'blackjackState') { state = data; render(); }
     };
@@ -258,13 +266,15 @@
     if (state.phase === 'betting') { var bettor = state.players.find(function (p) { return p.id === state.turnPlayerId; }); message = bettor ? '현재 ' + bettor.nickname + '님의 배팅 차례입니다.' + (myTurn ? ' 배팅 액션을 선택하세요.' : '') : '배팅을 진행하고 있습니다.'; }
     if (!lobby && !state.you.inRound) message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.';
     if (state.result) message = state.result.noWinner ? state.result.message : state.result.nickname + '님이 ' + money(state.result.amount) + '을 획득했습니다.';
+    // [보스 키] 차례인 사람이 화면을 가려 두는 동안에는 그 사람의 제한시간이 멈춘다(web/cover-pause.js).
+    if (state.paused && !state.result) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     $('message').textContent = message;
     $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = lobby ? (player.ready ? '준비' : '대기') /* 대기 중에는 지난 판의 스탠드·폴드가 아니라 준비 여부 */ : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; if (player.connected === false) status = '끊김'; /* 두 단어면 폰에서 금액 줄이 잘린다(public/poker.js 참고) */ var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
     $('cards').innerHTML = state.players.filter(function (player) { return player.cards.length; }).map(function (player) {
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var score = player.score === null ? player.cards.length + '장' : player.score + '점';
-      return '<div class="seat blackjack-seat ' + (player.isFolded ? 'folded' : '') + '"><div class="hand">' + cards + '</div>' + (tieCards ? '<div class="tie-hand"><small>재대결</small>' + tieCards + '</div>' : '') + '<b>' + escapeHtml(player.nickname) + '</b><span class="score ' + (player.isBusted ? 'bust' : '') + '">' + score + '</span></div>';
+      return '<div class="seat blackjack-seat ' + (player.isFolded ? 'folded' : '') + '"><div class="hand' + (player.cards.length >= 5 ? ' many' : '') /* 폰에서 5장 이상이면 겹치지 않게 줄을 바꿔 놓는다(responsive-fixes.css) */ + '">' + cards + '</div>' + (tieCards ? '<div class="tie-hand"><small>재대결</small>' + tieCards + '</div>' : '') + '<b>' + escapeHtml(player.nickname) + '</b><span class="score ' + (player.isBusted ? 'bust' : '') + '">' + score + '</span></div>';
     }).join('');
     $('history').innerHTML = state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join('');
     function openDonation(element, event) { event.preventDefault(); event.stopPropagation(); if (state.phase !== 'lobby' && state.phase !== 'result') { showError('기부는 대기 중에만 할 수 있습니다.'); return; } if (element.dataset.id === state.you.id) return; donationTarget = element.dataset.id; var target = state.players.find(function (p) { return p.id === donationTarget; }); var rect = element.getBoundingClientRect(); $('donate-name').textContent = target.nickname + '님에게'; $('donate').style.left = Math.min(event.clientX || rect.right, innerWidth - 190) + 'px'; $('donate').style.top = Math.min(event.clientY || rect.bottom, innerHeight - 150) + 'px'; $('donate').classList.remove('hidden'); }
@@ -273,12 +283,14 @@
     renderStartConfirm();
   }
   $('ready').onclick = function () { send('ready', { ready: !state.players.find(function (p) { return p.id === state.you.id; }).ready }); };
-  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { saveToken(null); location.href = '/'; } };
+  $('leave').onclick = function (event) { event.preventDefault(); if (leaving) return; leaving = true; clearTimeout(reconnectTimer); if (ws && ws.readyState === WebSocket.OPEN) { send('leave'); setTimeout(function () { location.href = '/'; }, 1200); } else { location.href = '/'; /* 토큰은 남긴다(위 'left' 참고) */ } };
   $('set-bet').onclick = function () { send('baseBet', { amount: Number($('base-bet').value) }); };
   $('proposal-yes').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: true }); };
   $('proposal-no').onclick = function () { send('baseBetVote', { proposalId: state.baseBetProposal.id, agree: false }); };
   // [보스 키] 내가 가리면 다른 사람들 화면도 가리도록 서버에 알린다(public/cover.js).
   document.addEventListener('boss-cover', function () { send('cover'); });
+  // [보스 키] 내 화면이 가려졌는지/돌아왔는지 알린다. 가려진 동안 내 차례의 제한시간이 멈춘다.
+  document.addEventListener('boss-cover-state', function (event) { send('coverState', { covered: !!(event.detail && event.detail.covered) }); });
   $('start').onclick = function () { startConfirmOpen = true; renderStartConfirm(); };
   $('start-cancel').onclick = closeStartConfirm;
   $('start-go').onclick = function () { closeStartConfirm(); send('start'); };

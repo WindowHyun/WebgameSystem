@@ -172,15 +172,18 @@ async function run() {
   assert.equal(foldedState.players.find((p) => p.id === fpA.playerId).card.hidden, undefined, 'A는 아직 뛰고 있다');
   assert.equal(foldedState.players.find((p) => p.id === fpB.playerId).card.hidden, undefined, 'B는 아직 뛰고 있다');
 
-  const lateBlackjack = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0 });
+  // 끊긴 사람은 곧바로 폴드되지 않고 자리 유예(disconnectGraceMs)가 지나야 폴드된다.
+  const lateBlackjack = createBlackjackRoom({ onChange() {}, actionTimeoutMs: 0, disconnectGraceMs: 20 });
   const [lbA, lbB] = joinReady(lateBlackjack, ['진행자A', '진행자B']);
   assert.equal(lateBlackjack.begin(lbA.playerId), null);
   const lbLate = lateBlackjack.join({ nickname: '늦은참가자' });
   assert.equal(lateBlackjack.stateFor(lbLate.playerId).you.inRound, false);
   lateBlackjack.disconnect(lbA.playerId);
   lateBlackjack.disconnect(lbB.playerId);
+  assert.equal(lateBlackjack.stateFor(lbLate.playerId).phase, 'playing', '끊기자마자 판을 접지 않고 돌아올 틈을 준다.');
+  await new Promise((resolve) => setTimeout(resolve, 80));
   const recovered = lateBlackjack.stateFor(lbLate.playerId);
-  assert.equal(recovered.phase, 'result', '진행 참가자가 0명이 되면 판을 종료해야 합니다.');
+  assert.equal(recovered.phase, 'result', '진행 참가자가 모두 끊긴 채 돌아오지 않으면 판을 종료해야 합니다.');
   assert.equal(recovered.turnPlayerId, null);
   assert.equal(lateBlackjack.setReady(lbLate.playerId, true), null, '대기 참가자는 종료 후 다음 판을 준비할 수 있어야 합니다.');
   const lbNext = lateBlackjack.join({ nickname: '다음참가자' });
