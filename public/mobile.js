@@ -88,13 +88,17 @@
   title.textContent = '지금 보이는 버튼';
   var list = document.createElement('dl');
   list.className = 'help-list';
+  // 폰에서 보스 키를 켜는 방법(public/cover.js)은 눈에 보이는 버튼이 없어서 여기서 알려 준다.
+  var note = document.createElement('p');
+  note.className = 'help-note';
+  note.textContent = '보스 키: 두 손가락으로 화면을 동시에 톡 치면 모두의 화면이 쇼핑몰 화면으로 가려집니다. 가려진 화면은 한 번 누르면 돌아옵니다.';
   var foot = document.createElement('div');
   var close = document.createElement('button');
   close.type = 'button';
   close.className = 'secondary';
   close.textContent = '닫기';
   foot.appendChild(close);
-  [kicker, title, list, foot].forEach(function (node) { card.appendChild(node); });
+  [kicker, title, list, note, foot].forEach(function (node) { card.appendChild(node); });
   sheet.appendChild(card);
   document.body.appendChild(sheet);
 
