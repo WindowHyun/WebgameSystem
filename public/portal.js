@@ -66,8 +66,10 @@
     card.onclick = function () { location.href = card.dataset.url; };
   });
 
-  // [보스 키] 포털에서 우클릭하면 내 화면만 가린다. 모두의 화면을 가리는 것은 게임에
-  // 참가한 사람만 할 수 있다(web/game-server.js의 broadcastCover 참고 - 남용 방지).
+  // [보스 키] 포털에서 가려도 게임 중인 사람들 화면까지 가린다(누가 눌러도 무조건 모두).
+  document.addEventListener('boss-cover', function () {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cover' }));
+  });
 
   var saved = sessionStorage.getItem(KEY);
   if (saved) { input.value = saved; showGames(saved); }

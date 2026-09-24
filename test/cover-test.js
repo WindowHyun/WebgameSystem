@@ -13,7 +13,7 @@
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
  *     돌아오는 것은 각자 하고, 누가 가렸는지 관리 로그에 남는다
  *   - [요청] 가려진 동안은 그 사람을 기다리는 제한시간도 멈추고, 화면의 남은 시간도 멈춰 보인다
- *   - [이슈] 입력칸·고른 글자 위 우클릭은 원래 메뉴를 둔다(복사·붙여넣기하다 모두가 가려지지 않게)
+ *   - [요청] 우클릭은 누가 어디서 누르든 무조건 모두의 화면을 가린다(포털·입력칸 위·연달아 눌러도)
  */
 
 const { chromium, devices } = require('playwright');
@@ -109,30 +109,14 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     const typed = await liar.inputValue('#chat-input');
     const chat = await other.textContent('#chat-messages');
     check('라이어: 가려진 동안 친 글자는 입력창에도 대화에도 들어가지 않는다', typed === '' && !chat.includes('비밀'), `입력창 "${typed}"`);
-    // [이슈] 실수로 가리지 않게: 입력칸(붙여넣기)과 고른 글자(복사) 위에서는 원래 메뉴를 둔다.
+    // [요청] 우클릭은 어디서 누르든 무조건 모두의 화면을 가린다 - 입력칸 위도 마찬가지다.
     await liar.locator('#chat-input').click({ button: 'right' });
-    await wait(200);
-    check('라이어: 입력칸 위 우클릭은 원래 메뉴(붙여넣기)를 둔다 - 가리지 않는다', !(await liar.evaluate(COVER)));
-    const picked = await liar.evaluate(() => {
-      const el = [...document.querySelectorAll('#chat-messages *')].find((node) => node.children.length === 0 && node.textContent.trim().length > 4);
-      if (!el) return null;
-      const range = document.createRange(); range.selectNodeContents(el);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
-      const box = el.getBoundingClientRect();
-      return { x: box.left + Math.min(20, box.width / 2), y: box.top + box.height / 2 };
-    });
-    if (picked) {
-      await liar.mouse.click(picked.x, picked.y, { button: 'right' });
-      await wait(200);
-      check('라이어: 고른 글자 위 우클릭은 원래 메뉴(복사)를 둔다 - 가리지 않는다', !(await liar.evaluate(COVER)));
-      await liar.mouse.click(1300, 450, { button: 'right' });
-      await wait(200);
-      check('라이어: 글자를 골라 둔 채 그 밖을 우클릭하면 가려진다', !!(await liar.evaluate(COVER)));
-      await liar.keyboard.press('Escape');
-      await liar.evaluate(() => getSelection().removeAllRanges());
-    } else {
-      check('라이어: 고를 글자가 대화창에 있어야 검사할 수 있다', false);
-    }
+    await wait(300);
+    check('라이어: 입력칸 위 우클릭도 가린다', !!(await liar.evaluate(COVER)));
+    check('라이어: 그때 같은 방 사람 화면도 가려진다', !!(await other.evaluate(COVER)));
+    await liar.keyboard.press('Escape');
+    await other.keyboard.press('Escape');
+    await wait(150);
     const profile = liar.locator('#participant-list [data-player-id]').last();
     await profile.click({ button: 'right' });
     await wait(300);
@@ -169,7 +153,7 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     const inLiar = await enter(browser, port, 'liar', '기');
     const inBlackjack = await enter(browser, port, 'blackjack', '경');
     const onPortal = await enter(browser, port, null, '신');
-    await wait(1200); // 앞선 검사들이 가린 뒤 1초 쿨다운이 지나게
+    await wait(300);
     await fromPoker.mouse.click(700, 400, { button: 'right' });
     await wait(700);
     const states = await Promise.all([inLiar, inBlackjack, onPortal].map((p) => p.evaluate(COVER)));
@@ -182,19 +166,27 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
       !(await onPortal.evaluate(COVER)) && !!(await inLiar.evaluate(COVER)) && !!(await fromPoker.evaluate(COVER)));
     check('누가 가렸는지 관리 로그에 남는다',
       serverLog.some((l) => l.includes('[보스 키] 포커 무 > 모두의 화면을 가림')), serverLog.filter((l) => l.includes('보스 키')).join(' / '));
-    // 연타해도 1초에 한 번만 퍼진다.
-    const before = serverLog.filter((l) => l.includes('보스 키')).length;
-    for (let i = 0; i < 4; i += 1) {
-      await inBlackjack.mouse.click(700, 400, { button: 'right' }); await wait(60);
+    // [요청] 포털에서 눌러도 게임 중인 사람까지 가려진다.
+    await inLiar.keyboard.press('Escape');
+    await wait(150);
+    await onPortal.mouse.click(700, 400, { button: 'right' });
+    await wait(400);
+    check('포털에서 우클릭해도 게임 중인 사람 화면이 가려진다', !!(await onPortal.evaluate(COVER)) && !!(await inLiar.evaluate(COVER)));
+    check('포털에서 가린 것도 관리 로그에 남는다', serverLog.some((l) => l.includes('[보스 키] 포털 접속자 > 모두의 화면을 가림')));
+    // [요청] 쿨다운 없이 누를 때마다 모두에게 퍼진다 - 방금 누가 가렸어도, 같은 사람이 곧바로 다시 눌러도.
+    for (const round of [1, 2]) {
+      await inLiar.keyboard.press('Escape');
+      await wait(100);
+      await inBlackjack.mouse.click(700, 400, { button: 'right' }); // 가려져 있던 자기 화면을 풀고
+      await inBlackjack.mouse.click(700, 400, { button: 'right' }); // 곧바로 다시 가린다
+      await wait(300);
+      check(`1초도 안 돼 다시 눌러도 모두에게 퍼진다 (${round}번째)`, !!(await inLiar.evaluate(COVER)));
     }
-    await wait(200);
-    const spread = serverLog.filter((l) => l.includes('보스 키')).length - before;
-    check('연타해도 1초에 한 번만 퍼진다', spread <= 1, `${spread}번`);
 
     console.log('\n=== 가려진 동안 제한시간 멈춤 ===');
     // 앞에서 가려진 화면을 모두 돌려 놓고 라이어 판을 시작한다.
     for (const p of [liar, other, inLiar]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
-    await wait(1200); // 앞선 연타의 1초 쿨다운이 지나게
+    await wait(300);
     await liar.click('#start-btn');
     await liar.waitForFunction(() => window.state && window.state.phase === 'turn' && window.state.round && window.state.round.speaker);
     const speakerId = await liar.evaluate(() => window.state.round.speaker.id);

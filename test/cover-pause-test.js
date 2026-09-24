@@ -330,11 +330,11 @@ async function testServer() {
 }
 
 /**
- * [이슈] 보스 키 남용 방지. 예전에는 사이트에 접속만 하면(포털에 있거나 게임에 참가하지
- * 않은 연결이어도) 누구든 1초마다 모두의 화면을 가릴 수 있었다.
+ * [요청] 보스 키는 누가 어디서 누르든 무조건 모두의 화면을 가린다 - 포털에 있거나 게임에
+ * 참가하기 전이어도, 방금 누가 가렸거나 같은 사람이 곧바로 다시 눌러도.
  */
-async function testCoverAbuse() {
-  console.log('\n=== 보스 키 남용 방지 ===');
+async function testCoverReachesEveryone() {
+  console.log('\n=== 보스 키는 누가 눌러도 모두에게 ===');
   const original = console.error;
   console.error = () => {};
   const port = 4534;
@@ -357,17 +357,16 @@ async function testCoverAbuse() {
     const portal = await connect('portal');
     const stranger = await connect('liar'); // 이름을 넣기 전(참가하지 않은) 라이어 연결
     portal.cover(); await wait(150);
-    check('포털에만 있는 사람의 우클릭은 남의 화면을 가리지 않는다', a.covers() === 0 && b.covers() === 0);
+    check('포털에 있는 사람이 눌러도 게임 중인 사람 화면이 가려진다', a.covers() === 1 && b.covers() === 1 && stranger.covers() === 1,
+      `${a.covers()} ${b.covers()} ${stranger.covers()}`);
     stranger.cover(); await wait(150);
-    check('게임에 참가하지 않은 연결도 남의 화면을 가리지 않는다', a.covers() === 0 && b.covers() === 0);
+    check('게임에 참가하기 전이어도 모두의 화면을 가린다', a.covers() === 2 && b.covers() === 2 && portal.covers() === 1,
+      `${a.covers()} ${b.covers()} ${portal.covers()}`);
     a.cover(); await wait(150);
-    check('게임에 참가한 사람이 가리면 다른 게임에 있는 사람과 포털 화면도 가려진다',
-      b.covers() === 1 && portal.covers() === 1 && stranger.covers() === 1, `${b.covers()} ${portal.covers()} ${stranger.covers()}`);
-    await wait(1100); // 전체 쿨다운(1초)은 지났다
+    check('방금 누가 가렸어도(1초 안) 또 누르면 모두에게 퍼진다', b.covers() === 3 && portal.covers() === 2, `${b.covers()} ${portal.covers()}`);
     a.cover(); await wait(150);
-    check('같은 사람은 3초 안에 다시 퍼뜨리지 못한다', b.covers() === 1, `${b.covers()}`);
-    b.cover(); await wait(150);
-    check('다른 사람은 퍼뜨릴 수 있다', a.covers() === 1, `${a.covers()}`);
+    check('같은 사람이 곧바로 다시 눌러도 퍼진다', b.covers() === 4, `${b.covers()}`);
+    check('누른 사람 자신에게는 보내지 않는다(자기 화면은 스스로 가렸다)', a.covers() === 2, `${a.covers()}`);
   } finally {
     for (const ws of sockets) ws.close();
     await wait(100);
@@ -381,8 +380,8 @@ async function main() {
   await testBlackjack();
   testLiar();
   await testServer();
-  await testCoverAbuse();
-  console.log(`\n보스 키 제한시간 멈춤·남용 방지: ${pass}개 통과, ${fail}개 실패`);
+  await testCoverReachesEveryone();
+  console.log(`\n보스 키 제한시간 멈춤·모두에게 퍼짐: ${pass}개 통과, ${fail}개 실패`);
   if (fail) process.exit(1);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

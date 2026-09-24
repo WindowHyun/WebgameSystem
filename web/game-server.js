@@ -270,7 +270,7 @@ function createGameServer(options) {
         try {
           const type = JSON.parse(raw).type;
           if (type === 'ping') sendTo(ws, { type: 'pong' });
-          // 포털에 있는 사람은 게임에 참가하지 않았으므로 자기 화면만 가린다(broadcastCover 참고).
+          else if (type === 'cover') broadcastCover(client, '포털 접속자');
         } catch {}
       });
       broadcastPortal();
@@ -464,17 +464,12 @@ function createGameServer(options) {
    * 순간 모두가 가려져야 한다. 돌아오는 것은 각자 한다 - 한 사람이 먼저 돌아왔다고 남의
    * 화면까지 풀리면 안 된다.
    *
-   * 장난으로 연타해도 퍼지는 것은 1초에 한 번이다. 누가 가렸는지는 관리 로그에 남긴다.
-   *
-   * [이슈] 남용 방지. 예전에는 사이트에 접속만 하면(이름만 넣고 포털에 있거나, 게임에
-   * 참가하지 않은 연결이어도) 누구든 1초마다 모두의 화면을 가릴 수 있었다. 이제는
-   * 게임에 참가한 사람만 모두에게 퍼뜨린다 - 로그에 닉네임이 남고, 라이어 게임에서는
-   * 강퇴할 수도 있다. 참가하지 않은 사람의 우클릭은 자기 화면만 가린다(화면 쪽에서 처리).
-   * 같은 사람은 3초에 한 번까지만 퍼뜨린다.
+   * [요청] 누가 어디서 누르든(포털·게임 참가 전 포함) 무조건 모두의 화면을 가린다.
+   * 한때 게임에 참가한 사람만, 같은 사람은 3초에 한 번, 전체는 1초에 한 번으로 막았는데,
+   * 그러면 급하게 누른 우클릭이 남의 화면을 못 가리는 때가 생긴다. 막지 않는다.
+   * 화면 쪽은 이미 가려져 있으면 그대로 두므로 여러 번 와도 문제없다. 연타 폭주는
+   * 연결마다 걸린 요청 수 제한(5초에 60개)이 막는다. 누가 가렸는지는 관리 로그에 남긴다.
    */
-  const COVER_COOLDOWN_MS = 1000;
-  const COVER_PER_PERSON_MS = 3000;
-  let lastCoverAt = 0;
   function nicknameOf(gameRoom, playerId) {
     try {
       const view = gameRoom && playerId ? gameRoom.stateFor(playerId) : null;
@@ -483,12 +478,6 @@ function createGameServer(options) {
     } catch { return '알 수 없음'; }
   }
   function broadcastCover(from, label) {
-    if (!from.playerId) return;
-    const now = Date.now();
-    if (now - lastCoverAt < COVER_COOLDOWN_MS) return;
-    if (now - (from.lastCoverAt || 0) < COVER_PER_PERSON_MS) return;
-    lastCoverAt = now;
-    from.lastCoverAt = now;
     log(`[보스 키] ${cleanLogText(label)} > 모두의 화면을 가림`);
     for (const client of [...clients, ...pokerClients, ...blackjackClients, ...portalClients]) {
       if (client !== from) sendTo(client.ws, { type: 'cover' });
