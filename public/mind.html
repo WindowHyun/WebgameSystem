@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>더 마인드</title>
+  <link rel="stylesheet" href="poker.css?v=4">
+  <link rel="stylesheet" href="responsive-fixes.css?v=3">
+  <link rel="stylesheet" href="mind.css?v=1">
+</head>
+<body class="poker-page mind-page">
+  <div id="app">
+    <header class="topbar">
+      <a href="/" id="leave" class="back" aria-label="게임 선택으로 돌아가기">←</a>
+      <div><h1>더 마인드</h1><p id="phase">대기 중</p></div>
+      <div class="pot"><small>레벨</small><strong id="level">-</strong></div>
+    </header>
+
+    <section class="players-panel">
+      <div class="section-title"><b>참가자</b><small>2~4명 · 말없이 작은 수부터 순서대로</small></div>
+      <div id="players"></div>
+    </section>
+
+    <main>
+      <section id="table">
+        <div class="round-info"><span id="status-chip">2~4명</span><span id="message">참가자들이 준비하면 시작할 수 있습니다.</span></div>
+        <div id="board">
+          <div id="rules" class="rules">
+            <b>더 마인드 규칙</b>
+            <p>모두가 한 팀입니다. 1~100 카드 중 레벨 수만큼 받은 카드를 <strong>말없이</strong>, 모두의 카드가 <strong>작은 수부터 순서대로</strong> 나오도록 가운데에 냅니다. 차례는 없습니다 - "지금이다" 싶을 때 내세요.</p>
+            <p>누가 낸 카드보다 작은 카드를 다른 사람이 들고 있었으면 목숨을 1개 잃습니다. 수리검을 쓰면(모두 동의) 각자 가장 작은 카드를 1장씩 버립니다.</p>
+            <p>2명 12레벨 · 3명 10레벨 · 4명 8레벨을 깨면 승리. 레벨 2·5·8을 깨면 수리검, 3·6·9를 깨면 목숨을 얻습니다.</p>
+          </div>
+          <div id="game-view" class="hidden">
+            <div id="gauges" class="gauges"><span id="lives"></span><span id="stars"></span><span id="reward"></span></div>
+            <div id="event" class="event hidden"></div>
+            <div class="pile-area">
+              <div class="pile-label">가운데 더미</div>
+              <div id="pile-top" class="card mind-card empty">-</div>
+              <div id="pile-list" class="pile-list"></div>
+            </div>
+            <div id="discards" class="discards hidden"></div>
+            <div class="hand-area">
+              <div class="hand-label" id="hand-label">내 카드</div>
+              <div id="hand" class="mind-hand"></div>
+            </div>
+            <div id="reveal" class="reveal hidden"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="lobby" class="controls">
+        <div class="main-actions"><button id="ready" class="secondary" data-help="게임 참가 준비 상태를 설정하거나 취소합니다.">준비</button><button id="start" data-help="준비를 마친 참가자들과 새 게임을 시작합니다.">게임 시작</button></div>
+      </section>
+
+      <section id="focus-controls" class="controls hidden">
+        <button id="focus" data-help="준비가 되면 누릅니다. 모두 집중하면 이어서 진행합니다.">집중 완료</button>
+        <button id="star-focus" class="secondary star-button" data-help="모두 동의하면 수리검 1개를 써서 각자 가장 작은 카드를 1장씩 버립니다.">수리검</button>
+      </section>
+
+      <section id="play-controls" class="controls hidden">
+        <button id="play" class="play-button" data-help="내 카드 중 가장 작은 카드를 가운데에 냅니다.">카드 내기</button>
+        <button id="star" class="secondary star-button" data-help="모두 동의하면 수리검 1개를 써서 각자 가장 작은 카드를 1장씩 버립니다.">수리검</button>
+        <button id="pause" class="text-button" data-help="잠깐 멈추고 모두 다시 집중합니다.">잠깐 멈춤</button>
+      </section>
+      <p id="action-help" class="action-help">버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.</p>
+
+      <section id="history" aria-label="게임 기록"></section>
+    </main>
+  </div>
+
+  <div id="star-vote" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="star-vote-title">
+    <div class="modal-card"><small>수리검</small><h2 id="star-vote-title"></h2><p id="star-vote-count"></p><div><button id="star-no" class="secondary" data-help="수리검을 쓰지 않습니다.">반대</button><button id="star-yes" data-help="수리검을 씁니다. 각자 가장 작은 카드를 1장씩 버립니다.">동의</button></div></div>
+  </div>
+  <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary" data-help="시작하지 않고 돌아갑니다.">취소</button><button id="start-go" data-help="준비한 참가자들과 새 게임을 시작합니다.">시작하기</button></div></div></div>
+  <div id="error" role="alert"></div>
+  <script src="mind.js?v=1"></script>
+  <script src="cover.js?v=5"></script>
+</body>
+</html>

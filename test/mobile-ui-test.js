@@ -175,6 +175,12 @@ async function runGame(browser, phone, descriptor, game) {
         }
         shots.push(await inspect(me, phone, game, '4-카드여러장-3명'));
       }
+      if (game === 'mind') {
+        // 더 마인드는 시작하면 집중 단계다. 모두 집중하면 카드 내기 버튼이 뜨는 진행 화면이 된다.
+        for (const page of pages) { await page.tap('#focus'); await wait(150); }
+        await wait(400);
+        shots.push(await inspect(me, phone, game, '4-진행중-3명'));
+      }
     }
     return shots;
   } finally {
@@ -190,7 +196,7 @@ async function main() {
   const shots = [];
   try {
     for (const { name, descriptor } of PHONES) {
-      for (const game of ['liar', 'poker', 'blackjack']) {
+      for (const game of ['liar', 'poker', 'blackjack', 'mind']) {
         shots.push(...await runGame(browser, name, descriptor, game));
       }
     }
