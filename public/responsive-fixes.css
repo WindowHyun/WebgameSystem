@@ -81,11 +81,23 @@
 
 /* [모바일] 버튼 설명 보기(public/mobile.js) - 마우스가 없는 기기에서만 상단에 붙는다.
    데스크톱은 버튼에 마우스를 올려 말풍선으로 본다. */
-.help-open{flex:0 0 auto;width:44px;height:44px;min-height:44px;margin-left:10px;padding:0;border:1px solid #d8d8da;border-radius:50%;background:#fff;color:#1d1c1d;font-size:18px;font-weight:700}
-body[data-offline] .help-open{margin-left:auto}
-.help-card{max-height:calc(100svh - 40px);overflow-y:auto;word-break:keep-all}
+.help-open{order:1;flex:0 0 auto;width:44px;height:44px;min-height:44px;margin-left:10px;padding:0;border:1px solid #d8d8da;border-radius:50%;background:#fff;color:#1d1c1d;font-size:18px;font-weight:700}
+/* 서버가 띄우는 창(수리검 투표·배팅금 제안 등)은 설명 창 위에 떠야 한다. */
+#help-sheet{z-index:19}
+.help-card{max-height:calc(100vh - 40px);max-height:calc(100svh - 40px);overflow-y:auto;word-break:keep-all}
 .help-list{margin:14px 0 0}
 .help-list dt{margin-top:12px;color:#1d1c1d;font-weight:700}
 .help-list dt:first-child{margin-top:0}
 .help-list dd{margin:3px 0 0;color:#616061;font-size:14px;line-height:1.5}
 .help-note{margin:18px 0 0;padding-top:14px;border-top:1px solid #e4e4e6;font-size:13px;line-height:1.5}
+
+/* 카드 게임 상단바: 좁은 폰에서 재연결 안내가 붙어도 뒤로가기·"?"는 줄지 않고 제목이 말줄임으로 준다.
+   "?"는 order:1로 늘 맨 끝(재연결 안내 뒤)에 둔다. */
+.topbar>.back{flex:0 0 auto}
+.topbar>div:not(.pot){min-width:0}
+.topbar h1,.topbar #phase{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){body[data-offline] .topbar:after{content:"재연결 중..."}}
+
+/* [모바일] 포털: 폰에서 보스 키를 켜는 법. 눈에 보이는 버튼이 없어서 마우스 없는 기기에만 적어 둔다. */
+.touch-hint{display:none}
+@media(hover:none){.portal-page .touch-hint{display:block;margin:16px 0 0;color:#616061;font-size:13px;line-height:1.5;word-break:keep-all}}

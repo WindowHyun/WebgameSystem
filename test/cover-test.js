@@ -10,10 +10,12 @@
  *   - 라이어 참가자 목록 우클릭(강퇴 메뉴)은 그대로 둔다
  *   - 카드 게임 기부 창은 왼쪽 클릭으로 계속 열린다
  *   - 폰 길게 누르기로는 덮이지 않는다
- *   - [요청] 폰은 두 손가락으로 동시에 톡 치면 모두의 화면을 가린다(다시 치면 돌아온다).
- *     확대·오래 누르기·세 손가락·한 손가락씩 번갈아 친 것은 가리지 않는다
- *   - [요청] 세로로 든 폰은 모바일 쇼핑몰 화면(5장 중 무작위)으로 가린다. 가로로 돌린 폰과
- *     PC의 세로 창은 PC 쇼핑몰 화면이다
+ *   - [요청] 폰은 두 손가락을 함께 대고 2초 누르고 있으면 모두의 화면을 가린다(한 번 더 하면 돌아온다).
+ *     짧은 톡·두 엄지가 잠깐 겹친 것·2초 전에 뗀 것·확대·세 손가락·오래 대고 있던 엄지에 나중에
+ *     닿은 손가락으로는 바뀌지 않는다. 누르던 참가자 줄이 다시 그려져도 손가락을 놓치지 않는다
+ *   - 누르고 있던 중에 남이 가리면 손을 떼도 풀리지 않는다(그림 위에서 시작한 누르기만 푼다)
+ *   - [요청] 세로로 든 폰은 모바일 쇼핑몰 화면(5장 중 무작위)으로 가린다. 가로로 돌린 폰,
+ *     PC의 세로 창(좁혀도), 세로로 든 태블릿은 PC 쇼핑몰 화면이다
  *   - [모바일] 폰(우클릭·Esc가 없다)은 남이 가린 화면을 한 번 눌러 푼다. 연달아 누른 손가락은
  *     드러난 버튼을 누르지 않는다. 데스크톱 마우스 왼쪽 클릭으로는 풀리지 않는다
  *   - [요청] 한 명이 가리면 접속한 모든 사람(다른 게임·포털 포함)의 화면도 가려진다.
@@ -160,6 +162,12 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     let repeated = false;
     let previous = null;
     let firstShown = null;
+    // 이 반복은 그림 고르기만 본다. 가림/풀림 알림(coverState)을 서버에 80번 보내면 요청 수 제한
+    // (5초에 60개)에 걸려 바로 뒤의 버튼 누르기가 버려지므로, 반복하는 동안은 서버에 알리지 않게 막는다.
+    await phone.evaluate(() => {
+      window.muteCoverState = (event) => event.stopImmediatePropagation();
+      document.addEventListener('boss-cover-state', window.muteCoverState, true);
+    });
     for (let i = 0; i < 40; i += 1) {
       await phone.evaluate(() => window.bossCover.show());
       if (i === 0) {
@@ -173,13 +181,19 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
       previous = st.src;
       await phone.keyboard.press('Escape');
     }
+    await phone.evaluate(() => document.removeEventListener('boss-cover-state', window.muteCoverState, true));
     check('폰(세로): 모바일 쇼핑몰 화면으로 화면 전체를 가리고 그림이 실제로 뜬다',
       !!firstShown && firstShown.full && firstShown.loaded && [...phoneSeen].every((src) => /^cover-phone-[1-5]\.webp$/.test(src)),
       JSON.stringify(firstShown) + ' ' + [...phoneSeen].join(', '));
     check('폰(세로): 여러 번 가리면 다섯 그림이 모두 나오고 같은 그림이 연달아 나오지 않는다', phoneSeen.size === 5 && !repeated,
       `${phoneSeen.size}종, 연달아 ${repeated}`);
     check('폰(세로): 탭 제목도 그림에 맞는 올리브영 제목이다', [...phoneTitles].every((t) => /올리브영/.test(t)) && phoneTitles.size >= 4, [...phoneTitles].join(' / '));
-    for (const [label, device] of [['폰을 가로로 돌리면', devices['iPhone 13 Pro landscape']], ['PC에서 창을 반쪽으로 띄운 세로 창은', { viewport: { width: 960, height: 1040 } }]]) {
+    for (const [label, device] of [
+      ['폰을 가로로 돌리면', devices['iPhone 13 Pro landscape']],
+      ['PC에서 창을 반쪽으로 띄운 세로 창은', { viewport: { width: 960, height: 1040 } }],
+      ['PC에서 폰 화면 폭만큼 좁힌 세로 창도', { viewport: { width: 720, height: 900 } }],
+      ['세로로 든 태블릿은', devices['iPad Mini']],
+    ]) {
       const page = await enter(browser, port, null, '구경', device);
       await page.evaluate(() => window.bossCover.show());
       const st = await page.evaluate(COVER);
@@ -256,46 +270,72 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
       check(`1초도 안 돼 다시 눌러도 모두에게 퍼진다 (${round}번째)`, !!(await inLiar.evaluate(COVER)));
     }
 
-    console.log('\n=== 폰: 두 손가락 톡 ===');
-    // [요청] 폰에는 우클릭이 없다. 두 손가락으로 동시에 톡 치면 우클릭과 똑같이 모두의 화면을 가린다.
-    for (const p of [phone, onPortal]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
+    console.log('\n=== 폰: 두 손가락 2초 누르기 ===');
+    // [요청] 폰에는 우클릭이 없다. 두 손가락(두 엄지)을 함께 대고 2초쯤 누르고 있으면 우클릭과 똑같이
+    // 모두의 화면을 가린다. 짧은 톡이나 두 엄지가 잠깐 겹친 것으로는 바뀌지 않는다.
+    for (const p of [phone, onPortal, fromPoker]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
     const touch = await phone.context().newCDPSession(phone);
-    const fingers = async (points, { holdMs = 80, moveBy = 0 } = {}) => {
-      await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points });
-      if (moveBy) {
-        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points.map((pt, i) => ({ ...pt, x: pt.x + (i ? moveBy : -moveBy) })) });
-      }
-      await wait(holdMs);
-      await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await wait(250);
-    };
-    const two = [{ x: 120, y: 330, id: 1 }, { x: 260, y: 330, id: 2 }];
-    await fingers(two, { moveBy: 60 });
-    check('두 손가락으로 벌려 확대하는 동작은 가리지 않는다', !(await phone.evaluate(COVER)));
-    await fingers(two, { holdMs: 900 });
-    check('두 손가락으로 오래 누르는 것은 가리지 않는다', !(await phone.evaluate(COVER)));
-    await fingers([...two, { x: 190, y: 450, id: 3 }]);
-    check('세 손가락 톡은 가리지 않는다', !(await phone.evaluate(COVER)));
-    await fingers([two[0]]);
-    await fingers([two[1]]);
-    check('한 손가락씩 번갈아 톡 친 것은 가리지 않는다', !(await phone.evaluate(COVER)));
+    const press = (points) => touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points });
+    const move = (points) => touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points });
+    const release = (remaining = []) => touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: remaining });
+    const A = { x: 110, y: 330, id: 1 };
+    const B = { x: 270, y: 330, id: 2 };
+    const covered = async () => !!(await phone.evaluate(COVER));
+
+    await press([A, B]); await wait(80); await release(); await wait(2300);
+    check('두 손가락으로 짧게 톡 치면 바뀌지 않는다', !(await covered()));
+    await press([A]); await wait(60); await press([A, B]); await wait(60); await release([A]); await wait(60); await release(); await wait(2300);
+    check('두 엄지가 잠깐 겹친 것(빠르게 번갈아 누르기)으로는 바뀌지 않는다', !(await covered()));
+    await press([A, B]); await wait(1000); await release(); await wait(1500);
+    check('2초가 되기 전에 떼면 바뀌지 않는다', !(await covered()));
+    await press([A, B]); await wait(300); await move([{ ...A, x: A.x - 60 }, { ...B, x: B.x + 60 }]); await wait(2200); await release();
+    check('두 손가락으로 벌려 확대하는 동작은 바뀌지 않는다', !(await covered()));
+    await press([A, B, { x: 190, y: 480, id: 3 }]); await wait(2300); await release();
+    check('세 손가락으로 누르고 있으면 바뀌지 않는다', !(await covered()));
+    await press([A]); await wait(1500); await press([A, B]); await wait(2300); await release();
+    check('오래 대고 있던 엄지에 나중에 닿은 손가락은 바뀌지 않는다', !(await covered()));
+
     const logBefore = serverLog.length;
-    await fingers(two);
-    await wait(300);
-    const phoneCovered = await phone.evaluate(COVER);
-    check('두 손가락으로 동시에 톡 치면 폰 화면이 모바일 쇼핑몰 화면으로 가려진다',
-      !!phoneCovered && phoneCovered.full && /^cover-phone-[1-5]\.webp$/.test(phoneCovered.src), JSON.stringify(phoneCovered));
+    await press([A, B]); await wait(2300);
+    const held = await phone.evaluate(COVER);
+    check('두 손가락을 함께 대고 2초 누르고 있으면(떼기 전에) 폰 화면이 모바일 쇼핑몰 화면으로 가려진다',
+      !!held && held.full && /^cover-phone-[1-5]\.webp$/.test(held.src), JSON.stringify(held));
+    await release(); await wait(300);
+    check('손을 떼도 가려진 채로 있다', await covered());
     check('그때 다른 사람 화면도 가려진다(우클릭과 같다)', !!(await onPortal.evaluate(COVER)));
     check('관리 로그에 폰 사용자가 가렸다고 남는다',
       serverLog.slice(logBefore).some((l) => l.includes('[보스 키] 포커 병 > 모두의 화면을 가림')), serverLog.slice(logBefore).filter((l) => l.includes('보스 키')).join(' / '));
-    await fingers(two);
-    check('다시 두 손가락 톡을 치면 돌아온다(남의 화면은 그대로)', !(await phone.evaluate(COVER)) && !!(await onPortal.evaluate(COVER)));
-    await fingers(two);
-    check('두 손가락 톡으로 다시 가려진다', !!(await phone.evaluate(COVER)));
-    await phone.touchscreen.tap(190, 330);
-    await wait(250);
-    check('두 손가락 톡으로 가린 화면도 한 손가락으로 한 번 누르면 돌아온다', !(await phone.evaluate(COVER)));
+    await press([A, B]); await wait(2300); await release(); await wait(300);
+    check('한 번 더 두 손가락 2초 누르기를 하면 돌아온다(남의 화면은 그대로)', !(await covered()) && !!(await onPortal.evaluate(COVER)));
     await onPortal.keyboard.press('Escape');
+
+    // 누르던 참가자 줄이 그사이 다시 그려져도(상태 갱신) 손가락을 놓치지 않는다.
+    const rows = await phone.evaluate(() => [...document.querySelectorAll('#players .player')].slice(0, 2).map((el) => {
+      const r = el.getBoundingClientRect(); el.dataset.old = '1'; return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    }));
+    const onRows = rows.length === 2 ? [{ ...rows[0], id: 1 }, { ...rows[1], id: 2 }] : [A, B];
+    const rerender = () => pb.evaluate(() => document.getElementById('ready').click()); // 다른 사람이 준비를 바꾸면 참가자 줄을 다시 그린다
+    const redrawn = () => phone.evaluate(() => !document.querySelector('#players .player[data-old]'));
+    await press(onRows); await wait(300); await rerender(); await wait(500);
+    const wasRedrawn = await redrawn();
+    await release(); await wait(2300);
+    check('누르던 참가자 줄이 다시 그려진 뒤 2초 전에 떼면 바뀌지 않는다(뗀 손가락을 놓치지 않는다)', wasRedrawn && !(await covered()), `다시 그림 ${wasRedrawn}`);
+    await phone.evaluate(() => document.querySelectorAll('#players .player').forEach((el) => { el.dataset.old = '1'; }));
+    await press(onRows); await wait(400); await rerender(); await wait(2000);
+    check('누르던 참가자 줄이 다시 그려져도 2초 누르면 가려진다', (await redrawn()) && await covered());
+    await release(); await wait(200);
+    await phone.touchscreen.tap(190, 330); await wait(700);
+    for (const p of [onPortal, fromPoker, pb]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
+
+    // 누르고 있던 중에 남이 가리면, 손을 떼는 순간의 click으로 풀리지 않는다(그림 위에서 시작한 누르기만 푼다).
+    await press([A]); await wait(100);
+    await fromPoker.mouse.click(700, 400, { button: 'right' }); await wait(500);
+    const coveredWhilePressing = await covered();
+    await release(); await wait(300);
+    check('누르고 있던 중에 남이 가리면, 손을 떼도 그대로 가려져 있다', coveredWhilePressing && await covered(), `누르는 중 ${coveredWhilePressing}`);
+    await phone.touchscreen.tap(190, 330); await wait(300);
+    check('  그다음 그림을 한 번 누르면 돌아온다', !(await covered()));
+    for (const p of [onPortal, fromPoker]) if (await p.evaluate(COVER)) { await p.keyboard.press('Escape'); await wait(100); }
 
     console.log('\n=== 가려진 동안 제한시간 멈춤 ===');
     // 앞에서 가려진 화면을 모두 돌려 놓고 라이어 판을 시작한다.
