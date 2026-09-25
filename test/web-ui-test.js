@@ -327,10 +327,14 @@ async function main() {
     (await p1.page.textContent('#sidebar .label')).trim() === '다이렉트 메시지');
   check('X8 인원수가 허들 버튼 왼쪽에 숫자로 나온다',
     (await p1.page.textContent('#member-count')).trim() === '3');
-  // [모바일] 마우스 없는 기기에서만 붙는 글자(.btn-label)는 데스크톱에서 숨어 있다.
+  // [모바일] 마우스 없는 기기에서만 붙는 글자(.btn-label)는 데스크톱에서 숨어 있고, 그 밖의 글자는 없다.
   check('X8 투표 버튼이 헤드셋이다',
-    (await p1.page.textContent('#vote-btn .em')).trim() === '🎧'
-    && await p1.page.$eval('#vote-btn .btn-label', (el) => getComputedStyle(el).display === 'none'));
+    await p1.page.$eval('#vote-btn', (btn) => {
+      const label = btn.querySelector('.btn-label');
+      const rest = btn.cloneNode(true);
+      rest.querySelectorAll('.btn-label').forEach((el) => el.remove());
+      return rest.textContent.trim() === '🎧' && (!label || getComputedStyle(label).display === 'none');
+    }));
   check('X8 입력창 안내가 "댓글 남기기..."다',
     (await p1.page.getAttribute('#chat-input', 'placeholder')) === '댓글 남기기...');
   check('X8 전송 버튼이 종이비행기 아이콘이다',
@@ -930,10 +934,16 @@ async function slackLookCheck(browser) {
   check('X18 다시 클릭하면 펼쳐진다', reopened.includes('제시어'));
 
   // ── 게임 시작/다음 라운드 버튼: 글자 없이 돋보기 아이콘만, 안내는 title로 ──
-  // [모바일] 폰(마우스 없음)에서는 말풍선이 안 떠서 글자를 붙인다 - 데스크톱에서는 숨어 있어야 한다.
+  // [모바일] 폰(마우스 없음)에서는 말풍선이 안 떠서 글자(.btn-label)를 붙인다 - 데스크톱에서는 숨어
+  // 있어야 하고, 그 밖의 글자는 하나도 없어야 한다.
   check('X18 [요청] 게임 시작 버튼이 돋보기 아이콘만 있고 글자가 없다',
     (await a.locator('#start-btn svg').count()) === 1
-    && await a.$eval('#start-btn .btn-label', (el) => getComputedStyle(el).display === 'none'),
+    && await a.$eval('#start-btn', (btn) => {
+      const label = btn.querySelector('.btn-label');
+      const rest = btn.cloneNode(true);
+      rest.querySelectorAll('.btn-label').forEach((el) => el.remove());
+      return rest.textContent.trim() === '' && (!label || getComputedStyle(label).display === 'none');
+    }),
     JSON.stringify(await a.textContent('#start-btn')));
   check('X18 [요청] 안내 문구는 title에 남아 있다',
     (await a.getAttribute('#start-btn', 'title')) === '게임 시작');

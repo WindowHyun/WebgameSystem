@@ -3,12 +3,13 @@
 /**
  * [모바일] 폰 사용자용 보조(public/mobile.js)와 라이어 시작·투표 버튼 글자 - 실제 브라우저로 확인한다.
  *
- *   - 게임 화면 네 곳(라이어·포커·블랙잭·더 마인드)은 화면 꺼짐 방지(wake lock)를 건다. 포털은 걸지 않는다
+ *   - 게임 화면 네 곳(라이어·포커·블랙잭·더 마인드)은 화면 꺼짐 방지(wake lock)를 건다. 포털과 PC는 걸지 않는다
  *   - 다른 앱에 다녀오면(브라우저가 푼 뒤) 다시 건다
  *   - 10분 동안 아무도 만지지 않으면 풀고, 다시 만지면 건다
  *   - 실제 Chromium(가짜 없이)에서도 오류가 나지 않는다
  *   - 폰(마우스 없음)에서만 카드 게임 상단에 "?"가 붙고, 누르면 지금 보이는 버튼의 설명이 모두 나온다
- *     보스 키를 폰에서 켜는 법(두 손가락 톡)도 함께 알려 준다
+ *     보스 키를 폰에서 켜는 법(두 손가락 2초 누르기)도 함께 알려 준다(포털에도 적혀 있다)
+ *     서버가 띄우는 창(수리검 투표)은 설명 창 위에 뜬다. 재연결 중 320px 상단바도 찌그러지지 않는다
  *     누를 수 없는 버튼은 그렇다고 적는다. 닫기·바깥 누르기로 닫힌다. 데스크톱에는 없다
  *   - 가장 작은 폰(320px)에서도 "?"가 상단에서 넘치거나 겹치지 않는다
  *   - 라이어: 폰에서는 시작 버튼에 "게임 시작" 글자가 보인다(데스크톱은 요청대로 아이콘만).
@@ -104,6 +105,10 @@ function fakeWakeLock() {
     }
     const portal = await enter(null, '폰-포털', PHONE);
     check('포털은 걸지 않는다(게임 화면만)', (await wake(portal)).requests === 0);
+    check('포털: 폰에는 보스 키 켜는 법(두 손가락 2초 누르기)이 적혀 있다',
+      await portal.isVisible('.touch-hint') && /두 손가락으로 화면을 2초 동안 누르고/.test(await portal.textContent('.touch-hint')));
+    const deskPortal = await enter(null, '데스크톱-포털', DESKTOP);
+    check('포털: PC에는 그 안내가 보이지 않는다', !(await deskPortal.isVisible('.touch-hint')));
 
     const idle = await enter('mind', '폰-방치', PHONE, { clock: true });
     const before = await wake(idle);
@@ -124,6 +129,7 @@ function fakeWakeLock() {
     console.log('\n=== 버튼 설명 보기 ===');
     const desk = await enter('poker', '데스크톱', DESKTOP);
     check('데스크톱에는 "?"가 없다(마우스를 올려 본다)', (await desk.locator('#help-open').count()) === 0);
+    check('PC 게임 화면에서는 화면 꺼짐 방지를 걸지 않는다(회사 모니터·자동 잠금을 막지 않는다)', (await wake(desk)).requests === 0, JSON.stringify(await wake(desk)));
     const phone = await enter('poker', '폰', PHONE);
     check('폰에는 카드 게임 상단에 "?"가 붙는다', await phone.isVisible('.topbar #help-open'));
     await phone.tap('#help-open');
@@ -131,8 +137,8 @@ function fakeWakeLock() {
     const sheet = await phone.evaluate(() => [...document.querySelectorAll('#help-sheet dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent]));
     const byLabel = Object.fromEntries(sheet);
     check('누르면 설명 창이 뜬다', await phone.isVisible('#help-sheet'));
-    check('설명 창에 폰에서 보스 키 켜는 법(두 손가락 톡)과 돌아오는 법이 나온다',
-      /두 손가락으로 화면을 동시에 톡/.test(await phone.textContent('#help-sheet .help-note')) && /한 번 누르면 돌아옵니다/.test(await phone.textContent('#help-sheet .help-note')));
+    check('설명 창에 폰에서 보스 키 켜는 법(두 손가락 2초 누르기)과 돌아오는 법이 나온다',
+      /두 손가락으로 화면을 2초 동안 누르고/.test(await phone.textContent('#help-sheet .help-note')) && /한 번 누르면 돌아옵니다/.test(await phone.textContent('#help-sheet .help-note')));
     check('지금 보이는 버튼과 설명이 나온다', byLabel['준비'] === '게임 참가 준비 상태를 설정하거나 취소합니다.'
       && /새 라운드를 시작/.test(byLabel['게임 시작'] || ''), JSON.stringify(sheet));
     check('숨은 버튼(배팅 단계의 콜·폴드)은 나오지 않는다', !Object.keys(byLabel).some((l) => /^(콜|폴드|올인)/.test(l)), Object.keys(byLabel).join(', '));
@@ -168,6 +174,16 @@ function fakeWakeLock() {
     await wait(150);
     const mindSheet = await mp.evaluate(() => [...document.querySelectorAll('#help-sheet dt')].map((dt) => dt.textContent + ': ' + dt.nextElementSibling.textContent).join(' / '));
     check('더 마인드 진행 중: 카드 내기·수리검·잠깐 멈춤 설명이 나온다', /카드 내기/.test(mindSheet) && /수리검/.test(mindSheet) && /잠깐 멈춤/.test(mindSheet), mindSheet);
+    // 설명 창을 보는 중에 남이 수리검을 제안하면, 투표 창이 설명 창 위에 떠야 한다(밑에 깔리면 모른 채 판이 기다린다).
+    await md.click('#star');
+    await wait(400);
+    const voteOnTop = await mp.evaluate(() => {
+      const yes = document.getElementById('star-yes');
+      const r = yes.getBoundingClientRect();
+      return r.width > 0 && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === yes;
+    });
+    check('설명 창을 보는 중에 수리검 투표가 오면 투표 창이 설명 창 위에 뜬다', voteOnTop);
+    if (voteOnTop) { await mp.tap('#star-no'); await wait(200); }
     await mp.tap('#help-sheet button.secondary');
 
     for (const game of ['poker', 'blackjack', 'mind']) {
@@ -181,6 +197,18 @@ function fakeWakeLock() {
           overlap: others.some((r) => r.right > help.left + 1 && r.left < help.right - 1), size: `${help.width}x${help.height}` };
       });
       check(`${game} 320px: "?"가 넘치거나 다른 것과 겹치지 않고 누르기 충분하다(44px)`, !box.overflow && box.inside && !box.overlap && box.size === '44x44', JSON.stringify(box));
+      // 재연결 중에는 상단바에 안내가 붙는다. 그래도 뒤로가기·"?"는 줄지 않고 "?"는 맨 끝, 제목이 말줄임으로 준다.
+      await small.evaluate(() => document.body.setAttribute('data-offline', ''));
+      const off = await small.evaluate(() => {
+        const bar = document.querySelector('.topbar').getBoundingClientRect();
+        const help = document.getElementById('help-open').getBoundingClientRect();
+        const back = document.querySelector('.topbar .back').getBoundingClientRect();
+        const title = document.querySelector('.topbar > div:not(.pot)').getBoundingClientRect();
+        return { overflow: document.documentElement.scrollWidth > innerWidth + 1, back: `${back.width}x${back.height}`, help: `${help.width}x${help.height}`,
+          helpAtEnd: help.right >= bar.right - 14, title: Math.round(title.width), titleBeforeHelp: title.right <= help.left };
+      });
+      check(`${game} 320px 재연결 중: 뒤로가기·"?"가 줄지 않고 "?"는 맨 끝, 제목이 말줄임으로 준다`,
+        !off.overflow && off.back === '44x44' && off.help === '44x44' && off.helpAtEnd && off.title >= 40 && off.titleBeforeHelp, JSON.stringify(off));
     }
 
     console.log('\n=== 라이어 시작·투표 버튼 글자 ===');

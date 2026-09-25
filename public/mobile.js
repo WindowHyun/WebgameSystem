@@ -1,5 +1,7 @@
 /**
  * [모바일] 주 사용자가 폰이라 게임 화면(라이어·포커·블랙잭·더 마인드)이 같이 쓰는 보조 기능.
+ * 마우스가 없는 기기(폰·태블릿)에서만 켠다. PC에서 화면을 켜 두면 회사 모니터가 꺼지지 않고
+ * 자동 잠금도 늦어져 오히려 눈에 띈다.
  *
  * 1) 화면 꺼짐 방지(Screen Wake Lock)
  *    남의 차례를 기다리는 동안 폰이 자동 잠금(보통 30초~1분)되면 브라우저가 페이지를 멈추고,
@@ -18,6 +20,7 @@
  */
 (function () {
   'use strict';
+  if (window.matchMedia && window.matchMedia('(hover: hover)').matches) return;
 
   // ── 1) 화면 꺼짐 방지 ──
   var IDLE_MS = 10 * 60 * 1000;
@@ -60,9 +63,8 @@
   touched();
 
   // ── 2) 버튼 설명 보기 ──
-  var canHover = window.matchMedia && window.matchMedia('(hover: hover)').matches;
   var topbar = document.querySelector('.topbar');
-  if (canHover || !topbar || !document.querySelector('button[data-help]')) return;
+  if (!topbar || !document.querySelector('button[data-help]')) return;
 
   var open = document.createElement('button');
   open.type = 'button';
@@ -91,7 +93,7 @@
   // 폰에서 보스 키를 켜는 방법(public/cover.js)은 눈에 보이는 버튼이 없어서 여기서 알려 준다.
   var note = document.createElement('p');
   note.className = 'help-note';
-  note.textContent = '보스 키: 두 손가락으로 화면을 동시에 톡 치면 모두의 화면이 쇼핑몰 화면으로 가려집니다. 가려진 화면은 한 번 누르면 돌아옵니다.';
+  note.textContent = '보스 키: 두 손가락으로 화면을 2초 동안 누르고 있으면 모두의 화면이 쇼핑몰 화면으로 가려집니다. 가려진 화면은 한 번 누르면 돌아옵니다.';
   var foot = document.createElement('div');
   var close = document.createElement('button');
   close.type = 'button';
