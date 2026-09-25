@@ -14,6 +14,8 @@ process.on('unhandledRejection', (reason) => {
 
 // 모듈 인스턴스마다 방 하나를 유지한다. Vercel이 WebSocket 업그레이드를 처리하고,
 // 이 서버 객체에는 같은 Function 인스턴스에 배정된 참가자들이 연결된다.
+// 그래서 다른 인스턴스로 연결된 사람과는 방이 갈린다. 실제 게임 주소는 Render 하나다
+// (README "현재 제약"). 이 경로는 배포 확인용으로만 쓴다.
 const vercelOrigins = [
   process.env.VERCEL_URL,
   process.env.VERCEL_PROJECT_PRODUCTION_URL,
