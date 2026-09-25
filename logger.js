@@ -41,9 +41,12 @@ function flush() {
   writing = true;
   const chunk = queue.join('');
   queue = [];
-  if (bytes + chunk.length > MAX_BYTES) rotate();
+  // 파일 크기는 바이트로 센다. chunk.length(글자 수)로 세면 한 글자가 3바이트인 한글 로그는
+  // 5MB 제한인데도 실제로는 최대 15MB까지 쌓였다.
+  const chunkBytes = Buffer.byteLength(chunk);
+  if (bytes + chunkBytes > MAX_BYTES) rotate();
   fs.appendFile(LOG_PATH, chunk, () => {
-    bytes += chunk.length;
+    bytes += chunkBytes;
     writing = false;
     if (queue.length > 0) schedule();
   });
