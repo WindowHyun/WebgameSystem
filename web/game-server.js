@@ -19,7 +19,7 @@ const { createPokerRoom } = require('./poker-room');
 const { createBlackjackRoom } = require('./blackjack-room');
 const { createMindRoom } = require('./mind-room');
 const { isAllowedOrigin } = require('./origin');
-const { validateClientMessage } = require('./protocol');
+const { validateClientMessage, validateCardGameMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -287,9 +287,7 @@ function createGameServer(options) {
       broadcastPortal();
       return;
     }
-    if (game === 'poker') { handlePokerConnection(ws, ip); return; }
-    if (game === 'mind') { handleMindConnection(ws, ip); return; }
-    if (game === 'blackjack') { handleBlackjackConnection(ws, ip); return; }
+    if (Object.hasOwn(CARD_GAMES, game)) { handleCardGameConnection(ws, ip, game); return; }
     const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
     clients.add(client);
 
@@ -538,147 +536,121 @@ function createGameServer(options) {
       wss.on('error', (err) => warn(`[WebSocket 서버 오류] ${err.message}`));
   }
 
-  function handlePokerConnection(ws, ip) {
+  /**
+   * 카드 게임(포커·블랙잭·더 마인드). 게임마다 다른 것은 이름, 접속자 목록, 방, 그리고 요청 →
+   * 방 함수 표뿐이다. 요청 형식은 web/protocol.js의 validateCardGameMessage가 먼저 걸러 준다.
+   * 방은 initialize()에서 만들어지므로 꺼내 쓰는 함수로 둔다.
+   */
+  const CARD_GAMES = {
+    poker: {
+      label: '포커',
+      clients: pokerClients,
+      room: () => pokerRoom,
+      actions: {
+        ready: (room, id, m) => room.setReady(id, m.ready),
+        baseBet: (room, id, m) => room.setBaseBet(id, m.amount),
+        baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
+        start: (room, id) => room.begin(id),
+        call: (room, id) => room.call(id),
+        raise: (room, id, m) => room.raise(id, m.amount),
+        allin: (room, id) => room.allin(id),
+        fold: (room, id) => room.fold(id),
+        donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
+      },
+    },
+    blackjack: {
+      label: '블랙잭',
+      clients: blackjackClients,
+      room: () => blackjackRoom,
+      actions: {
+        ready: (room, id, m) => room.setReady(id, m.ready),
+        baseBet: (room, id, m) => room.proposeBaseBet(id, m.amount),
+        baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
+        start: (room, id) => room.begin(id),
+        hit: (room, id) => room.hit(id),
+        stand: (room, id) => room.stand(id),
+        call: (room, id) => room.call(id),
+        raise: (room, id, m) => room.raise(id, m.amount),
+        allin: (room, id) => room.allin(id),
+        fold: (room, id) => room.fold(id),
+        donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
+      },
+    },
+    mind: {
+      label: '더 마인드',
+      clients: mindClients,
+      room: () => mindRoom,
+      actions: {
+        ready: (room, id, m) => room.setReady(id, m.ready),
+        start: (room, id) => room.begin(id),
+        focus: (room, id, m) => room.focus(id, m.focused !== false),
+        pause: (room, id) => room.pause(id),
+        play: (room, id) => room.play(id),
+        star: (room, id) => room.proposeStar(id),
+        starVote: (room, id, m) => room.voteStar(id, m.voteId, m.agree === true),
+      },
+    },
+  };
+
+  /**
+   * [리뷰 P2-02] 카드 게임 소켓 처리. 세 게임이 같은 틀이다: 요청 수 제한 → JSON 해석 → 형식 검사 →
+   * 확인(ping)·보스 키 → 참가 → 게임별 요청. 예전에는 거의 같은 코드가 게임마다 한 벌씩 있어서,
+   * 공통 부분(보스 키, 요청 수 제한 등)을 고칠 때마다 세 곳을 따로 맞춰야 했다.
+   */
+  function handleCardGameConnection(ws, ip, key) {
+    const game = CARD_GAMES[key];
     const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
-    pokerClients.add(client);
-    ws.on('error', (err) => warn(`[포커 연결 오류] ${ip} ${err.message}`));
+    game.clients.add(client);
+    ws.on('error', (err) => warn(`[${game.label} 연결 오류] ${ip} ${err.message}`));
     ws.on('pong', () => { client.missedPongs = 0; });
-    ws.on('close', () => { pokerClients.delete(client); if (pokerRoom && client.playerId) pokerRoom.disconnect(client.playerId); });
+    ws.on('close', () => {
+      game.clients.delete(client);
+      const room = game.room();
+      if (room && client.playerId) room.disconnect(client.playerId);
+    });
     ws.on('message', (raw) => {
       try {
         const now = Date.now();
         if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
         client.count += 1;
         if (client.count > RATE_MAX) return;
-        const msg = JSON.parse(raw);
-        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
-        if (msg.type === 'cover') { broadcastCover(client, `포커 ${nicknameOf(pokerRoom, client.playerId)}`); return; }
-        if (msg.type === 'coverState') { if (client.playerId) pokerRoom.setCovered(client.playerId, msg.covered === true); return; }
-        if (msg.type === 'join') {
-          if (client.playerId) return;
-          const joined = pokerRoom.join({ nickname: msg.nickname, token: msg.token });
-          if (joined.error) { warn(`[포커 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
-          replaceConnection(pokerClients, client, joined.playerId);
-          client.playerId = joined.playerId;
-          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
-          sendTo(ws, pokerRoom.stateFor(joined.playerId));
+        let msg;
+        try { msg = JSON.parse(raw); } catch { return; }
+        const invalid = validateCardGameMessage(key, msg);
+        if (invalid) {
+          warn(`[${game.label} 요청 무시] ${ip} ${invalid}`);
+          sendTo(ws, { type: 'error', message: '잘못된 요청입니다.' });
           return;
         }
-        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
-        let reason = null;
+        const room = game.room();
+        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
+        if (msg.type === 'cover') { broadcastCover(client, `${game.label} ${nicknameOf(room, client.playerId)}`); return; }
+        if (msg.type === 'coverState') { if (client.playerId) room.setCovered(client.playerId, msg.covered === true); return; }
+        if (msg.type === 'join') {
+          if (client.playerId) return;
+          const joined = room.join({ nickname: msg.nickname, token: msg.token });
+          if (joined.error) { warn(`[${game.label} 참가 거절] ${ip} ${joined.error}`); sendTo(ws, { type: 'error', message: joined.error }); return; }
+          replaceConnection(game.clients, client, joined.playerId);
+          client.playerId = joined.playerId;
+          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
+          sendTo(ws, room.stateFor(joined.playerId));
+          return;
+        }
+        if (!client.playerId) { sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' }); return; }
         // 연결에서 자리를 먼저 떼고 방에서 뺀다. 거꾸로 하면 방이 알리는 상태가 방금 나간
         // 사람에게도 가서("나"가 없는 상태) 그 화면에서 오류가 났다(라이어의 leave와 같은 순서).
-        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; pokerRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
-        if (msg.type === 'ready') reason = pokerRoom.setReady(client.playerId, msg.ready);
-        else if (msg.type === 'baseBet') reason = pokerRoom.setBaseBet(client.playerId, msg.amount);
-        else if (msg.type === 'baseBetVote') reason = pokerRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
-        else if (msg.type === 'start') reason = pokerRoom.begin(client.playerId);
-        else if (msg.type === 'call') reason = pokerRoom.call(client.playerId);
-        else if (msg.type === 'raise') reason = pokerRoom.raise(client.playerId, msg.amount);
-        else if (msg.type === 'allin') reason = pokerRoom.allin(client.playerId);
-        else if (msg.type === 'fold') reason = pokerRoom.fold(client.playerId);
-        else if (msg.type === 'donate') reason = pokerRoom.donate(client.playerId, msg.targetId, msg.amount);
-        else reason = '지원하지 않는 요청입니다.';
-        if (reason) sendTo(ws, { type: 'error', message: reason });
-      } catch (err) {
-        error(`[포커 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
-        sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
-      }
-    });
-  }
-
-  function handleBlackjackConnection(ws, ip) {
-    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
-    blackjackClients.add(client);
-    ws.on('error', (err) => warn(`[블랙잭 연결 오류] ${ip} ${err.message}`));
-    ws.on('pong', () => { client.missedPongs = 0; });
-    ws.on('close', () => { blackjackClients.delete(client); if (blackjackRoom && client.playerId) blackjackRoom.disconnect(client.playerId); });
-    ws.on('message', (raw) => {
-      try {
-        const now = Date.now();
-        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
-        client.count += 1;
-        if (client.count > RATE_MAX) return;
-        const msg = JSON.parse(raw);
-        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
-        if (msg.type === 'cover') { broadcastCover(client, `블랙잭 ${nicknameOf(blackjackRoom, client.playerId)}`); return; }
-        if (msg.type === 'coverState') { if (client.playerId) blackjackRoom.setCovered(client.playerId, msg.covered === true); return; }
-        if (msg.type === 'join') {
-          if (client.playerId) return;
-          const joined = blackjackRoom.join({ nickname: msg.nickname, token: msg.token });
-          if (joined.error) { warn(`[블랙잭 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
-          replaceConnection(blackjackClients, client, joined.playerId);
-          client.playerId = joined.playerId;
-          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
-          sendTo(ws, blackjackRoom.stateFor(joined.playerId));
+        if (msg.type === 'leave') {
+          const gone = client.playerId;
+          client.playerId = null;
+          room.leave(gone);
+          sendTo(ws, { type: 'left' });
           return;
         }
-        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
-        let reason = null;
-        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; blackjackRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
-        if (msg.type === 'ready') reason = blackjackRoom.setReady(client.playerId, msg.ready);
-        else if (msg.type === 'baseBet') reason = blackjackRoom.proposeBaseBet(client.playerId, msg.amount);
-        else if (msg.type === 'baseBetVote') reason = blackjackRoom.voteBaseBet(client.playerId, msg.proposalId, msg.agree);
-        else if (msg.type === 'start') reason = blackjackRoom.begin(client.playerId);
-        else if (msg.type === 'hit') reason = blackjackRoom.hit(client.playerId);
-        else if (msg.type === 'stand') reason = blackjackRoom.stand(client.playerId);
-        else if (msg.type === 'call') reason = blackjackRoom.call(client.playerId);
-        else if (msg.type === 'raise') reason = blackjackRoom.raise(client.playerId, msg.amount);
-        else if (msg.type === 'allin') reason = blackjackRoom.allin(client.playerId);
-        else if (msg.type === 'fold') reason = blackjackRoom.fold(client.playerId);
-        else if (msg.type === 'donate') reason = blackjackRoom.donate(client.playerId, msg.targetId, msg.amount);
-        else reason = '지원하지 않는 요청입니다.';
+        const action = Object.hasOwn(game.actions, msg.type) ? game.actions[msg.type] : null;
+        const reason = action ? action(room, client.playerId, msg) : '지원하지 않는 요청입니다.';
         if (reason) sendTo(ws, { type: 'error', message: reason });
       } catch (err) {
-        error(`[블랙잭 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
-        sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
-      }
-    });
-  }
-
-  /** [더 마인드] 소켓 처리. 포커·블랙잭과 같은 틀이다(web/mind-room.js 참고). */
-  function handleMindConnection(ws, ip) {
-    const client = { ws, ip, playerId: null, windowStart: 0, count: 0, missedPongs: 0 };
-    mindClients.add(client);
-    ws.on('error', (err) => warn(`[더 마인드 연결 오류] ${ip} ${err.message}`));
-    ws.on('pong', () => { client.missedPongs = 0; });
-    ws.on('close', () => { mindClients.delete(client); if (mindRoom && client.playerId) mindRoom.disconnect(client.playerId); });
-    ws.on('message', (raw) => {
-      try {
-        const now = Date.now();
-        if (now - client.windowStart > RATE_WINDOW_MS) { client.windowStart = now; client.count = 0; }
-        client.count += 1;
-        if (client.count > RATE_MAX) return;
-        const msg = JSON.parse(raw);
-        if (!msg || typeof msg !== 'object') return;
-        if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
-        if (msg.type === 'cover') { broadcastCover(client, `더 마인드 ${nicknameOf(mindRoom, client.playerId)}`); return; }
-        if (msg.type === 'coverState') { if (client.playerId) mindRoom.setCovered(client.playerId, msg.covered === true); return; }
-        if (msg.type === 'join') {
-          if (client.playerId) return;
-          const joined = mindRoom.join({ nickname: msg.nickname, token: msg.token });
-          if (joined.error) { warn(`[더 마인드 참가 거절] ${ip} ${joined.error}`); return sendTo(ws, { type: 'error', message: joined.error }); }
-          replaceConnection(mindClients, client, joined.playerId);
-          client.playerId = joined.playerId;
-          sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
-          sendTo(ws, mindRoom.stateFor(joined.playerId));
-          return;
-        }
-        if (!client.playerId) return sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' });
-        let reason = null;
-        // 연결에서 자리를 먼저 떼고 방에서 뺀다(포커의 leave와 같은 순서).
-        if (msg.type === 'leave') { const gone = client.playerId; client.playerId = null; mindRoom.leave(gone); sendTo(ws, { type: 'left' }); return; }
-        if (msg.type === 'ready') reason = mindRoom.setReady(client.playerId, msg.ready);
-        else if (msg.type === 'start') reason = mindRoom.begin(client.playerId);
-        else if (msg.type === 'focus') reason = mindRoom.focus(client.playerId, msg.focused !== false);
-        else if (msg.type === 'pause') reason = mindRoom.pause(client.playerId);
-        else if (msg.type === 'play') reason = mindRoom.play(client.playerId);
-        else if (msg.type === 'star') reason = mindRoom.proposeStar(client.playerId);
-        else if (msg.type === 'starVote') reason = mindRoom.voteStar(client.playerId, msg.voteId, msg.agree === true);
-        else reason = '지원하지 않는 요청입니다.';
-        if (reason) sendTo(ws, { type: 'error', message: reason });
-      } catch (err) {
-        error(`[더 마인드 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
+        error(`[${game.label} 요청 실패] ${ip} ${client.playerId || '미참가'} ${err && err.stack ? err.stack : err}`);
         sendTo(ws, { type: 'error', message: '요청을 처리하지 못했습니다.' });
       }
     });

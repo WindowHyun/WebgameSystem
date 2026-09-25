@@ -335,9 +335,17 @@ async function testServer() {
     const games = portal.last('games');
     check('포털 목록에 더 마인드가 진행중으로 보인다', !!games && games.games.mind && games.games.mind.status === '진행중' && games.games.mind.playerCount === 2,
       JSON.stringify(games && games.games.mind));
+    // 요청 형식은 web/protocol.js가 한곳에서 검사한다(라이어와 같은 문구로 거절).
     a.send({ type: 'nonsense' });
     await wait(80);
-    check('모르는 요청은 거절한다', a.inbox.some((m) => m.type === 'error' && /지원하지 않는/.test(m.message)));
+    check('모르는 요청은 거절한다', a.inbox.some((m) => m.type === 'error' && /잘못된 요청/.test(m.message)));
+    const errorsBefore = a.inbox.filter((m) => m.type === 'error').length;
+    a.send({ type: 'starVote', voteId: { $ne: null }, agree: true });
+    a.send({ type: 'focus', focused: 'yes' });
+    a.send({ type: 'join', nickname: 'x'.repeat(200) });
+    await wait(80);
+    check('형식이 틀린 요청(객체 ID·문자열 불리언·너무 긴 이름)도 방에 닿기 전에 거절한다',
+      a.inbox.filter((m) => m.type === 'error').length - errorsBefore === 3 && a.last('mindState').level === 2);
   } finally {
     for (const ws of sockets) ws.close();
     await wait(100);

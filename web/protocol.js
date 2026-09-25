@@ -32,14 +32,62 @@ const CLIENT_MESSAGES = {
   guess: (m) => (str(m.word, LIMITS.word) ? null : 'word'),
 };
 
-/** 문제가 없으면 null, 있으면 사유 문자열. */
-function validateClientMessage(msg) {
+/**
+ * [리뷰 P1-02] 카드 게임(포커·블랙잭·더 마인드)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
+ * 검사한다. 예전에는 게임 서버 분기와 각 방 안에 검사가 흩어져 있어서, 새 요청을 추가할 때 빠뜨리기 쉬웠다.
+ * 여기서는 형식만 본다. 금액은 숫자(칸을 비우면 브라우저가 보내는 null 포함)인지만 보고, 100원 단위나
+ * 보유 칩 같은 규칙은 방이 알맞은 안내와 함께 거절한다.
+ */
+const amountOk = (m) => m.amount === null || (typeof m.amount === 'number' && Number.isFinite(m.amount));
+const CARD_COMMON = {
+  ping: () => null,
+  cover: () => null,
+  coverState: (m) => (typeof m.covered === 'boolean' ? null : 'covered'),
+  join: (m) => (str(m.nickname, LIMITS.nickname) && optStr(m.token, LIMITS.token) ? null : 'nickname/token'),
+  leave: () => null,
+  ready: (m) => (typeof m.ready === 'boolean' ? null : 'ready'),
+  start: () => null,
+};
+const BETTING = {
+  baseBet: (m) => (amountOk(m) ? null : 'amount'),
+  baseBetVote: (m) => (str(m.proposalId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'proposalId/agree'),
+  call: () => null,
+  raise: (m) => (amountOk(m) ? null : 'amount'),
+  allin: () => null,
+  fold: () => null,
+  donate: (m) => (str(m.targetId, LIMITS.id) && amountOk(m) ? null : 'targetId/amount'),
+};
+const CARD_GAME_MESSAGES = {
+  poker: { ...CARD_COMMON, ...BETTING },
+  blackjack: { ...CARD_COMMON, ...BETTING, hit: () => null, stand: () => null },
+  mind: {
+    ...CARD_COMMON,
+    focus: (m) => (m.focused === undefined || typeof m.focused === 'boolean' ? null : 'focused'),
+    pause: () => null,
+    play: () => null,
+    star: () => null,
+    starVote: (m) => (str(m.voteId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'voteId/agree'),
+  },
+};
+
+function checkAgainst(table, msg) {
   if (!msg || typeof msg !== 'object' || Array.isArray(msg)) return '메시지가 객체가 아님';
   if (typeof msg.type !== 'string') return 'type 없음';
-  const check = Object.hasOwn(CLIENT_MESSAGES, msg.type) ? CLIENT_MESSAGES[msg.type] : null;
+  const check = Object.hasOwn(table, msg.type) ? table[msg.type] : null;
   if (!check) return `알 수 없는 type: ${String(msg.type).slice(0, 32)}`;
   const bad = check(msg);
   return bad ? `${msg.type}의 ${bad} 필드가 형식에 맞지 않음` : null;
+}
+
+/** 라이어 게임 요청. 문제가 없으면 null, 있으면 사유 문자열. */
+function validateClientMessage(msg) {
+  return checkAgainst(CLIENT_MESSAGES, msg);
+}
+
+/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'mind'. 문제가 없으면 null, 있으면 사유 문자열. */
+function validateCardGameMessage(game, msg) {
+  if (!Object.hasOwn(CARD_GAME_MESSAGES, game)) return `알 수 없는 게임: ${String(game).slice(0, 32)}`;
+  return checkAgainst(CARD_GAME_MESSAGES[game], msg);
 }
 
 /** 제시어 비교용 정규화. 공백·대소문자 차이로 맞힌 정답이 오답 처리되지 않게 한다. */
@@ -47,4 +95,4 @@ function normalizeWord(word) {
   return String(word == null ? '' : word).trim().toLowerCase().replace(/\s+/g, '');
 }
 
-module.exports = { validateClientMessage, normalizeWord, LIMITS };
+module.exports = { validateClientMessage, validateCardGameMessage, CARD_GAME_MESSAGES, normalizeWord, LIMITS };
