@@ -7,7 +7,8 @@
     "start": "node web/server.js",
     "web": "node web/server.js",
     "test": "node test/run-all.js",
-    "test:ui": "node test/web-ui-test.js",
+    "test:ui": "node test/run-all.js --ui",
+    "test:all": "node test/run-all.js --all",
     "play": "node test/play-test.js",
     "restart": "node test/restart-test.js",
     "lint": "eslint . --ext .js"

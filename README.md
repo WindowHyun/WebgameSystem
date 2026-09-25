@@ -11,6 +11,19 @@ npm run web
 
 브라우저에서 `http://localhost:4100`을 엽니다.
 
+## 테스트
+
+| 명령 | 도는 것 | 언제 |
+|---|---|---|
+| `npm test` | 핵심: 서버·게임 규칙(브라우저 없이, 몇 분) | 고칠 때마다 |
+| `npm run test:ui` | 화면: 브라우저로 띄우는 테스트(모바일 포함, 6분 안팎) | 화면을 고쳤을 때 |
+| `npm run test:all` | 핵심 + 화면 + 오래 걸리는 백그라운드 복귀 테스트(20분 안팎) | 배포 전 |
+
+- `test/` 안의 `*-test.js`는 자동으로 잡힙니다. 브라우저(playwright)를 쓰면 화면 테스트, 아니면 핵심 테스트입니다.
+- 이름 일부를 붙이면 그 스위트만 돕니다. 예: `node test/run-all.js cover mind`
+- 기본은 스위트마다 한 줄 요약이고, 실패한 것만 자세히 보여 줍니다. 전체 출력은 `--verbose`로 봅니다.
+- 화면 테스트는 Playwright의 Chromium이 필요합니다(`npx playwright install chromium`).
+
 ## Render 배포
 
 1. Render에서 이 저장소를 Web Service로 연결합니다.

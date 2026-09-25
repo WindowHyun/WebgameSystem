@@ -1,40 +1,99 @@
 'use strict';
 
-/** 전체 회귀 테스트 실행: node test/run-all.js */
+/**
+ * 테스트 실행기.
+ *
+ *   npm test            = node test/run-all.js         핵심: 서버·게임 규칙(브라우저 없이, 몇 분)
+ *   npm run test:ui     = node test/run-all.js --ui    화면: 브라우저로 띄우는 테스트(모바일 포함)
+ *   npm run test:all    = node test/run-all.js --all   배포 전 전체: 핵심 + 화면 + 오래 걸리는 것
+ *
+ *   이름 일부를 덧붙이면 그 스위트만 돈다:  node test/run-all.js --ui cover mind
+ *   --verbose를 붙이면 각 스위트의 출력을 그대로 보여 준다(기본은 한 줄 요약, 실패만 자세히).
+ *
+ * [리뷰 P2-05·06] 예전에는 이 파일의 배열에 손으로 등록한 스위트만 돌았다. 그래서 npm test가
+ * "전체 통과"라고 해도 브라우저 테스트 16개(모바일 포함)는 한 번도 돌지 않았고, 새 테스트를
+ * 만들고 등록을 잊으면 조용히 빠졌다. 이제 test/ 안의 *-test.js를 모두 찾아서, 브라우저
+ * (playwright)를 쓰는지로 핵심/화면을 나눈다. 새 테스트는 만들기만 하면 해당 묶음에 들어간다.
+ */
 
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
-const suites = [
-  'blackjack-room-test.js',                // 딜러 없는 블랙잭 규칙
-  'poker-room-test.js',                    // 인디언 포커 기본 규칙
-  'card-game-edge-test.js',                // 카드 게임 악용·중단 방지 규칙
-  'raise-floor-test.js',                   // 레이즈는 직전 레이즈 폭 이상이어야 한다
-  'tie-rematch-test.js',                   // 동점 재대결이 폴드한 사람 카드를 지우지 않는다
-  'short-stack-allin-test.js',             // 상대가 올인해도 더 적은 칩으로 올인할 수 있다
-  'betting-integrity-test.js',             // 동점 재대결·이탈·끊김·기록 때문에 판돈이 엉뚱하게 가지 않는다
-  'ante-test.js',                          // 앤티: 판 시작 때 전원이 기본 배팅금을 낸다, 폴드하면 잃는다
-  'action-log-test.js',                   // 관리 로그: [게임] 닉네임 > 행동, 제시어·카드·점수는 새지 않는다
-  'cover-pause-test.js',                   // 보스 키: 가려진 동안 제한시간 멈춤
-  'reconnect-fold-test.js',                // 끊김·새로고침은 유예 뒤 폴드, 무효 판에서 떠난 사람 몫 환불, 스탠드 뒤 자리 정리
-  'mind-room-test.js',                     // 더 마인드: 레벨·오름차순·실수·수리검·보상·승패·집중·끊김·로그
-  'card-server-leave-test.js',             // 명시적 퇴장 즉시 제거·중복 입장 방지
-  'liar-reconnect-test.js',                // 라이어 게임: 모바일 백그라운드 재접속 자리 인계
-  'moderation-test.js',                   // 관전·강퇴 및 재접속 회귀
-  'web-room-test.js',                     // 게임 규칙
-  'fuzz-test.js',                          // 무작위 조작으로 규칙 두들기기
-  'connection-test.js',                    // 연결 유지 / 죽은 연결 정리
-  'render-http-test.js',                   // Render 정적 파일·상태 확인 최적화
-  'security-headers-test.js',              // 보안 헤더 / 프록시 뒤 클라이언트 IP 판별
-  'vercel-adapter-test.js',                // Vercel export 서버에서 실제 WebSocket 연결
-];
-let failed = 0;
+// 한 번에 20분 넘게 걸리는 것. --all이거나 이름으로 콕 집었을 때만 돈다.
+const SLOW = new Set(['background-return-test.js']);
+const TIMEOUT_MS = { core: 10 * 60 * 1000, ui: 20 * 60 * 1000, slow: 45 * 60 * 1000 };
 
-for (const suite of suites) {
-  const r = spawnSync(process.execPath, [path.join(__dirname, suite)], { stdio: 'inherit' });
-  if (r.status !== 0) failed += 1;
+const args = process.argv.slice(2);
+const wantUi = args.includes('--ui');
+const wantAll = args.includes('--all');
+const verbose = args.includes('--verbose');
+const filters = args.filter((a) => !a.startsWith('--'));
+
+function kindOf(file) {
+  const source = fs.readFileSync(path.join(__dirname, file), 'utf8');
+  if (!/require\((['"])playwright\1\)/.test(source)) return 'core';
+  return SLOW.has(file) ? 'slow' : 'ui';
+}
+
+const all = fs.readdirSync(__dirname).filter((f) => f.endsWith('-test.js')).sort().map((file) => ({ file, kind: kindOf(file) }));
+const suites = all.filter(({ file, kind }) => {
+  if (filters.length) return filters.some((word) => file.includes(word)); // 이름으로 고르면 종류와 상관없이 돈다
+  if (wantAll) return true;
+  if (wantUi) return kind === 'ui';
+  return kind === 'core';
+});
+
+if (suites.length === 0) {
+  console.log('실행할 스위트가 없습니다. 이름을 확인하세요.');
+  process.exit(1);
+}
+
+const label = filters.length ? '고른' : wantAll ? '전체' : wantUi ? '화면' : '핵심';
+console.log(`${label} 테스트 ${suites.length}개를 실행합니다.\n`);
+
+// 서버 로그([2026-...] ...)를 빼고 사람이 읽을 줄만 남긴다.
+const readable = (text) => text.split(/\r?\n/).filter((line) => line.trim() && !line.startsWith('[20'));
+
+const failed = [];
+const started = Date.now();
+for (const { file, kind } of suites) {
+  const t0 = Date.now();
+  if (verbose) console.log(`▶ ${file}`);
+  else process.stdout.write(`▶ ${file} ... `);
+  const r = spawnSync(process.execPath, [path.join(__dirname, file)], {
+    cwd: path.join(__dirname, '..'),
+    stdio: verbose ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    timeout: TIMEOUT_MS[kind],
+  });
+  const seconds = ((Date.now() - t0) / 1000).toFixed(1);
+  const timedOut = r.error && r.error.code === 'ETIMEDOUT';
+  const ok = r.status === 0 && !timedOut;
+  const lines = verbose ? [] : readable(`${r.stdout || ''}\n${r.stderr || ''}`);
+  // 요약은 끝에서부터 결과를 말하는 줄을 고른다(node:test 스위트는 마지막 줄이 걸린 시간이다).
+  const out = readable(r.stdout || '');
+  const summary = out.slice().reverse().find((line) => /통과|실패|문제 없음|발견|^# pass /.test(line)) || out.pop() || '';
+  if (ok) {
+    console.log(verbose ? `  통과 (${seconds}초)\n` : `통과 (${seconds}초)${summary ? ` - ${summary.trim()}` : ''}`);
+    continue;
+  }
+  failed.push(file);
+  const why = timedOut ? `시간 초과(${Math.round(TIMEOUT_MS[kind] / 60000)}분)` : r.error ? r.error.message : `종료 코드 ${r.status}${r.signal ? `, ${r.signal}` : ''}`;
+  console.log(`${verbose ? '  ' : ''}실패 (${seconds}초, ${why})`);
+  if (!verbose) {
+    // 실패한 줄을 먼저, 그다음 마지막 출력을 보여 준다.
+    const fails = lines.filter((line) => /FAIL|Error|실패|✗/.test(line)).slice(0, 30);
+    const tail = lines.slice(-15).filter((line) => !fails.includes(line));
+    for (const line of [...fails, ...tail]) console.log(`    ${line}`);
+  }
   console.log('');
 }
 
-console.log(failed === 0 ? '전체 통과' : `${failed}개 스위트 실패`);
-process.exit(failed === 0 ? 0 : 1);
+const minutes = ((Date.now() - started) / 60000).toFixed(1);
+console.log('');
+console.log(failed.length === 0
+  ? `전체 통과 (${label} ${suites.length}개, ${minutes}분)`
+  : `${failed.length}개 스위트 실패 (${label} ${suites.length}개 중, ${minutes}분): ${failed.join(', ')}`);
+process.exit(failed.length === 0 ? 0 : 1);
