@@ -22,6 +22,46 @@ const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage, validateCardGameMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
 
+/**
+ * 카드 게임별 요청 → 방 함수. 요청 형식(web/protocol.js의 CARD_GAME_MESSAGES)과 짝이 맞아야 한다 -
+ * 한쪽에만 넣으면 그 요청은 늘 거절된다. test/card-protocol-test.js가 두 표의 짝을 확인한다.
+ */
+const CARD_GAME_ACTIONS = {
+  poker: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    baseBet: (room, id, m) => room.setBaseBet(id, m.amount),
+    baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
+    start: (room, id) => room.begin(id),
+    call: (room, id) => room.call(id),
+    raise: (room, id, m) => room.raise(id, m.amount),
+    allin: (room, id) => room.allin(id),
+    fold: (room, id) => room.fold(id),
+    donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
+  },
+  blackjack: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    baseBet: (room, id, m) => room.proposeBaseBet(id, m.amount),
+    baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
+    start: (room, id) => room.begin(id),
+    hit: (room, id) => room.hit(id),
+    stand: (room, id) => room.stand(id),
+    call: (room, id) => room.call(id),
+    raise: (room, id, m) => room.raise(id, m.amount),
+    allin: (room, id) => room.allin(id),
+    fold: (room, id) => room.fold(id),
+    donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
+  },
+  mind: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    start: (room, id) => room.begin(id),
+    focus: (room, id, m) => room.focus(id, m.focused !== false),
+    pause: (room, id) => room.pause(id),
+    play: (room, id) => room.play(id),
+    star: (room, id) => room.proposeStar(id),
+    starVote: (room, id, m) => room.voteStar(id, m.voteId, m.agree === true),
+  },
+};
+
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 // [S-2] 한 사람이 보낼 수 있는 요청 수 제한. 악의가 아니라 화면 쪽 버그로도
@@ -76,17 +116,25 @@ function createGameServer(options) {
   const maxConnectionsPerIp = opts.maxConnectionsPerIp || MAX_CONNECTIONS_PER_IP; // 테스트에서 낮춰 잡으려고 주입받는다
 
   const clients = new Set(); // { ws, playerId }
-  const pokerClients = new Set();
-  const blackjackClients = new Set();
-  const mindClients = new Set();
+  /**
+   * [리뷰 P2-02] 카드 게임(포커·블랙잭·더 마인드). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
+   * 보스 키 전파·포털 상태·정리가 모두 이 표를 돈다. 카드 게임을 하나 더 넣을 때는 여기와
+   * CARD_GAME_ACTIONS, web/protocol.js의 CARD_GAME_MESSAGES만 고치면 된다.
+   *   label      연결·요청 로그 이름   logLabel   관리 로그 이름   portalLabel 포털 채널 이름
+   */
+  const CARD_GAMES = {
+    poker: { label: '포커', logLabel: '포커', portalLabel: '인디언 포커', create: createPokerRoom, actions: CARD_GAME_ACTIONS.poker, clients: new Set(), room: null },
+    blackjack: { label: '블랙잭', logLabel: '블랙잭', portalLabel: '블랙잭 21', create: createBlackjackRoom, actions: CARD_GAME_ACTIONS.blackjack, clients: new Set(), room: null },
+    mind: { label: '더 마인드', logLabel: '마인드', portalLabel: '더 마인드', create: createMindRoom, actions: CARD_GAME_ACTIONS.mind, clients: new Set(), room: null },
+  };
+  const cardGames = () => Object.values(CARD_GAMES);
   const portalClients = new Set();
+  // 라이어·카드 게임·포털에 붙어 있는 모든 연결(하트비트·보스 키 전파용).
+  const everyClient = () => [...clients, ...cardGames().flatMap((game) => [...game.clients]), ...portalClients];
   const ipConnectionCounts = new Map(); // ip -> 현재 열려 있는 소켓 수
   let server = null;
   let wss = null;
   let room = null;
-  let pokerRoom = null;
-  let blackjackRoom = null;
-  let mindRoom = null;
   let pingTimer = null;
   let initialized = false;
 
@@ -109,37 +157,23 @@ function createGameServer(options) {
     broadcastPortal();
   }
 
-  function broadcastPoker() {
-    if (!pokerRoom) return;
-    for (const client of pokerClients) if (client.playerId) sendTo(client.ws, pokerRoom.stateFor(client.playerId));
-    broadcastPortal();
-  }
-
-  function broadcastBlackjack() {
-    if (!blackjackRoom) return;
-    for (const client of blackjackClients) if (client.playerId) sendTo(client.ws, blackjackRoom.stateFor(client.playerId));
-    broadcastPortal();
-  }
-
-  function broadcastMind() {
-    if (!mindRoom) return;
-    for (const client of mindClients) if (client.playerId) sendTo(client.ws, mindRoom.stateFor(client.playerId));
+  function broadcastCardGame(game) {
+    if (!game.room) return;
+    for (const client of game.clients) if (client.playerId) sendTo(client.ws, game.room.stateFor(client.playerId));
     broadcastPortal();
   }
 
   function broadcastPortal() {
-    if (!room || !pokerRoom || !blackjackRoom || !mindRoom) return;
+    if (!room || cardGames().some((game) => !game.room)) return;
     const liar = room._debug();
-    const poker = pokerRoom.status();
-    const blackjack = blackjackRoom.status();
-    const mind = mindRoom.status();
     const label = (info) => info.phase !== 'lobby' && info.phase !== 'result' ? '진행중' : (info.playerCount ? '진행 대기중' : '대기중');
-    const payload = { type: 'games', games: {
-      liar: { label: '라이어 게임', playerCount: [...clients].filter((c) => c.playerId).length, status: label({ phase: liar.phase, playerCount: [...clients].filter((c) => c.playerId).length }) },
-      poker: { label: '인디언 포커', playerCount: poker.playerCount, status: label(poker) },
-      blackjack: { label: '블랙잭 21', playerCount: blackjack.playerCount, status: label(blackjack) },
-      mind: { label: '더 마인드', playerCount: mind.playerCount, status: label(mind) },
-    } };
+    const liarCount = [...clients].filter((c) => c.playerId).length;
+    const games = { liar: { label: '라이어 게임', playerCount: liarCount, status: label({ phase: liar.phase, playerCount: liarCount }) } };
+    for (const [key, game] of Object.entries(CARD_GAMES)) {
+      const info = game.room.status();
+      games[key] = { label: game.portalLabel, playerCount: info.playerCount, status: label(info) };
+    }
+    const payload = { type: 'games', games };
     for (const client of portalClients) sendTo(client.ws, payload);
   }
 
@@ -228,7 +262,7 @@ function createGameServer(options) {
    */
   function startHeartbeat() {
     pingTimer = setInterval(() => {
-      for (const client of [...clients, ...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
+      for (const client of everyClient()) {
         if (client.missedPongs >= PONG_GRACE) {
           warn(`[연결 끊김] ${client.playerId || '미참가'} 응답이 없어 정리합니다`);
           try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
@@ -338,7 +372,7 @@ function createGameServer(options) {
 
     const invalid = validateClientMessage(msg);
     if (invalid) {
-      warn(`[요청 무시] ${invalid}`);
+      warn(`[요청 무시] ${cleanLogText(invalid)}`);
       sendTo(ws, { type: 'error', message: '잘못된 요청입니다.' });
       return;
     }
@@ -489,7 +523,7 @@ function createGameServer(options) {
   }
   function broadcastCover(from, label) {
     log(`[보스 키] ${cleanLogText(label)} > 모두의 화면을 가림`);
-    for (const client of [...clients, ...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
+    for (const client of everyClient()) {
       if (client !== from) sendTo(client.ws, { type: 'cover' });
     }
   }
@@ -515,9 +549,9 @@ function createGameServer(options) {
           }
         },
       });
-      pokerRoom = createPokerRoom({ onChange: broadcastPoker, onAction: actionLogger('포커') });
-      blackjackRoom = createBlackjackRoom({ onChange: broadcastBlackjack, onAction: actionLogger('블랙잭') });
-      mindRoom = createMindRoom({ onChange: broadcastMind, onAction: actionLogger('마인드') });
+      for (const game of cardGames()) {
+        game.room = game.create({ onChange: () => broadcastCardGame(game), onAction: actionLogger(game.logLabel) });
+      }
       startHeartbeat();
       server = http.createServer(handleHttp);
       // [S-1] 이 서버는 자기가 내려준 화면(같은 출처)이나 Electron 창(로컬 출처)만
@@ -537,62 +571,6 @@ function createGameServer(options) {
   }
 
   /**
-   * 카드 게임(포커·블랙잭·더 마인드). 게임마다 다른 것은 이름, 접속자 목록, 방, 그리고 요청 →
-   * 방 함수 표뿐이다. 요청 형식은 web/protocol.js의 validateCardGameMessage가 먼저 걸러 준다.
-   * 방은 initialize()에서 만들어지므로 꺼내 쓰는 함수로 둔다.
-   */
-  const CARD_GAMES = {
-    poker: {
-      label: '포커',
-      clients: pokerClients,
-      room: () => pokerRoom,
-      actions: {
-        ready: (room, id, m) => room.setReady(id, m.ready),
-        baseBet: (room, id, m) => room.setBaseBet(id, m.amount),
-        baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
-        start: (room, id) => room.begin(id),
-        call: (room, id) => room.call(id),
-        raise: (room, id, m) => room.raise(id, m.amount),
-        allin: (room, id) => room.allin(id),
-        fold: (room, id) => room.fold(id),
-        donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
-      },
-    },
-    blackjack: {
-      label: '블랙잭',
-      clients: blackjackClients,
-      room: () => blackjackRoom,
-      actions: {
-        ready: (room, id, m) => room.setReady(id, m.ready),
-        baseBet: (room, id, m) => room.proposeBaseBet(id, m.amount),
-        baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
-        start: (room, id) => room.begin(id),
-        hit: (room, id) => room.hit(id),
-        stand: (room, id) => room.stand(id),
-        call: (room, id) => room.call(id),
-        raise: (room, id, m) => room.raise(id, m.amount),
-        allin: (room, id) => room.allin(id),
-        fold: (room, id) => room.fold(id),
-        donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
-      },
-    },
-    mind: {
-      label: '더 마인드',
-      clients: mindClients,
-      room: () => mindRoom,
-      actions: {
-        ready: (room, id, m) => room.setReady(id, m.ready),
-        start: (room, id) => room.begin(id),
-        focus: (room, id, m) => room.focus(id, m.focused !== false),
-        pause: (room, id) => room.pause(id),
-        play: (room, id) => room.play(id),
-        star: (room, id) => room.proposeStar(id),
-        starVote: (room, id, m) => room.voteStar(id, m.voteId, m.agree === true),
-      },
-    },
-  };
-
-  /**
    * [리뷰 P2-02] 카드 게임 소켓 처리. 세 게임이 같은 틀이다: 요청 수 제한 → JSON 해석 → 형식 검사 →
    * 확인(ping)·보스 키 → 참가 → 게임별 요청. 예전에는 거의 같은 코드가 게임마다 한 벌씩 있어서,
    * 공통 부분(보스 키, 요청 수 제한 등)을 고칠 때마다 세 곳을 따로 맞춰야 했다.
@@ -605,8 +583,7 @@ function createGameServer(options) {
     ws.on('pong', () => { client.missedPongs = 0; });
     ws.on('close', () => {
       game.clients.delete(client);
-      const room = game.room();
-      if (room && client.playerId) room.disconnect(client.playerId);
+      if (game.room && client.playerId) game.room.disconnect(client.playerId);
     });
     ws.on('message', (raw) => {
       try {
@@ -618,11 +595,11 @@ function createGameServer(options) {
         try { msg = JSON.parse(raw); } catch { return; }
         const invalid = validateCardGameMessage(key, msg);
         if (invalid) {
-          warn(`[${game.label} 요청 무시] ${ip} ${invalid}`);
+          warn(`[${game.label} 요청 무시] ${ip} ${cleanLogText(invalid)}`);
           sendTo(ws, { type: 'error', message: '잘못된 요청입니다.' });
           return;
         }
-        const room = game.room();
+        const room = game.room;
         if (msg.type === 'ping') { sendTo(ws, { type: 'pong' }); return; }
         if (msg.type === 'cover') { broadcastCover(client, `${game.label} ${nicknameOf(room, client.playerId)}`); return; }
         if (msg.type === 'coverState') { if (client.playerId) room.setCovered(client.playerId, msg.covered === true); return; }
@@ -694,27 +671,21 @@ function createGameServer(options) {
 
   function cleanup() {
     if (room) room.dispose();
-    if (pokerRoom) pokerRoom.dispose();
-    if (blackjackRoom) blackjackRoom.dispose();
-    if (mindRoom) mindRoom.dispose();
+    for (const game of cardGames()) if (game.room) game.room.dispose();
     if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
     for (const client of clients) {
       try { client.ws.terminate(); } catch { /* 이미 끊김 */ }
     }
     clients.clear();
-    for (const client of [...pokerClients, ...blackjackClients, ...mindClients, ...portalClients]) {
+    for (const client of [...cardGames().flatMap((game) => [...game.clients]), ...portalClients]) {
       try { client.ws.terminate(); } catch { /* 이미 닫힘 */ }
     }
-    pokerClients.clear();
-    blackjackClients.clear();
-    mindClients.clear();
+    for (const game of cardGames()) game.clients.clear();
     portalClients.clear();
     if (wss) { try { wss.close(); } catch { /* 무시 */ } wss = null; }
     if (server) { try { server.close(); } catch { /* 무시 */ } server = null; }
     room = null;
-    pokerRoom = null;
-    blackjackRoom = null;
-    mindRoom = null;
+    for (const game of cardGames()) game.room = null;
     initialized = false;
   }
 
@@ -743,4 +714,4 @@ function createGameServer(options) {
   };
 }
 
-module.exports = { createGameServer };
+module.exports = { createGameServer, CARD_GAME_ACTIONS };

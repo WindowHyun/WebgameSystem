@@ -10,13 +10,16 @@
  * web/ 아래는 LAN 버전을 지워도 그대로 돌아가도록 자기완결적으로 둔다.
  */
 
-const LIMITS = { nickname: 24, text: 300, word: 60, id: 64, token: 64 };
+// nickname: 방이 실제로 쓰는 이름 길이(글자 수).
+// nicknameInput: 참가 요청에서 받아 주는 길이. iPhone 한글 입력기는 입력칸의 글자 수 제한(24자)을
+//   넘기는 일이 있어서, 여기서 24자로 거절하면 이름 때문에 입장조차 못 했다. 넉넉히 받고 방이 24자로 자른다.
+const LIMITS = { nickname: 24, nicknameInput: 64, text: 300, word: 60, id: 64, token: 64 };
 
 function str(v, max) { return typeof v === 'string' && v.trim().length > 0 && v.length <= max; }
 function optStr(v, max) { return v === undefined || v === null || (typeof v === 'string' && v.length <= max); }
 
 const CLIENT_MESSAGES = {
-  join: (m) => (str(m.nickname, LIMITS.nickname) && optStr(m.token, LIMITS.token) && (m.spectator === undefined || typeof m.spectator === 'boolean') ? null : 'nickname/token'),
+  join: (m) => (str(m.nickname, LIMITS.nicknameInput) && optStr(m.token, LIMITS.token) && (m.spectator === undefined || typeof m.spectator === 'boolean') ? null : 'nickname/token'),
   mode: (m) => (typeof m.spectator === 'boolean' ? null : 'spectator'),
   kick: (m) => (str(m.targetId, LIMITS.id) ? null : 'targetId'),
   kickVote: (m) => (str(m.proposalId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'proposalId/agree'),
@@ -43,7 +46,7 @@ const CARD_COMMON = {
   ping: () => null,
   cover: () => null,
   coverState: (m) => (typeof m.covered === 'boolean' ? null : 'covered'),
-  join: (m) => (str(m.nickname, LIMITS.nickname) && optStr(m.token, LIMITS.token) ? null : 'nickname/token'),
+  join: (m) => (str(m.nickname, LIMITS.nicknameInput) && optStr(m.token, LIMITS.token) ? null : 'nickname/token'),
   leave: () => null,
   ready: (m) => (typeof m.ready === 'boolean' ? null : 'ready'),
   start: () => null,

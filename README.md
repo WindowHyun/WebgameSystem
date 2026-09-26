@@ -23,6 +23,8 @@ npm run web
 - 이름 일부를 붙이면 그 스위트만 돕니다. 예: `node test/run-all.js cover mind`
 - 기본은 스위트마다 한 줄 요약이고, 실패한 것만 자세히 보여 줍니다. 전체 출력은 `--verbose`로 봅니다.
 - 화면 테스트는 Playwright의 Chromium이 필요합니다(`npx playwright install chromium`).
+- 연결이 끊겼다 다시 붙는 순서(옛 소켓이 늦게 닫힘, 확인 중 끊김 등)는 가짜 소켓·가짜 시계로 봅니다: 카드 게임은 `socket-race`(핵심), 라이어는 `liar-socket-race`(화면). 실제 네트워크로 폰을 내려놨다 돌아오는 경우는 `background-return`이 보고, 자리를 잃거나 15초 안에 다시 붙지 못하면 실패합니다.
+- 셸에 잡힌 `PORT`는 스위트에 넘기지 않습니다. 시간이 넘거나 Ctrl+C를 누르면 스위트가 띄운 서버까지 함께 끕니다.
 
 ## Render 배포
 

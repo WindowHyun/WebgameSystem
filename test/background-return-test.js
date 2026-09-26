@@ -13,6 +13,10 @@
  *   - 칩을 그대로 들고 있는가
  *   - 진행 중이던 판에서 어떻게 처리되는가
  * 를 시간대별로 잰다. 실제 배포와 같은 타이밍을 쓰므로 느리다.
+ *
+ * 끝에서 판정한다. 하나라도 자리를 잃거나, 칩이 바뀌거나, 다시 붙지 못하거나(또는
+ * RECONNECT_LIMIT_MS보다 오래 걸리거나), 접속 화면·복구 안내로 튕기면 실패(종료 코드 1)다.
+ * (예전에는 표만 찍고 늘 성공으로 끝나서, 재연결이 망가져도 이 테스트로는 알 수 없었다.)
  */
 
 const net = require('net');
@@ -20,6 +24,9 @@ const { chromium } = require('playwright');
 const { createGameServer } = require('../web/game-server');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// 돌아온 뒤 이 안에 다시 붙어야 한다. 확인(ping) 실패로 새로 붙는 데 2.5초, 열리다 멈춘 연결을
+// 버리는 데 8초가 걸린다. 예전 먹통(50초 넘게)은 확실히 걸러지고 느린 기계에서도 여유가 있게 잡았다.
+const RECONNECT_LIMIT_MS = 15000;
 
 /**
  * 한 사람만 골라서 선을 끊을 수 있게, 그 사람 앞에만 TCP 중계를 둔다.
@@ -204,14 +211,28 @@ async function scenario(browser, port, game, awaySeconds, duringRound, mode) {
   }
 }
 
+/** 한 시나리오에서 잘못된 것들. 비어 있으면 통과다. */
+function problemsOf(r) {
+  const problems = [];
+  if (r.reconnectMs === null) problems.push('다시 붙지 못함');
+  else if (r.reconnectMs > RECONNECT_LIMIT_MS) problems.push(`재연결 ${(r.reconnectMs / 1000).toFixed(1)}초(기준 ${RECONNECT_LIMIT_MS / 1000}초)`);
+  if (!r.keptSeat) problems.push(`자리를 잃음(${r.beforeName} → ${r.afterName})`);
+  if (r.beforeChips !== r.afterChips) problems.push(`칩이 바뀜(${r.beforeChips} → ${r.afterChips})`);
+  if (r.onJoinScreen) problems.push('접속 화면으로 튕김');
+  if (r.fatal) problems.push('복구 안내가 뜸');
+  return problems;
+}
+
 async function main() {
   const browser = await chromium.launch();
   let port = 4470;
+  let expected = 0;
   try {
     for (const game of ['poker', 'blackjack', 'liar']) {
       for (const mode of ['cut', 'freeze']) {
         for (const away of [30, 95]) {
           const duringRound = false;
+          expected += 1;
           await scenario(browser, (port += 1), game, away, duringRound, mode);
           const r = rows[rows.length - 1];
           console.log(`${game} / ${mode === 'cut' ? '선이 끊김' : '좀비(오가는 것만 사라짐)'} / ${away}초`
@@ -237,6 +258,21 @@ async function main() {
       + (r.fatal ? ' · 복구안내' : '')
       + (r.banner ? ` · 배너"${r.banner}"` : ''));
   }
+
+  console.log('\n판정\n');
+  let failed = 0;
+  for (const r of rows) {
+    const problems = problemsOf(r);
+    const label = `${r.game} / ${r.mode === 'cut' ? '선끊김' : '좀비'} / ${r.awaySeconds}초`;
+    if (problems.length) failed += 1;
+    console.log(`  ${problems.length ? 'FAIL' : 'PASS'}  ${label}${problems.length ? `  (${problems.join(', ')})` : ''}`);
+  }
+  if (rows.length !== expected) {
+    failed += expected - rows.length;
+    console.log(`  FAIL  시나리오 ${expected}개 중 ${rows.length}개만 끝남`);
+  }
+  console.log(`\n백그라운드 복귀: ${expected - failed}개 통과, ${failed}개 실패`);
+  process.exit(failed ? 1 : 0);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

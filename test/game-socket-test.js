@@ -26,12 +26,17 @@ function check(name, ok, detail) {
   const port = 4641;
   const serverLog = [];
   const original = console.error;
-  console.error = (...args) => { serverLog.push(args.join(' ')); };
-  const server = createGameServer({ port, host: '127.0.0.1' });
-  await server.start();
-  const browser = await chromium.launch();
+  // 보스 키 로그를 세려고 서버 로그를 가로챈다. 서버 로그([날짜] ...)가 아닌 줄(시작 실패·예외 등)은
+  // 그대로 내보낸다 - 예전에는 전부 삼켜서, 포트가 겹쳐 서버가 안 뜨면 아무 말 없이 실패했다.
+  console.error = (...args) => {
+    const line = args.map(String).join(' ');
+    serverLog.push(line);
+    if (!line.startsWith('[')) original(...args);
+  };
   const errors = [];
   const sockets = [];
+  let server = null;
+  let browser = null;
 
   async function enter(game, name) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -53,6 +58,9 @@ function check(name, ok, detail) {
   const coverLogs = () => serverLog.filter((line) => line.includes('[보스 키]')).length;
 
   try {
+    server = createGameServer({ port, host: '127.0.0.1' });
+    await server.start();
+    browser = await chromium.launch();
     const pages = {};
     for (const game of ['poker', 'blackjack', 'mind']) pages[game] = await enter(game, `${game}-갑`);
     pages.portal = await enter(null, '포털-을');
@@ -89,9 +97,9 @@ function check(name, ok, detail) {
 
     check('브라우저 오류 없음', errors.length === 0, errors.join(' | '));
   } finally {
-    await browser.close();
-    await server.stop();
     console.error = original;
+    if (browser) await browser.close().catch(() => {});
+    if (server) await server.stop().catch(() => {});
   }
   console.log(`\n공통 연결 관리: ${pass}개 통과, ${fail}개 실패`);
   process.exit(fail ? 1 : 0);
