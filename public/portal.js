@@ -15,7 +15,8 @@
 
   document.getElementById('name-form').onsubmit = function (event) {
     event.preventDefault();
-    var name = input.value.trim();
+    // 입력칸은 24자로 막혀 있지만 iPhone 한글 입력기는 그걸 넘기는 일이 있다. 저장할 때 맞춘다.
+    var name = Array.from(input.value.trim()).slice(0, 24).join('');
     if (name) showGames(name);
   };
   document.getElementById('rename').onclick = function () {

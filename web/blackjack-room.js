@@ -263,7 +263,7 @@ function createBlackjackRoom(options) {
   }
 
   function join({ nickname, token: oldToken }) {
-    const clean = String(nickname || '').trim().slice(0, 24);
+    const clean = Array.from(String(nickname || '').trim()).slice(0, 24).join(''); // 글자 단위로 자른다(이모지가 반으로 쪼개지지 않게)
     if (!clean) return { error: '닉네임을 입력해 주세요.' };
     // 이전 소켓의 close보다 재연결이 먼저 도착해도 같은 토큰은 같은 자리로 복구한다.
     const restored = players.find((p) => p.token === oldToken);
