@@ -45,12 +45,16 @@
     { src: 'cover-phone-4.webp', title: '카테고리 | 올리브영' },
     { src: 'cover-phone-5.webp', title: '올리브영 온라인몰' },
   ];
-  // 세로로 든 폰(마우스 없이 손가락으로 쓰고 폭이 폰 화면 기준 이하)만 모바일 캡처를 쓴다.
-  // 폰을 가로로 돌리면 가로 캡처가 더 잘 맞고, PC는 창을 좁게 띄워도 PC 화면이 자연스럽다.
-  // 폭이 넓은 태블릿도 PC 화면을 쓴다(폰 캡처를 늘리면 어색하다).
-  var tallQuery = window.matchMedia
-    ? window.matchMedia('(orientation: portrait) and (hover: none) and (max-width: 760px)')
-    : null;
+  // 세로로 든 폰만 모바일 캡처를 쓴다. 폰을 가로로 돌리면 가로 캡처가 더 잘 맞고, PC는 창을 좁게
+  // 띄워도 PC 화면이 자연스럽다. 태블릿도 PC 화면을 쓴다(폰 캡처를 늘리면 어색하다).
+  // [이슈] 예전에는 "마우스 없이 손가락으로 쓰는가"(hover: none)로 폰을 가렸는데, 이 값이 기기마다
+  // 틀렸다. 갤럭시 폰은 S펜·에어 뷰 때문에 "hover가 된다"고 답해 폰에서 PC 그림이 떴고, 터치 화면
+  // 노트북은 "hover가 안 된다"고 답하기도 해 PC(창이 좁을 때)에서 폰 그림이 떴다. 폰인지는 브라우저가
+  // 밝히는 기기 종류(모바일 UA - 태블릿은 "Mobile"이 없다)로 가린다.
+  var PHONE_UA = /iPhone|iPod|Android.*Mobile|Mobile.*Android|Windows Phone/i;
+  var isPhone = PHONE_UA.test(navigator.userAgent || '');
+  var portraitQuery = window.matchMedia ? window.matchMedia('(orientation: portrait)') : null;
+  function tall() { return isPhone && (portraitQuery ? portraitQuery.matches : window.innerHeight >= window.innerWidth); }
   var overlay = null;
   var savedTitle = null;
   var savedOverflow = '';
@@ -62,7 +66,7 @@
   var LAND_MS = 1000;  // 두 번째 손가락은 첫 손가락이 닿고 이 안에 닿아야 한다(오래 대고 있던 엄지와 구분)
   var HOLD_MOVE = 30;  // 누르는 동안 한 손가락이라도 이만큼(px) 넘게 움직이면 확대·스크롤로 본다
 
-  function covers() { return tallQuery && tallQuery.matches ? TALL_COVERS : WIDE_COVERS; }
+  function covers() { return tall() ? TALL_COVERS : WIDE_COVERS; }
 
   // 미리 받아 둔다. 급할 때 누르는 기능인데, 그때 그림을 받느라 한 박자 늦으면 안 된다.
   // 지금 화면에 맞는 쪽만 받고(폰 데이터를 아낀다), 폰을 돌리면 그쪽 그림을 마저 받는다.
@@ -76,8 +80,8 @@
     });
   }
   preload();
-  if (tallQuery && tallQuery.addEventListener) tallQuery.addEventListener('change', preload);
-  else if (tallQuery && tallQuery.addListener) tallQuery.addListener(preload);
+  if (portraitQuery && portraitQuery.addEventListener) portraitQuery.addEventListener('change', preload);
+  else if (portraitQuery && portraitQuery.addListener) portraitQuery.addListener(preload);
 
   // 매번 무작위로 고르되 방금 것과 같은 그림은 피한다.
   function pick() {
@@ -165,7 +169,8 @@
   window.addEventListener('contextmenu', function (event) {
     if (lastPointer === 'touch' || lastPointer === 'pen') {
       // 가린 그림을 길게 누른 것이면 "이미지 저장" 같은 메뉴만 막는다. 풀기는 한 번 누르기로 한다.
-      if (overlay) event.preventDefault();
+      // 두 손가락 누르기를 재는 중이면 길게 누르기 메뉴도 막는다(메뉴가 뜨면 누르기가 끊긴다).
+      if (overlay || holdTimer) event.preventDefault();
       return;
     }
     if (!overlay) {
@@ -239,6 +244,22 @@
   window.addEventListener('pointerup', lift, true);
   window.addEventListener('pointercancel', lift, true); // 브라우저가 확대·스크롤로 가져가면 여기로 온다
   document.addEventListener('visibilitychange', resetFingers);
+
+  // [이슈] 실제 폰에서는 두 엄지로 2초를 버티는 동안 손가락이 조금씩 움직이고, 브라우저가 그 작은
+  // 움직임을 확대(핀치)·스크롤로 가져가면서 포인터를 취소(pointercancel)해 누르기가 끊겼다. 그래서
+  // 두 손으로 눌러도 가려지지 않았다(헤드리스 브라우저의 가짜 터치로는 드러나지 않았다).
+  // 두 손가락 누르기를 재는 동안에는 움직임을 브라우저에 넘기지 않는다. 크게 움직이면(HOLD_MOVE를
+  // 넘으면) 위의 pointermove가 재기를 멈추므로, 그때부터는 확대·스크롤이 평소대로 된다.
+  // (포인터 이벤트가 같은 입력의 터치 이벤트보다 먼저 오므로, 여기서 보는 holdTimer는 이미 최신이다.)
+  window.addEventListener('touchmove', function (event) {
+    if (holdTimer && event.cancelable) event.preventDefault();
+  }, { passive: false, capture: true });
+  // iOS 사파리는 두 손가락 확대를 gesture 이벤트로 시작한다. 재는 동안에는 막는다.
+  ['gesturestart', 'gesturechange'].forEach(function (type) {
+    window.addEventListener(type, function (event) { if (holdTimer) event.preventDefault(); }, { passive: false });
+  });
+  // 재는 동안 길게 누르기로 글자 선택이 시작되면(돋보기·선택 손잡이) 역시 누르기가 끊긴다.
+  document.addEventListener('selectstart', function (event) { if (holdTimer) event.preventDefault(); });
 
   // 가려진 동안에는 Esc만 받는다(돌아가기). 다른 키는 뒤의 게임으로 보내지 않는다.
   window.addEventListener('keydown', function (event) {
