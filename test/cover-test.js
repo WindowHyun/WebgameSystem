@@ -193,11 +193,25 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
       ['PC에서 창을 반쪽으로 띄운 세로 창은', { viewport: { width: 960, height: 1040 } }],
       ['PC에서 폰 화면 폭만큼 좁힌 세로 창도', { viewport: { width: 720, height: 900 } }],
       ['세로로 든 태블릿은', devices['iPad Mini']],
+      // [이슈] 터치 화면 노트북은 "hover가 안 된다"(hover: none)고 답하기도 한다. 예전에는 그래서
+      // 창을 좁게 띄우면 PC에서 폰 그림이 떴다. 브라우저가 밝히는 기기 종류(PC)로 가린다.
+      ['hover가 안 된다고 답하는 터치 화면 노트북에서 좁힌 세로 창도', { viewport: { width: 720, height: 900 }, isMobile: true, hasTouch: true }],
     ]) {
       const page = await enter(browser, port, null, '구경', device);
       await page.evaluate(() => window.bossCover.show());
       const st = await page.evaluate(COVER);
       check(`${label} PC 쇼핑몰 화면으로 가린다`, !!st && /^cover-\d\.webp$/.test(st.src), JSON.stringify(st));
+      await page.context().close();
+    }
+    // [이슈] 갤럭시 폰은 S펜·에어 뷰 때문에 "hover가 된다"고 답하기도 한다. 예전에는 그래서 폰에서 PC
+    // 그림이 떴다. 터치·hover 흉내 없이 폰 UA만 준 세로 화면도 폰 그림이어야 한다.
+    {
+      const galaxy = devices['Galaxy S9+'];
+      const page = await enter(browser, port, null, '갤럭시', { viewport: galaxy.viewport, userAgent: galaxy.userAgent, deviceScaleFactor: galaxy.deviceScaleFactor });
+      const hover = await page.evaluate(() => matchMedia('(hover: hover)').matches);
+      await page.evaluate(() => window.bossCover.show());
+      const st = await page.evaluate(COVER);
+      check('hover가 된다고 답하는 세로 폰(갤럭시)도 모바일 쇼핑몰 화면으로 가린다', hover && !!st && /^cover-phone-[1-5]\.webp$/.test(st.src), `hover ${hover} ${JSON.stringify(st)}`);
       await page.context().close();
     }
 
@@ -292,6 +306,23 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     check('두 손가락으로 벌려 확대하는 동작은 바뀌지 않는다', !(await covered()));
     await press([A, B, { x: 190, y: 480, id: 3 }]); await wait(2300); await release();
     check('세 손가락으로 누르고 있으면 바뀌지 않는다', !(await covered()));
+
+    // [이슈] 실제 폰에서는 2초를 버티는 동안 엄지가 조금씩 움직이고, 브라우저가 그걸 확대·스크롤로
+    // 가져가며 누르기를 취소해 가려지지 않았다. 재는 동안의 작은 움직임은 브라우저에 넘기지 않고(기본 동작
+    // 막음), 크게 벌리면(확대) 평소대로 넘긴다.
+    await phone.evaluate(() => { window.__moves = []; document.addEventListener('touchmove', (e) => window.__moves.push(e.defaultPrevented)); });
+    await press([A, B]); await wait(200);
+    await move([{ ...A, x: A.x + 4, y: A.y - 3 }, { ...B, x: B.x - 4, y: B.y + 3 }]); await wait(100);
+    await move([{ ...A, x: A.x - 3, y: A.y + 2 }, { ...B, x: B.x + 3, y: B.y - 2 }]); await wait(100);
+    const jitter = await phone.evaluate(() => window.__moves.splice(0));
+    await release(); await wait(200);
+    check('두 손가락으로 재는 동안 엄지가 조금 움직여도 브라우저가 확대·스크롤로 가져가지 않는다', jitter.length === 2 && jitter.every(Boolean), jitter.join(','));
+    await press([A, B]); await wait(200);
+    await move([{ ...A, x: A.x - 60 }, { ...B, x: B.x + 60 }]); await wait(100);
+    await move([{ ...A, x: A.x - 90 }, { ...B, x: B.x + 90 }]); await wait(100);
+    const pinch = await phone.evaluate(() => window.__moves.splice(0));
+    await release(); await wait(200);
+    check('크게 벌리면(확대) 평소대로 브라우저에 넘긴다', pinch.length === 2 && pinch.every((v) => !v), pinch.join(','));
     await press([A]); await wait(1500); await press([A, B]); await wait(2300); await release();
     check('오래 대고 있던 엄지에 나중에 닿은 손가락은 바뀌지 않는다', !(await covered()));
 
