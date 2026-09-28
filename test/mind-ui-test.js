@@ -18,7 +18,7 @@
  *   - 수리검을 제안한 사람에게 누구를 기다리는지 보여 준다
  *   - 실수 연출: 쥐고 있던 사람은 자기 손패 자리에서, 다른 사람은 가운데 더미 옆에서 카드가 찢어진다.
  *     낸 카드에 ✕ 도장. 끝나면 연출 층이 비고, 새로고침해도 지난 실수를 다시 재생하지 않는다.
- *     동작 줄이기를 켠 사람에게는 찢지 않고 빨간 테두리로만 보인다.
+ *     동작 줄이기를 켠 사람에게는 찢지 않고 빨간 테두리로만 보인다. 진동은 쓰지 않는다.
  *
  * 실행: node test/mind-ui-test.js
  */
@@ -131,6 +131,9 @@ function check(name, ok, detail) {
       const fxCount = (sel) => (p) => p.evaluate((s) => document.querySelectorAll(s).length, sel);
       const seen = (p, sel, timeout) => p.waitForFunction((s) => document.querySelectorAll(s).length > 0, sel, { timeout }).then(() => true, () => false);
       const everPieces = pages.map((p) => p.evaluate(() => {
+        // [요청] 진동은 쓰지 않는다. 불리면 센다.
+        window.__vibrated = 0;
+        navigator.vibrate = () => { window.__vibrated += 1; return true; };
         window.__pieces = 0;
         const watch = () => { window.__pieces = Math.max(window.__pieces, document.querySelectorAll('.mind-fx .piece').length); window.__watch = requestAnimationFrame(watch); };
         watch();
@@ -159,6 +162,9 @@ function check(name, ok, detail) {
       for (const p of pages) pieces.push(await p.evaluate(() => { cancelAnimationFrame(window.__watch); return window.__pieces; }));
       check('실수 연출: 카드가 두 조각으로 찢어진다(동작 줄이기가 아닌 화면)', pages.filter((p) => p !== phone).every((p) => pieces[pages.indexOf(p)] >= 2), pieces.join(','));
       check('실수 연출: 동작 줄이기 화면에서는 찢지 않는다', pieces[pages.indexOf(phone)] === 0, String(pieces[pages.indexOf(phone)]));
+      const vibrated = [];
+      for (const p of pages) vibrated.push(await p.evaluate(() => window.__vibrated));
+      check('실수 연출: 진동은 쓰지 않는다', vibrated.every((n) => n === 0), vibrated.join(','));
       await phone.emulateMedia({ reducedMotion: 'no-preference' });
       await a.reload();
       await a.waitForSelector('#players .player');
