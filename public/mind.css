@@ -40,14 +40,27 @@
 .reveal{max-width:560px;color:#f4e8f5;font-size:13px;line-height:1.7}
 .reveal.hidden{display:none}
 
+/* 줄어든 손패(카드를 냈거나 버림)는 다시 날아 들어오지 않는다. 새로 받은 패만 등장 애니메이션을 쓴다. */
+.mind-card.still{animation:none}
+
+/* 누른 뒤 서버 답을 기다리는 버튼(public/mind.js의 markSending). 꺼진 버튼과 다르게 "눌렸다"로 보인다. */
+.mind-page button.sending:disabled{opacity:.8;cursor:progress;box-shadow:inset 0 2px 6px #0000004d}
+
 .play-button{min-width:160px;font-size:16px}
 .star-button:disabled{opacity:.45}
 
-/* 폰: 카드와 여백을 줄인다. 조작부는 poker.css처럼 화면 아래에 붙는다. */
+/* 폰: 카드와 여백을 줄인다. 조작부는 poker.css처럼 화면 아래에 붙는다(responsive-fixes.css 참고).
+   조작부가 화면 아래를 차지하므로, 스크롤하지 않아도 가운데 더미와 내 카드가 그 위에 보이게 판을 줄인다. */
 @media(max-width:760px){
-  #board{min-height:210px;gap:10px;padding:14px 10px}
+  #board{min-height:210px;gap:8px;padding:10px 8px}
   .rules{font-size:12px}
-  .mind-card{width:72px;height:100px;font-size:32px}
+  .mind-card{width:60px;height:84px;font-size:28px}
+  .event{padding:6px 10px;font-size:13px}
+  /* 목숨·수리검은 바로 위 상태 칩("목숨 2 · 수리검 1")과 같은 내용이다. 판 안의 것은 뺀다. */
+  #lives,#stars{display:none}
+  /* 내 카드를 가운데 더미 바로 아래로 올린다. 버린 카드·남은 카드 목록은 그 뒤로 보낸다. */
+  .discards{order:1}
+  .reveal{order:2}
   .mind-hand .mind-card{width:44px;height:60px;font-size:19px}
   .mind-hand{gap:6px;min-height:60px}
   .controls#focus-controls,.controls#play-controls{grid-template-columns:repeat(2,minmax(0,1fr))}

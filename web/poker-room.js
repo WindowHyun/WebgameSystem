@@ -651,8 +651,12 @@ function createPokerRoom(options) {
         const inRound = dealtIn.includes(p.id);
         let reveal = false;
         if (phase === 'betting') reveal = viewerInRound && p.id !== pid && !p.isFolded;
-        // 라운드가 끝나면 폴드했던 사람의 카드도 공개한다 - 더 숨길 이유가 없다.
-        else if (phase === 'result') reveal = !!(result && result.revealed);
+        // 라운드가 끝나면 모든 카드를 공개한다 - 폴드했던 사람 것도, 상대가 모두 폴드해서 이긴
+        // 사람 것도. [이슈] 예전에는 쇼다운까지 간 판만 공개해서, 상대가 폴드해 끝난 판은 이긴
+        // 사람까지 누구도 자기 카드를 끝내 확인할 수 없었다. 인디언 포커에서 남의 카드는 배팅
+        // 중에 이미 다 봤으니 숨겨지는 건 각자 자기 카드뿐이고, 다음 판은 새 덱으로 시작하므로
+        // (begin) 공개해도 새어 나갈 정보가 없다. result.revealed는 "쇼다운까지 갔는가"로 남긴다.
+        else if (phase === 'result') reveal = true;
         return { id: p.id, nickname: p.nickname, chips: p.chips, ready: p.ready, connected: p.connected, inRound, isFolded: p.isFolded, isAllIn: p.isAllIn, roundBet: p.roundBet, card: p.currentCard ? (reveal ? p.currentCard : { hidden: true }) : null };
       }),
     };

@@ -11,11 +11,16 @@
  *   - 실수하면 무엇이 버려졌는지 크게 보인다
  *   - 보스 키로 누가 화면을 가리면 모두 멈춘다(집중 단계). 폰은 가린 그림을 한 번 눌러 돌아온다
  *   - 폰(375px)에서 가로로 넘치지 않고 카드 내기 버튼이 화면 안에 있다
+ *   - 폰에서 레벨이 올라 판이 길어져도 맨 위에서 "카드 내기"가 화면 안에 있다(조작부가 화면 아래에 붙는다)
+ *   - 남이 무엇을 눌러도 내 카드는 다시 그리지 않는다(등장 애니메이션이 매번 다시 돌며 깜빡이지 않는다)
+ *   - 새 카드가 나오면 가운데 카드는 새로 그린다(방금 나온 카드에 등장 애니메이션)
+ *   - 버튼을 누르면 서버 답을 기다리는 동안 바로 눌림 표시가 난다
+ *   - 수리검을 제안한 사람에게 누구를 기다리는지 보여 준다
  *
  * 실행: node test/mind-ui-test.js
  */
 
-const { chromium } = require('playwright');
+const { chromium, devices } = require('playwright');
 const { createGameServer } = require('../web/game-server');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -142,6 +147,36 @@ function check(name, ok, detail) {
       check('보스 키 검사를 위해 진행 중이어야 한다', false, await phase(a));
     }
 
+    // [이슈] 남이 무엇을 눌러도 내 카드는 그대로다. 예전에는 상태가 올 때마다 손패를 새로 만들어
+    // 등장 애니메이션(0.2초, 투명 → 보임)이 매번 다시 돌았다 - 누가 누를 때마다 내 카드가 깜빡였다.
+    if (await phase(a) === 'playing') {
+      await a.evaluate(() => { window.__hand = document.querySelector('#hand .card'); window.__top = document.getElementById('pile-top'); });
+      await b.click('#pause');
+      await wait(300);
+      const still = await a.evaluate(() => {
+        const card = document.querySelector('#hand .card');
+        return { same: !!card && card === window.__hand, running: card ? card.getAnimations().length : -1, sameTop: document.getElementById('pile-top') === window.__top };
+      });
+      check('남이 멈춤을 눌러도 내 카드는 다시 그리지 않는다(깜빡이지 않는다)', still.same && still.running === 0, JSON.stringify(still));
+      check('새 카드가 없으면 가운데 카드도 그대로다', still.sameTop);
+      // [반응] 누르는 즉시 눌림 표시(서버 답이 오기 전 같은 순간에 확인한다)
+      const sending = await a.evaluate(() => { const f = document.getElementById('focus'); f.click(); return f.classList.contains('sending') && f.disabled; });
+      check('버튼을 누르면 서버 답을 기다리는 동안 바로 눌림 표시가 난다', sending);
+      await wait(300);
+      const settled = await a.evaluate(() => { const f = document.getElementById('focus'); return { sending: f.classList.contains('sending'), disabled: f.disabled, text: f.textContent }; });
+      check('답이 오면 눌림 표시가 풀리고 결과가 보인다', !settled.sending && !settled.disabled && settled.text === '집중 취소', JSON.stringify(settled));
+      await focusAll(pages);
+      const vals = [];
+      for (const p of pages) vals.push(await p.isVisible('#play') && await p.isEnabled('#play') ? await lowest(p) : Infinity);
+      const next = pages[vals.indexOf(Math.min(...vals))];
+      await next.click('#play');
+      await wait(300);
+      check('새 카드가 나오면 가운데 카드를 새로 그린다(방금 나온 카드에 등장 애니메이션)',
+        await a.evaluate(() => document.getElementById('pile-top') !== window.__top));
+    } else {
+      check('깜빡임 검사를 위해 진행 중이어야 한다', false, await phase(a));
+    }
+
     // 폰
     const layout = await phone.evaluate(() => {
       const play = document.getElementById('focus').offsetParent ? document.getElementById('focus') : document.getElementById('play');
@@ -150,6 +185,49 @@ function check(name, ok, detail) {
     });
     check('폰: 가로로 넘치지 않는다', !layout.overflow);
     check('폰: 조작 버튼이 화면 안에 보인다(아래에 붙어 있다)', layout.buttonInView, JSON.stringify(layout));
+
+    // [이슈] 폰에서 레벨이 오르면 판(사건 안내·버린 카드·손패)이 길어져 "카드 내기"가 화면 아래로 밀려났다.
+    // 조작부를 화면 아래에 붙이는 규칙이 main 안에서만 붙어 실제로는 붙지 않았다. 긴 판을 화면에 넣고
+    // 맨 위에서 본다. 수리검 투표 중인 제안자 화면(누구를 기다리는지)도 같이 본다.
+    for (const [name, device] of [['iPhone SE', devices['iPhone SE']], ['iPhone 13', devices['iPhone 13']]]) {
+      const context = await browser.newContext(device);
+      const page = await context.newPage();
+      page.on('pageerror', (e) => errors.push(`${name}: ${e}`));
+      await page.addInitScript(() => {
+        const Original = window.WebSocket;
+        const Hooked = function (url) { const ws = new Original(url); window.__ws = ws; return ws; };
+        Hooked.prototype = Original.prototype;
+        Object.assign(Hooked, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+        window.WebSocket = Hooked;
+      });
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.fill('#nickname', '긴판');
+      await page.press('#nickname', 'Enter');
+      await page.click('.game-card.mind');
+      await page.waitForSelector('#players .player', { timeout: 15000 });
+      const names = ['김하늘', '박서준', '이도현', '최유나'];
+      const long = (vote) => ({
+        type: 'mindState', phase: 'playing', level: 8, levels: 8, lives: 2, stars: 1, maxLives: 5, maxStars: 3, reward: 'life',
+        pile: Array.from({ length: 12 }, (_, i) => ({ value: 2 + i })),
+        discarded: Array.from({ length: 10 }, (_, i) => ({ value: 3 + i, owner: names[i % 4], reason: 'mistake' })),
+        lastEvent: { kind: 'mistake', text: '실수! 57보다 작은 카드: 김하늘 40, 44 / 박서준 51 → 목숨 1개를 잃었습니다' },
+        pauseReason: null, result: null, history: [{ text: '레벨 8을 시작합니다.' }], minPlayers: 2, maxPlayers: 4, readyCount: 0, canStart: false,
+        starVote: vote ? { id: 'v1', byName: '박서준', agreed: 2, total: 4, yourVote: true, waitingFor: ['이도현', '최유나'] } : null,
+        you: { id: 'me', ready: false, focused: true, inGame: true, hand: [10, 18, 26, 34, 42, 50, 58, 66] },
+        players: names.map((n, i) => ({ id: i === 1 ? 'me' : `p${i}`, nickname: n, connected: true, ready: false, inGame: true, focused: true, cardCount: 8, hand: null })),
+      });
+      const seen = await page.evaluate(([s, v]) => {
+        window.__ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(s) }));
+        window.scrollTo(0, 0);
+        const box = document.getElementById('play').getBoundingClientRect();
+        const inView = box.top >= 0 && box.bottom <= innerHeight + 1;
+        window.__ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(v) }));
+        return { inView, bottom: Math.round(box.bottom), height: innerHeight, message: document.getElementById('message').textContent };
+      }, [long(false), long(true)]);
+      check(`폰(${name}): 레벨 8에 판이 길어도 맨 위에서 "카드 내기"가 화면 안에 있다`, seen.inView, JSON.stringify(seen));
+      check(`폰(${name}): 수리검을 제안한 사람에게 누구를 기다리는지 보인다`, /동의 2\/4명/.test(seen.message) && /이도현, 최유나님을 기다리는 중/.test(seen.message), seen.message);
+      await context.close();
+    }
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));
   } finally {
     await browser.close();

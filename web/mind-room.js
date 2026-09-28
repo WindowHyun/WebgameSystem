@@ -472,6 +472,8 @@ function createMindRoom(options) {
       starVote: starVote ? {
         id: starVote.id, byName: starVote.byName, agreed: starVote.agreed.size, total: roster.length,
         yourVote: starVote.agreed.has(id),
+        // 제안했거나 이미 동의한 사람 화면에 "누구를 기다리는지" 보여 주려고 보낸다.
+        waitingFor: roster.filter((rid) => !starVote.agreed.has(rid)).map(nameOf),
       } : null,
       you: me ? {
         id: me.id, ready: me.ready, focused: me.focused, inGame: roster.includes(me.id) && phase !== 'lobby',

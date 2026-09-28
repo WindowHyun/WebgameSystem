@@ -84,4 +84,30 @@ const foldedAtResult = foldState.players.find((p) => p.id === fx.playerId);
 assert.ok(foldedAtResult.card && !foldedAtResult.card.hidden,
   '폴드한 사람의 카드도 라운드가 끝나면 다른 사람에게 공개되어야 한다');
 
-console.log('포커 규칙: 배팅·카드 공개·정산·배팅금 투표·폴드 후 관전·빈 방 초기화 통과');
+// [이슈] 상대가 폴드해서 끝난 판(쇼다운 없음)도 끝나면 각자 자기 카드를 볼 수 있어야 한다.
+// 예전에는 쇼다운까지 간 판만 공개해서, 이긴 사람도 진 사람도 자기 카드를 끝내 몰랐다.
+const quitRoom = createPokerRoom({ onChange() {} });
+const qa = quitRoom.join({ nickname: 'QA' });
+const qb = quitRoom.join({ nickname: 'QB' });
+[qa, qb].forEach((p) => quitRoom.setReady(p.playerId, true));
+assert.equal(quitRoom.begin(qa.playerId), null);
+const quitter = quitRoom.stateFor(qa.playerId).turnPlayerId;
+const stayer = quitter === qa.playerId ? qb.playerId : qa.playerId;
+assert.ok(quitRoom.stateFor(stayer).players.find((p) => p.id === stayer).card.hidden, '판 중에는 자기 카드를 볼 수 없다');
+assert.equal(quitRoom.fold(quitter), null);
+for (const viewer of [qa.playerId, qb.playerId]) {
+  const s = quitRoom.stateFor(viewer);
+  assert.equal(s.phase, 'result');
+  assert.equal(s.result.revealed, false, '쇼다운 없이 끝난 판');
+  const mine = s.players.find((p) => p.id === viewer).card;
+  assert.ok(mine && !mine.hidden && mine.rank, '폴드로 끝난 판도 끝나면 자기 카드를 볼 수 있어야 한다');
+  assert.ok(s.players.every((p) => !p.card || !p.card.hidden), '폴드로 끝난 판도 끝나면 모든 카드를 공개한다');
+}
+// 다음 판을 시작하면 다시 자기 카드는 가려진다.
+[qa, qb].forEach((p) => quitRoom.setReady(p.playerId, true));
+assert.equal(quitRoom.begin(qa.playerId), null);
+const nextRound = quitRoom.stateFor(qa.playerId);
+assert.equal(nextRound.phase, 'betting');
+assert.ok(nextRound.players.find((p) => p.id === qa.playerId).card.hidden, '새 판에서는 다시 자기 카드가 가려진다');
+
+console.log('포커 규칙: 배팅·카드 공개·정산·배팅금 투표·폴드 후 관전·폴드로 끝난 판 공개·빈 방 초기화 통과');
