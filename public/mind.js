@@ -41,6 +41,38 @@
     errorTimer = setTimeout(function () { $('error').style.display = 'none'; }, 3000);
   }
 
+  /**
+   * 내용이 바뀔 때만 다시 그린다. 카드에는 등장 애니메이션(poker.css의 .card)이 있어서, 예전처럼
+   * 상태가 올 때마다 innerHTML을 새로 넣으면 남이 무엇을 누를 때마다 내 카드가 0.2초씩
+   * 사라졌다 나타났다(화면이 굼뜨게 느껴지는 원인이었다).
+   */
+  var drawn = {};
+  function setHtml(id, html) {
+    if (drawn[id] === html) return;
+    drawn[id] = html;
+    $(id).innerHTML = html;
+  }
+
+  /**
+   * 누르는 즉시 눌림 표시를 한다. 서버까지 다녀오는 동안(Render까지 왕복 수백 ms) 버튼에 아무
+   * 변화가 없어서 눌렸는지 알 수 없었다. 다음 상태나 오류가 오면 풀고, 답이 없어도 잠시 뒤 푼다.
+   * 그동안 버튼을 잠가 두 번 눌러 켰다 꺼지는 일도 막는다.
+   */
+  var sending = [];
+  var sendingTimer = null;
+  function markSending(button) {
+    button.classList.add('sending');
+    button.disabled = true;
+    sending.push(button);
+    clearTimeout(sendingTimer);
+    sendingTimer = setTimeout(function () { releaseSending(); if (state) render(); }, 1500);
+  }
+  function releaseSending() {
+    clearTimeout(sendingTimer);
+    sending.forEach(function (button) { button.classList.remove('sending'); button.disabled = false; });
+    sending = [];
+  }
+
 
   var PHASE = { lobby: '대기 중', focus: '집중', playing: '진행 중', result: '게임 종료' };
 
@@ -69,6 +101,13 @@
     if (!vote) return;
     $('star-vote-title').textContent = vote.byName + '님이 수리검을 쓰자고 합니다.';
     $('star-vote-count').textContent = '모두 동의하면 각자 가장 작은 카드를 1장씩 버립니다. (동의 ' + vote.agreed + '/' + vote.total + '명)';
+  }
+
+  /** 수리검 투표 중인 사람(제안했거나 이미 동의한 사람)에게 누구를 기다리는지 보여 준다. */
+  function starVoteMessage(vote) {
+    if (!vote.yourVote) return '수리검 투표 중입니다.';
+    var waiting = vote.waitingFor && vote.waitingFor.length ? ' · ' + vote.waitingFor.join(', ') + '님을 기다리는 중' : '';
+    return '수리검 투표 중 · 동의 ' + vote.agreed + '/' + vote.total + '명' + waiting;
   }
 
   function render() {
@@ -112,11 +151,11 @@
       message = (state.pauseReason || '모두 집중하면 시작합니다.')
         + (you.focused && waiting.length ? ' · ' + waiting.join(', ') + '님을 기다리는 중' : '');
     } else {
-      message = state.starVote ? '수리검 투표 중입니다.' : '말없이, 작은 수부터. "지금이다" 싶을 때 내세요.';
+      message = state.starVote ? starVoteMessage(state.starVote) : '말없이, 작은 수부터. "지금이다" 싶을 때 내세요.';
     }
     $('message').textContent = message;
 
-    $('players').innerHTML = state.players.map(function (p) {
+    setHtml('players', state.players.map(function (p) {
       var status;
       if (p.connected === false) status = '끊김';
       else if (lobby) status = p.ready ? '준비' : '대기';
@@ -127,7 +166,7 @@
       var initial = Array.from(p.nickname)[0] || '나';
       return '<div class="player" data-id="' + p.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
         + (p.id === you.id ? ' (나)' : '') + '</b><small>' + small + '</small><span class="status">' + status + '</span></div>';
-    }).join('');
+    }).join(''));
 
     var showGame = state.level > 0 && (live || !!state.result);
     $('rules').classList.toggle('hidden', showGame);
@@ -140,9 +179,17 @@
       $('event').className = 'event' + (event ? ' ' + event.kind : ' hidden');
       $('event').textContent = event ? event.text : '';
       var top = state.pile.length ? state.pile[state.pile.length - 1] : null;
-      $('pile-top').className = 'card mind-card' + (top ? '' : ' empty');
-      $('pile-top').textContent = top ? String(top.value) : '-';
-      $('pile-list').innerHTML = state.pile.slice(0, -1).map(function (card) { return '<span>' + Number(card.value) + '</span>'; }).join('');
+      // 새 카드가 나왔을 때만 가운데 카드를 새로 만든다 - 방금 나온 카드에 등장 애니메이션이 걸린다.
+      var topKey = state.level + ':' + state.pile.length + ':' + (top ? top.value : '');
+      if (drawn.pileTop !== topKey) {
+        drawn.pileTop = topKey;
+        var oldTop = $('pile-top');
+        var newTop = oldTop.cloneNode(false);
+        newTop.className = 'card mind-card' + (top ? '' : ' empty');
+        newTop.textContent = top ? String(top.value) : '-';
+        oldTop.parentNode.replaceChild(newTop, oldTop);
+      }
+      setHtml('pile-list', state.pile.slice(0, -1).map(function (card) { return '<span>' + Number(card.value) + '</span>'; }).join(''));
       var reasons = { mistake: '실수', star: '수리검', left: '빠짐' };
       $('discards').classList.toggle('hidden', !state.discarded.length);
       $('discards').textContent = state.discarded.length
@@ -151,9 +198,19 @@
       // 게임이 끝났는데 내 손에 남은 카드가 없으면 "다 냈습니다"를 보여 줄 이유가 없다.
       document.querySelector('.hand-area').classList.toggle('hidden', !!state.result && !you.hand.length);
       $('hand-label').textContent = you.inGame ? '내 카드 ' + you.hand.length + '장' + (you.hand.length ? ' · 테두리가 다음에 낼 카드' : '') : '구경 중';
-      $('hand').innerHTML = you.inGame
-        ? (you.hand.length ? you.hand.map(function (value) { return '<div class="card mind-card">' + Number(value) + '</div>'; }).join('') : '<span class="none">다 냈습니다</span>')
-        : '';
+      var handKey = state.level + '|' + (state.result ? 'end' : 'live') + '|' + (you.inGame ? you.hand.join(',') : '-');
+      if (drawn.handKey !== handKey) {
+        // 새로 받은 패(레벨 시작·새 게임)만 나눠 주는 모습으로 보인다. 카드를 내거나 버려서 줄었을 때는
+        // 남은 카드가 다시 날아 들어오지 않게 애니메이션을 끈다(still).
+        var dealt = drawn.handLevel !== state.level || drawn.handEnded || you.hand.length > drawn.handCount;
+        drawn.handKey = handKey;
+        drawn.handLevel = state.level;
+        drawn.handEnded = !!state.result;
+        drawn.handCount = you.hand.length;
+        $('hand').innerHTML = you.inGame
+          ? (you.hand.length ? you.hand.map(function (value) { return '<div class="card mind-card' + (dealt ? '' : ' still') + '">' + Number(value) + '</div>'; }).join('') : '<span class="none">다 냈습니다</span>')
+          : '';
+      }
       var leftovers = state.result ? state.players.filter(function (p) { return p.hand && p.hand.length; }) : [];
       $('reveal').classList.toggle('hidden', !leftovers.length);
       $('reveal').textContent = leftovers.length
@@ -161,13 +218,14 @@
         : '';
     }
 
-    $('history').innerHTML = state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join('');
+    setHtml('history', state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join(''));
     renderStarVote();
     renderStartConfirm();
   }
 
   $('ready').onclick = function () {
     var me = state.players.find(function (p) { return p.id === state.you.id; });
+    markSending($('ready'));
     send('ready', { ready: !(me && me.ready) });
   };
   $('leave').onclick = function (event) { event.preventDefault(); if (socket) socket.leave(); };
@@ -175,7 +233,7 @@
   $('start-cancel').onclick = closeStartConfirm;
   $('start-go').onclick = function () { closeStartConfirm(); send('start'); };
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && startConfirmOpen) closeStartConfirm(); });
-  $('focus').onclick = function () { send('focus', { focused: !state.you.focused }); };
+  $('focus').onclick = function () { markSending($('focus')); send('focus', { focused: !state.you.focused }); };
   $('play').onclick = function () {
     if (pendingPlay) return;
     pendingPlay = true;
@@ -186,11 +244,11 @@
     pendingTimer = setTimeout(function () { pendingPlay = false; if (state) render(); }, 1500);
     send('play');
   };
-  $('pause').onclick = function () { send('pause'); };
-  $('star').onclick = function () { send('star'); };
-  $('star-focus').onclick = function () { send('star'); };
-  $('star-yes').onclick = function () { if (state.starVote) send('starVote', { voteId: state.starVote.id, agree: true }); };
-  $('star-no').onclick = function () { if (state.starVote) send('starVote', { voteId: state.starVote.id, agree: false }); };
+  $('pause').onclick = function () { markSending($('pause')); send('pause'); };
+  $('star').onclick = function () { markSending($('star')); send('star'); };
+  $('star-focus').onclick = function () { markSending($('star-focus')); send('star'); };
+  $('star-yes').onclick = function () { if (!state.starVote) return; markSending($('star-yes')); markSending($('star-no')); send('starVote', { voteId: state.starVote.id, agree: true }); };
+  $('star-no').onclick = function () { if (!state.starVote) return; markSending($('star-yes')); markSending($('star-no')); send('starVote', { voteId: state.starVote.id, agree: false }); };
   document.querySelectorAll('button[data-help]').forEach(function (button) {
     function showHelp() { $('action-help').textContent = button.dataset.help; }
     button.addEventListener('mouseenter', showHelp);
@@ -203,8 +261,8 @@
     tokenKey: TOKEN_KEY,
     nickname: nickname,
     onMessage: function (data) {
-      if (data.type === 'error') { pendingPlay = false; showError(data.message); if (state) render(); return; }
-      if (data.type === 'mindState') { settlePending(data); state = data; render(); }
+      if (data.type === 'error') { pendingPlay = false; releaseSending(); showError(data.message); if (state) render(); return; }
+      if (data.type === 'mindState') { settlePending(data); releaseSending(); state = data; render(); }
     }
   });
 }());

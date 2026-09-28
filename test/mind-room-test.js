@@ -131,8 +131,11 @@ async function testStar() {
   focusAll();
   check('수리검 제안', room.proposeStar(ids[0]) === null && view().starVote && view().starVote.agreed === 1);
   check('투표 중에는 카드를 낼 수 없다', /투표 중/.test(room.play(ids[1]) || ''));
+  check('제안한 사람에게 누구를 기다리는지 알려 준다', JSON.stringify(view().starVote.waitingFor) === JSON.stringify(['나', '다']),
+    JSON.stringify(view().starVote.waitingFor));
   room.voteStar(ids[1], view().starVote.id, true);
   check('모두 동의하기 전에는 쓰지 않는다', view().stars === 1 && view().starVote.agreed === 2);
+  check('동의하면 기다리는 사람에서 빠진다', JSON.stringify(view().starVote.waitingFor) === JSON.stringify(['다']));
   room.voteStar(ids[2], view().starVote.id, true);
   const s = view();
   check('모두 동의하면 수리검 1개를 쓰고 각자 가장 작은 카드를 버린다',

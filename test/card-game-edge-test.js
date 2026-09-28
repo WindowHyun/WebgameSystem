@@ -145,8 +145,9 @@ async function run() {
   latePoker.call(latePoker.stateFor(lpA.playerId).turnPlayerId);
   latePoker.fold(latePoker.stateFor(lpA.playerId).turnPlayerId);
   lateState = latePoker.stateFor(lpLate.playerId);
-  assert.equal(lateState.result.revealed, false);
-  assert.ok(lateState.players.filter((p) => p.card).every((p) => p.card.hidden), '폴드로 끝난 판의 승자 카드는 공개하지 않습니다.');
+  assert.equal(lateState.result.revealed, false, '쇼다운 없이(폴드로) 끝난 판이다');
+  // 판이 끝나면 폴드로 끝났어도 카드를 공개한다(각자 자기 카드를 확인할 수 있게). 다음 판은 새 덱이다.
+  assert.ok(lateState.players.filter((p) => p.card).every((p) => !p.card.hidden), '폴드로 끝난 판도 끝나면 카드를 공개합니다.');
   assert.ok(lateState.players.every((p) => p.roundBet === 0));
   for (const player of [lpA, lpB, lpLate]) latePoker.setReady(player.playerId, true);
   assert.equal(latePoker.begin(lpA.playerId), null);

@@ -101,3 +101,10 @@
 /* [모바일] 포털: 폰에서 보스 키를 켜는 법. 눈에 보이는 버튼이 없어서 마우스 없는 기기에만 적어 둔다. */
 .touch-hint{display:none}
 @media(hover:none){.portal-page .touch-hint{display:block;margin:16px 0 0;color:#616061;font-size:13px;line-height:1.5;word-break:keep-all}}
+
+/* [이슈] 폰에서 조작부를 화면 아래에 붙이는 규칙(poker.css의 .controls{position:sticky;bottom:0})이
+   실제로는 붙지 않았다. poker.css가 폰에서 main에 overflow-y:auto를 줘서 조작부가 화면이 아니라
+   main 안에 붙는데, #app이 min-height라 main은 스스로 스크롤하지 않고 내용만큼 늘어나기만 한다.
+   그래서 더 마인드는 레벨 3쯤부터(iPhone SE는 레벨 1부터) "카드 내기"가 화면 아래로 밀려나
+   스크롤해야 누를 수 있었다. main을 스크롤 상자에서 빼서 조작부가 화면에 붙게 한다. */
+@media(max-width:760px){.poker-page main,.blackjack-page main{overflow:visible}}
