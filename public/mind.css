@@ -40,6 +40,31 @@
 .reveal{max-width:560px;color:#f4e8f5;font-size:13px;line-height:1.7}
 .reveal.hidden{display:none}
 
+/* ── 실수 연출(public/mind.js의 "실수 연출") ──
+   도장·번쩍임·흔들림은 여기 클래스로, 날아가는 카드·찢어진 조각은 .mind-fx 층에서 스크립트가 위치만 정한다. */
+#board{position:relative}
+#board.hit{animation:mind-shake .32s ease}
+#board.hit:after{content:"";position:absolute;inset:0;border-radius:inherit;background:#d72c0d;opacity:0;pointer-events:none;animation:mind-flash .46s ease}
+#pile-top{position:relative}
+#pile-top.bad{border-color:#d72c0d;box-shadow:0 0 0 2px #d72c0d80,0 8px 20px #0004}
+#pile-top.bad:after{content:"✕";position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;display:grid;place-items:center;border:3px solid #d72c0d;border-radius:50%;background:#ffffffc4;color:#d72c0d;font-size:28px;line-height:1;transform:rotate(-14deg);animation:mind-stamp .26s cubic-bezier(.3,.6,.4,1)}
+#status-chip.hit{animation:mind-shake .3s ease}
+.mind-page .player.hit{animation:mind-slot .6s ease}
+@keyframes mind-shake{20%{transform:translateX(-5px) rotate(-.6deg)}40%{transform:translateX(5px) rotate(.6deg)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+@keyframes mind-flash{25%{opacity:.45}}
+@keyframes mind-stamp{from{transform:rotate(-14deg) scale(2.4);opacity:0}70%{transform:rotate(-14deg) scale(.92);opacity:1}}
+@keyframes mind-slot{20%{background:#d72c0d80;box-shadow:inset 0 0 0 1px #ff9d8f}}
+.mind-fx{position:fixed;inset:0;z-index:15;overflow:hidden;pointer-events:none}
+.mind-fx>*{position:absolute;margin:0}
+.mind-fx .card{animation:none}
+.mind-fx .mind-card{font-size:24px;box-shadow:0 4px 12px #0004}
+.mind-card.doomed{outline:3px solid #d72c0d;outline-offset:1px;background:#fff4f2;color:#a52323}
+.mind-card.back{border:2px solid #fff;background:repeating-linear-gradient(45deg,#5b1f5c 0 5px,#6e2b70 5px 10px);color:transparent}
+.fx-bit{border-radius:1px;background:#fff;box-shadow:0 0 0 .5px #0003}
+.fx-heart{font-size:22px;line-height:1}
+.fx-crack{overflow:visible}
+@media(prefers-reduced-motion:reduce){#board.hit,#board.hit:after,#status-chip.hit,.mind-page .player.hit,#pile-top.bad:after{animation:none}}
+
 /* 줄어든 손패(카드를 냈거나 버림)는 다시 날아 들어오지 않는다. 새로 받은 패만 등장 애니메이션을 쓴다. */
 .mind-card.still{animation:none}
 
@@ -61,7 +86,8 @@
   /* 내 카드를 가운데 더미 바로 아래로 올린다. 버린 카드·남은 카드 목록은 그 뒤로 보낸다. */
   .discards{order:1}
   .reveal{order:2}
-  .mind-hand .mind-card{width:44px;height:60px;font-size:19px}
+  .mind-hand .mind-card,.mind-fx .mind-card{font-size:19px}
+  .mind-hand .mind-card{width:44px;height:60px}
   .mind-hand{gap:6px;min-height:60px}
   .controls#focus-controls,.controls#play-controls{grid-template-columns:repeat(2,minmax(0,1fr))}
   .controls#play-controls .play-button{grid-column:1/-1;min-height:52px}

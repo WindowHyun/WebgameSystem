@@ -95,10 +95,20 @@ function testMistake() {
   check('버린 사람 손에는 더 큰 카드만 남는다', seat(ids[1]).hand.join() === '50');
   check('실수한 뒤에는 다시 집중한다', s.phase === 'focus' && hasNote(s, '목숨을 1개 잃고'), s.phase);
   check('남은 사람에게 무엇이 버려졌는지 알린다', s.lastEvent && s.lastEvent.kind === 'mistake' && /10, 20/.test(s.lastEvent.text), JSON.stringify(s.lastEvent));
+  // 화면의 실수 연출(카드 찢기)이 쓰는 정보: 누가 몇을 냈고, 누가 무엇을 쥐고 있었는지
+  check('실수 사건에 낸 사람과 카드가 있다', s.lastEvent.played && s.lastEvent.played.byId === ids[0] && s.lastEvent.played.value === 30,
+    JSON.stringify(s.lastEvent.played));
+  check('실수 사건에 쥐고 있던 사람과 버려진 카드가 있다', JSON.stringify(s.lastEvent.lost) === JSON.stringify([{ id: ids[1], nickname: '나', cards: [10, 20] }]),
+    JSON.stringify(s.lastEvent.lost));
+  const firstSeq = s.lastEvent.seq;
   focusAll();
+  check('상태가 다시 와도 같은 사건은 같은 번호다(화면이 한 번만 연출한다)', view(ids[2]).lastEvent.seq === firstSeq && Number.isInteger(firstSeq));
   room.play(ids[2]); // 40 - 나(50)보다 작으니 괜찮다
+  check('새 사건은 번호가 늘어난다', view().lastEvent.kind === 'play' && view().lastEvent.seq > firstSeq, JSON.stringify(view().lastEvent));
   room.play(ids[0]); // 70 - 나에게 50, 다에게 60이 있었다
   const t = view();
+  check('여러 사람이 쥐고 있었으면 모두 알린다', JSON.stringify(t.lastEvent.lost.map((l) => [l.nickname, l.cards])) === JSON.stringify([['나', [50]], ['다', [60]]]),
+    JSON.stringify(t.lastEvent.lost));
   check('두 번째 실수: 목숨 1', t.lives === 1 && t.discarded.length === 4, `${t.lives} ${JSON.stringify(t.discarded)}`);
   focusAll();
   room.play(ids[0]); // 90 - 다에게 80이 있었다 → 목숨 0
@@ -118,6 +128,8 @@ function testMistakeEndsLevel() {
   const s = view();
   check('실수로 레벨이 끝나도 다음 레벨로 간다', s.level === 2 && s.lives === 1, `${s.level} ${s.lives}`);
   check('그때도 실수 내용(버려진 카드)이 안내에 남는다', s.lastEvent.kind === 'mistake' && /10/.test(s.lastEvent.text) && /레벨 1 통과/.test(s.lastEvent.text),
+    JSON.stringify(s.lastEvent));
+  check('그때도 찢을 카드 정보가 남는다', s.lastEvent.played && s.lastEvent.played.value === 50 && s.lastEvent.lost[0].cards.join() === '10',
     JSON.stringify(s.lastEvent));
   room.dispose();
 }

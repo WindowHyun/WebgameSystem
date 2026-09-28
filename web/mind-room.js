@@ -67,7 +67,11 @@ function createMindRoom(options) {
   let stars = 0;
   let pile = [];       // 이번 레벨에 낸 카드 { value, byId, by }
   let discarded = [];  // 이번 레벨에 버려진 카드 { value, owner, reason: 'mistake' | 'star' | 'left' }
-  let lastEvent = null; // 화면이 크게 보여 줄 마지막 사건 { kind, text }
+  let lastEvent = null; // 화면이 크게 보여 줄 마지막 사건 { seq, kind, text, (실수면) played, lost }
+  // 사건 번호. 화면은 이 번호로 "새로 생긴 사건"만 연출한다 - 상태가 올 때마다, 또는 접속·재접속 때
+  // 받은 지난 사건을 다시 재생하지 않는다.
+  let eventSeq = 0;
+  const setEvent = (event) => { eventSeq += 1; lastEvent = Object.assign({ seq: eventSeq }, event); };
   let pauseReason = null;
   let starVote = null; // { id, byId, byName, agreed: Set }
   let starTimer = null;
@@ -156,7 +160,7 @@ function createMindRoom(options) {
     if (before && before.kind === 'left') {
       note(`레벨 ${level}은 남은 카드가 빠진 사람 것뿐이라 보상 없이 넘어갑니다.`);
       act('진행', `레벨 ${level} 보상 없이 넘어감 (남은 카드가 빠진 사람 것뿐)`);
-      lastEvent = { kind: 'left', text: `${before.text} → 레벨 ${level}은 보상 없이 넘어갑니다` };
+      setEvent({ kind: 'left', text: `${before.text} → 레벨 ${level}은 보상 없이 넘어갑니다` });
       if (level >= levels) {
         finish(false, '마지막 레벨을 끝까지 치르지 못해 승패 없이 게임을 마칩니다.', true);
         return;
@@ -169,9 +173,9 @@ function createMindRoom(options) {
     if (reward === 'life' && lives < MAX_LIVES) { lives += 1; rewardText = ' 보상으로 목숨 1개를 받았습니다.'; }
     note(`레벨 ${level} 통과!${rewardText}`);
     act('진행', `레벨 ${level} 통과${rewardText ? ` (${reward === 'star' ? '수리검' : '목숨'} +1)` : ''} → 목숨 ${lives} · 수리검 ${stars}`);
-    lastEvent = before
-      ? { kind: before.kind, text: `${before.text} → 레벨 ${level} 통과!${rewardText}` }
-      : { kind: 'clear', text: `레벨 ${level} 통과!${rewardText}` };
+    // 실수·수리검으로 끝난 레벨은 그 사건을 그대로 잇는다(같은 번호 - 화면은 한 번만 연출한다).
+    if (before) lastEvent = Object.assign({}, before, { text: `${before.text} → 레벨 ${level} 통과!${rewardText}` });
+    else setEvent({ kind: 'clear', text: `레벨 ${level} 통과!${rewardText}` });
     if (level >= levels) {
       finish(true, `모든 레벨(${levels})을 깼습니다. 승리!`);
       return;
@@ -351,20 +355,22 @@ function createMindRoom(options) {
       if (!lower.length) continue;
       p.hand = p.hand.filter((card) => card > value);
       for (const card of lower) discarded.push({ value: card, owner: p.nickname, reason: 'mistake' });
-      lost.push(`${p.nickname} ${lower.join(', ')}`);
+      lost.push({ id: p.id, nickname: p.nickname, cards: lower });
     }
     if (!lost.length) {
       note(`${player.nickname}님이 ${value}을(를) 냈습니다.`);
-      lastEvent = { kind: 'play', text: `${player.nickname} · ${value}` };
+      setEvent({ kind: 'play', text: `${player.nickname} · ${value}` });
       if (handsEmpty()) completeLevel();
       changed();
       return null;
     }
     lives -= 1;
-    const lostText = lost.join(' / ');
+    const lostText = lost.map((l) => `${l.nickname} ${l.cards.join(', ')}`).join(' / ');
     note(`${player.nickname}님이 ${value}을(를) 냈는데 더 작은 카드가 있었습니다(${lostText}). 목숨을 1개 잃고 그 카드들은 버립니다.`);
     act('진행', `실수: ${value}보다 작은 카드 (${lostText}) → 목숨 ${lives}`);
-    lastEvent = { kind: 'mistake', text: `실수! ${value}보다 작은 카드: ${lostText}` };
+    // 화면이 연출에 쓴다: 누가 몇을 냈고(날아오는 카드·✕ 도장), 누가 무엇을 쥐고 있었는지(찢어지는 카드).
+    // 버려진 카드는 어차피 모두에게 공개되므로(discarded) 새로 드러나는 정보는 없다.
+    setEvent({ kind: 'mistake', text: `실수! ${value}보다 작은 카드: ${lostText}`, played: { byId: id, by: player.nickname, value }, lost });
     if (lives <= 0) finish(false, `목숨을 모두 잃었습니다. 레벨 ${level}에서 끝났습니다.`);
     else if (handsEmpty()) completeLevel(lastEvent);
     else enterFocus(`실수! 목숨이 ${lives}개 남았습니다. 다시 집중하세요.`);
@@ -422,7 +428,7 @@ function createMindRoom(options) {
     const shownText = shown.join(' / ') || '버릴 카드 없음';
     note(`수리검을 썼습니다. 각자 가장 작은 카드를 버립니다: ${shownText}`);
     act('진행', `수리검 사용: ${shownText} → 수리검 ${stars}`);
-    lastEvent = { kind: 'star', text: `수리검! ${shownText}` };
+    setEvent({ kind: 'star', text: `수리검! ${shownText}` });
     if (handsEmpty()) completeLevel(lastEvent);
   }
 
