@@ -219,7 +219,7 @@ function createPokerRoom(options) {
   }
 
   function join({ nickname, token: oldToken }) {
-    const clean = String(nickname || '').trim().slice(0, 24);
+    const clean = Array.from(String(nickname || '').trim()).slice(0, 24).join(''); // 글자 단위로 자른다(이모지가 반으로 쪼개지지 않게)
     if (!clean) return { error: '닉네임을 입력해 주세요.' };
     // Render 재배포·모바일 네트워크 전환에서는 새 소켓이 먼저 열리고 이전 소켓의
     // close가 늦게 도착할 수 있다. 토큰이 같으면 연결 상태와 관계없이 같은 자리다.

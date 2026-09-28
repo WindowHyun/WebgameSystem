@@ -217,7 +217,11 @@ async function finishRound(ps, starter) {
     const el = document.getElementById('banner');
     return el.classList.contains('hidden');
   }, null, { timeout: 15000 });
-  await wait(1500);
+  // 다른 사람들은 각자 재시도 간격(최대 5초, 사람마다 ±30% 흩뜨림)을 기다렸다가 붙는다 - 서버가
+  // 막 떴을 때 한꺼번에 몰리지 않게 일부러 그렇게 했다. 첫 사람이 붙고 1.5초만 보면 그 간격에 걸린
+  // 사람이 아직 안 와서 "전원이 모인다"가 운에 따라 실패했다(main에서도 3번 중 2번). 모일 때까지 기다린다.
+  await p1.page.waitForFunction(() => document.getElementById('member-count').textContent.trim() === '5', null, { timeout: 15000 }).catch(() => {});
+  await wait(500);
   check('C3 알아서 다시 붙는다 (접속 화면으로 튕기지 않는다)',
     !(await p1.page.isVisible('#screen-join')));
   const backCount = (await p1.page.textContent('#member-count')).trim();

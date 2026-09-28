@@ -195,10 +195,18 @@ function connect() {
     scheduleReconnect();
     return;
   }
-  ws = new WebSocket(url);
+  // 닫히는 중(CLOSING)인 옛 소켓이 남아 있으면 먼저 떼어 낸다. 그대로 두면 새 연결이 열린 뒤에
+  // 옛 소켓의 onclose가 늦게 와서 멀쩡한 연결 위에 "끊어졌습니다"를 띄우고 감시기까지 멈춘다.
+  abandonSocket();
+  // 옛 소켓에 걸어 둔 확인 타이머도 버린다. 남겨 두면 지금 여는 소켓을 죽은 것으로 보고 끊는다.
+  clearProbe();
+  var socket = new WebSocket(url);
+  ws = socket;
   connectingSince = Date.now();
 
-  ws.onopen = function () {
+  // 핸들러는 지금 붙어 있는 소켓의 것만 듣는다(떼어 내기 전에 이미 출발한 이벤트가 있어도 무시).
+  socket.onopen = function () {
+    if (socket !== ws) return;
     everConnected = true;
     reconnectDelay = 500;
     hideBanner();
@@ -207,7 +215,8 @@ function connect() {
     if (joined && myNickname) sendMessage({ type: 'join', nickname: myNickname, token: readToken(), spectator: spectatorMode });
   };
 
-  ws.onmessage = function (ev) {
+  socket.onmessage = function (ev) {
+    if (socket !== ws) return;
     lastSeenAt = Date.now(); // 무엇이 오든 연결이 살아 있다는 뜻이다
     // 연결을 확인하던 중이었다면 여기서 끝난다 - 답이 왔으니 살아 있는 소켓이다.
     if (probeHintTimer || probeFailTimer) {
@@ -270,14 +279,16 @@ function connect() {
     }
   };
 
-  ws.onclose = function () {
+  socket.onclose = function () {
+    if (socket !== ws) return;
     stopWatchdog();
+    clearProbe(); // 이 소켓에 걸린 확인은 끝났다. 남기면 다음 소켓을 끊는다.
     if (kicked || superseded) return;
     $('conn-hint').textContent = '서버와 연결이 끊어졌습니다.';
     showBanner('warn', '서버와의 연결이 끊어졌습니다. 다시 연결하는 중입니다...');
     scheduleReconnect();
   };
-  ws.onerror = function () { /* 곧바로 onclose가 이어진다 */ };
+  socket.onerror = function () { /* 곧바로 onclose가 이어진다 */ };
 }
 
 /**

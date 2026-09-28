@@ -197,15 +197,24 @@
 
     function connect() {
       if (leaving || superseded || (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING))) return;
-      ws = new WebSocket(url);
+      // 닫히는 중(CLOSING)인 옛 소켓이 남아 있으면 먼저 떼어 낸다. 그대로 두면 새 연결이 열린 뒤에
+      // 옛 소켓의 onclose가 늦게 와서 멀쩡한 연결을 "끊김"으로 덮는다(버튼이 막혀 차례를 놓친다).
+      abandonSocket();
+      // 옛 소켓에 걸어 둔 확인 타이머도 버린다. 남겨 두면 지금 여는 소켓을 죽은 것으로 보고 끊는다.
+      clearProbe();
+      var socket = new WebSocket(url);
+      ws = socket;
       connectingSince = Date.now();
-      ws.onopen = function () {
+      // 핸들러는 지금 붙어 있는 소켓의 것만 듣는다(떼어 내기 전에 이미 출발한 이벤트가 있어도 무시).
+      socket.onopen = function () {
+        if (socket !== ws) return;
         reconnectDelay = 500;
         lastSeenAt = Date.now();
         setOffline(false);
         if (joins) send('join', { nickname: options.nickname, token: readToken() });
       };
-      ws.onmessage = function (event) {
+      socket.onmessage = function (event) {
+        if (socket !== ws) return;
         // 무엇이 오든 연결이 살아 있다는 뜻이다. 확인 중이었다면 여기서 끝난다.
         lastSeenAt = Date.now();
         if (probeHintTimer || probeFailTimer) { clearProbe(); setOffline(false); }
@@ -232,8 +241,10 @@
         if (data.type === 'left') { location.href = '/'; return; }
         onMessage(data);
       };
-      ws.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
-      ws.onclose = function () {
+      socket.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
+      socket.onclose = function () {
+        if (socket !== ws) return;
+        clearProbe(); // 이 소켓에 걸린 확인은 끝났다. 남기면 다음 소켓을 끊는다.
         if (leaving) { location.href = '/'; return; }
         if (superseded) return;
         scheduleReconnect();
@@ -268,7 +279,13 @@
       if (document.visibilityState === 'visible') verifyConnection();
       else wasAway = true;
     });
-    window.addEventListener('pageshow', verifyConnection);
+    window.addEventListener('pageshow', function (event) {
+      // 나가기로 목록에 간 뒤 뒤로 가기로 돌아오면, 브라우저가 얼려 둔 이 페이지를 그대로 꺼내 준다.
+      // 나가는 중(leaving)이라는 표시가 켜진 채라 아무것도 다시 붙지 않는 죽은 화면이 된다.
+      // 새로 불러서 처음부터 다시 참가한다.
+      if (event && event.persisted && leaving) { location.reload(); return; }
+      verifyConnection();
+    });
     window.addEventListener('online', verifyConnection);
     window.addEventListener('focus', verifyConnection);
     window.addEventListener('offline', function () { wasAway = true; });
