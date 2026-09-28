@@ -73,6 +73,314 @@
     sending = [];
   }
 
+  // ─────────────────────────── 실수 연출 ───────────────────────────
+  // [요청] 잘못 낸 순간에 임팩트를 준다. 낸 카드에 ✕ 도장이 찍히고 판이 붉게 번쩍이며 목숨 하트가 깨진다.
+  // 더 작은 카드를 쥐고 있던 사람 화면에서는 그 카드가 자기 손패에서 바로 찢어지고(폰은 진동),
+  // 다른 사람 화면에서는 그 사람 칸에서 튀어나와 뒤집힌 뒤 가운데 더미 옆에서 찢어진다.
+  // 모양은 CSS 클래스(mind.css)로 정하고 스크립트는 위치만 정한다 - 사이트 CSP(style-src 'self')를 지킨다.
+  // 서버가 사건마다 번호(seq)를 붙인다. 새로 생긴 사건만 연출하고, 접속·재접속 때 받은 지난 사건은 넘긴다.
+  var motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  var seenEventSeq = null;
+  var fxLayer = null;
+  var LAND_MS = 380;    // 낸 카드가 가운데로 날아오는 시간
+  var IMPACT_MS = 420;  // 도장이 찍히고 나서 카드가 찢어지기 시작할 때까지
+
+  function calm() { return !!(motionQuery && motionQuery.matches); }
+  function canAnimate() { return typeof document.body.animate === 'function' && !document.hidden; }
+  function fx() {
+    if (!fxLayer) {
+      fxLayer = document.createElement('div');
+      fxLayer.className = 'mind-fx';
+      fxLayer.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(fxLayer);
+    }
+    return fxLayer;
+  }
+  function rectOf(el) { var r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
+  function place(el, r) { el.style.left = r.x + 'px'; el.style.top = r.y + 'px'; el.style.width = r.w + 'px'; el.style.height = r.h + 'px'; }
+  function motion(el, frames, ms, options) {
+    var opts = { duration: ms, easing: 'ease', fill: 'forwards' };
+    Object.keys(options || {}).forEach(function (key) { opts[key] = options[key]; });
+    return el.animate(frames, opts);
+  }
+  function later(ms, fn) { setTimeout(fn, ms); }
+  function drop(el) { return function () { if (el.parentNode) el.parentNode.removeChild(el); }; }
+  function rnd(a, b) { return a + Math.random() * (b - a); }
+  function shakeFrames(a) {
+    return [0, -a, a, -a * 0.7, a * 0.7, -a * 0.35, 0].map(function (x) { return { transform: 'translateX(' + x + 'px) rotate(' + (x * 0.35).toFixed(2) + 'deg)' }; });
+  }
+  function replay(el, name) { el.classList.remove(name); void el.offsetWidth; el.classList.add(name); }
+  function slotOf(id) { return document.querySelector('#players .player[data-id="' + id + '"]'); }
+
+  /** 새 상태를 그리기 전에 지금 화면의 위치를 잡아 둔다. 그린 뒤에는 손패가 이미 바뀌어 있다. */
+  function beforeDraw(next) {
+    var snap = { event: null, hand: {}, level: state ? state.level : 0, pileLength: state ? state.pile.length : 0 };
+    Array.prototype.forEach.call(document.querySelectorAll('#hand .card'), function (card) {
+      var r = rectOf(card);
+      if (r.w > 0) snap.hand[card.getAttribute('data-value')] = r; // 숨겨진 손패(대기 중 등)는 위치가 없다
+    });
+    var event = next.lastEvent;
+    if (event && typeof event.seq === 'number') {
+      // 처음 받은 상태의 사건은 이미 지난 일이다. 번호가 줄었으면 서버가 새로 뜬 것이다(그것도 넘긴다).
+      if (seenEventSeq !== null && event.seq > seenEventSeq) snap.event = event;
+      seenEventSeq = event.seq;
+    } else if (seenEventSeq === null) {
+      seenEventSeq = 0;
+    }
+    return snap;
+  }
+
+  function afterDraw(snap, next) {
+    if (!canAnimate()) return;
+    var quiet = calm();
+    var top = next.pile.length ? next.pile[next.pile.length - 1] : null;
+    var landed = !!top && next.level === snap.level && next.pile.length === snap.pileLength + 1;
+    if (landed && !quiet) flyToPile(top, snap, next);
+    var event = snap.event;
+    if (!event || event.kind !== 'mistake' || !event.played || !event.lost) return;
+    later(landed && !quiet ? LAND_MS : 0, function () { impact(event, next, snap, quiet); });
+  }
+
+  /** 새로 나온 카드가 낸 사람 칸(내가 냈으면 내 손패의 그 자리)에서 가운데 더미로 날아온다. */
+  function flyToPile(top, snap, next) {
+    var pileTop = $('pile-top');
+    var to = rectOf(pileTop);
+    var from = top.byId === (next.you && next.you.id) ? snap.hand[String(top.value)] : null;
+    var scale = from ? from.w / to.w : 0.35;
+    if (!from) { var slot = slotOf(top.byId); if (slot) from = rectOf(slot); }
+    if (!from) return;
+    var dx = from.x + from.w / 2 - (to.x + to.w / 2);
+    var dy = from.y + from.h / 2 - (to.y + to.h / 2);
+    motion(pileTop, [
+      { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(' + scale.toFixed(2) + ') rotate(-10deg)', opacity: 0.7 },
+      { transform: 'translate(' + (dx * 0.45) + 'px,' + (dy * 0.45 - 24) + 'px) scale(.85) rotate(-4deg)', opacity: 1, offset: 0.55 },
+      { transform: 'none', opacity: 1 }
+    ], LAND_MS, { easing: 'cubic-bezier(.3,.7,.35,1)', fill: 'none' });
+  }
+
+  function impact(event, next, snap, quiet) {
+    var me = next.you && next.you.id;
+    var pileTop = $('pile-top');
+    var top = next.pile.length ? next.pile[next.pile.length - 1] : null;
+    // ✕ 도장: 실수를 부른 그 카드가 아직 가운데에 있을 때만(실수로 레벨이 끝나면 더미가 비었다)
+    if (top && top.value === event.played.value && top.byId === event.played.byId) pileTop.classList.add('bad');
+    replay($('board'), 'hit');
+    replay($('status-chip'), 'hit');
+    if (!quiet) brokenHeart($('status-chip'));
+    var mine = null;
+    var others = [];
+    event.lost.forEach(function (entry) {
+      if (entry.id === me) mine = entry; else others.push(entry);
+      var slot = slotOf(entry.id);
+      if (slot) replay(slot, 'hit');
+    });
+    // 폰은 진동으로도 알린다(안드로이드. 아이폰 사파리는 진동을 지원하지 않는다). 낸 사람과 쥐고 있던 사람만.
+    if (!quiet && (mine || event.played.byId === me) && navigator.vibrate) {
+      try { navigator.vibrate([70, 50, 110]); } catch (error) { /* 진동이 막혀 있으면 넘어간다 */ }
+    }
+    // 동작 줄이기: 날리거나 찢지 않고, 버려지는 카드를 가운데 더미 옆에 빨간 테두리로 잠깐 보여 준다.
+    if (quiet) { tearBesidePile(event.lost, true); return; }
+    if (mine) tearInHand(mine.cards, snap);
+    if (others.length) tearBesidePile(others, false);
+  }
+
+  function brokenHeart(chip) {
+    var r = rectOf(chip);
+    var heart = document.createElement('div');
+    heart.className = 'fx-heart';
+    heart.textContent = '💔';
+    heart.style.left = (r.x + 6) + 'px';
+    heart.style.top = (r.y - 4) + 'px';
+    fx().appendChild(heart);
+    motion(heart, [
+      { transform: 'translateY(6px) scale(.4)', opacity: 0 },
+      { transform: 'translateY(-10px) scale(1.25)', opacity: 1, offset: 0.3 },
+      { transform: 'translateY(-34px) scale(1)', opacity: 0 }
+    ], 900, { easing: 'ease-out' });
+    later(950, drop(heart));
+  }
+
+  /** 쥐고 있던 사람: 자기 손패의 그 자리에서 찢어진다. 남은 카드는 다 찢어진 뒤에 당겨진다. */
+  function tearInHand(values, snap) {
+    var count = 0;
+    values.forEach(function (value, i) {
+      var r = snap.hand[String(value)];
+      if (!r) return;
+      count += 1;
+      var card = document.createElement('div');
+      card.className = 'card mind-card doomed';
+      card.textContent = String(value);
+      place(card, r);
+      fx().appendChild(card);
+      later(IMPACT_MS + i * 120, function () { doom(card, false); });
+    });
+    if (!count) return;
+    var hold = IMPACT_MS + (count - 1) * 120 + 450;
+    Array.prototype.forEach.call(document.querySelectorAll('#hand .card'), function (card) {
+      var old = snap.hand[card.getAttribute('data-value')];
+      if (!old) return; // 새 레벨에서 새로 받은 카드
+      var now = rectOf(card);
+      var dx = old.x - now.x;
+      var dy = old.y - now.y;
+      if (!dx && !dy) return;
+      motion(card, [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }], 300,
+        { delay: hold, fill: 'backwards', easing: 'cubic-bezier(.2,.8,.3,1)' });
+    });
+  }
+
+  /** 다른 사람: 그 사람 칸에서 튀어나와 뒤집히고, 가운데 더미 옆에서 찢어진다. */
+  function tearBesidePile(entries, quiet) {
+    var pile = rectOf($('pile-top'));
+    var board = rectOf($('board'));
+    var small = window.innerWidth <= 760;
+    var w = small ? 40 : 50;
+    var h = small ? 56 : 70;
+    var cards = [];
+    entries.forEach(function (entry) { entry.cards.forEach(function (value) { cards.push({ id: entry.id, value: value }); }); });
+    cards = cards.slice(0, 8);
+    var right = board.x + board.w - 10 - (pile.x + pile.w + 12);
+    var left = pile.x - 12 - (board.x + 10);
+    var onRight = right >= left;
+    var space = Math.max(w, onRight ? right : left);
+    var step = cards.length > 1 ? Math.min(w + 6, Math.max(14, (space - w) / (cards.length - 1))) : 0;
+    cards.forEach(function (c, i) {
+      var x = onRight ? pile.x + pile.w + 12 + i * step : pile.x - 12 - w - i * step;
+      var to = { x: x, y: pile.y + (pile.h - h) / 2, w: w, h: h };
+      var slot = slotOf(c.id);
+      var from = slot ? rectOf(slot) : to;
+      later(IMPACT_MS + i * 140, function () { reveal(c.value, from, to, quiet, i); });
+    });
+  }
+
+  function reveal(value, from, to, quiet, i) {
+    var card = document.createElement('div');
+    card.className = 'card mind-card back';
+    place(card, to);
+    fx().appendChild(card);
+    if (quiet) {
+      card.className = 'card mind-card doomed';
+      card.textContent = String(value);
+      motion(card, [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], 1500);
+      later(1550, drop(card));
+      return;
+    }
+    var dx = from.x + from.w / 2 - (to.x + to.w / 2);
+    var dy = from.y + from.h / 2 - (to.y + to.h / 2);
+    motion(card, [
+      { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(.3) rotate(' + (-20 + i * 10) + 'deg)', opacity: 0.4 },
+      { transform: 'translate(' + (dx * 0.4) + 'px,' + (dy * 0.4 - 34) + 'px) scale(.9) rotate(' + (-8 + i * 6) + 'deg)', opacity: 1, offset: 0.55 },
+      { transform: 'none', opacity: 1 }
+    ], 440, { easing: 'cubic-bezier(.3,.7,.35,1)', fill: 'none' });
+    later(440, function () {
+      motion(card, [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], 110, { easing: 'ease-in' });
+      later(110, function () {
+        card.className = 'card mind-card doomed';
+        card.textContent = String(value);
+        motion(card, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 130, { easing: 'ease-out' });
+        later(390, function () { doom(card, false); });
+      });
+    });
+  }
+
+  /** 떨다가 찢어진다. 동작 줄이기에서는 빨간 테두리로 잠깐 보였다가 사라진다. */
+  function doom(card, quiet) {
+    if (quiet) {
+      motion(card, [{ opacity: 1 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }], 900);
+      later(950, drop(card));
+      return;
+    }
+    motion(card, shakeFrames(3.5), 200, { fill: 'none' });
+    later(200, function () { rip(card); });
+  }
+
+  /** 찢는 선: 위에서 아래로 가운데 근처를 들쭉날쭉 지나간다. 매번 다르다. 값은 카드 크기에 대한 %. */
+  function tearLine() {
+    var main = [];
+    var steps = 6;
+    for (var i = 0; i <= steps; i += 1) main.push([50 + rnd(-1, 1) * (i === 0 || i === steps ? 10 : 17), (i / steps) * 100]);
+    var points = [];
+    main.forEach(function (p, j) {
+      points.push(p);
+      var n = main[j + 1];
+      if (n) points.push([(p[0] + n[0]) / 2 + rnd(-6, 6), (p[1] + n[1]) / 2 + rnd(-2, 2)]);
+    });
+    return points;
+  }
+
+  /** 금이 위에서 아래로 번지고, 같은 카드 두 장을 톱니 모양으로 반씩 잘라(clip-path) 벌어지며 떨어뜨린다. */
+  function rip(card) {
+    if (!card.parentNode) return;
+    var r = rectOf(card);
+    var points = tearLine();
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'fx-crack');
+    svg.setAttribute('viewBox', '0 0 ' + r.w + ' ' + r.h);
+    place(svg, r);
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', points.map(function (p, i) { return (i ? 'L' : 'M') + (p[0] / 100 * r.w).toFixed(1) + ' ' + (p[1] / 100 * r.h).toFixed(1); }).join(' '));
+    path.setAttribute('pathLength', '1');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#3f0e40');
+    path.setAttribute('stroke-width', '1.8');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('stroke-dasharray', '1');
+    path.setAttribute('stroke-dashoffset', '1');
+    svg.appendChild(path);
+    fx().appendChild(svg);
+    motion(path, [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], 150, { easing: 'ease-in' });
+    later(150, function () {
+      drop(svg)();
+      if (!card.parentNode) return;
+      var at = function (p) { return p[0].toFixed(1) + '% ' + p[1].toFixed(1) + '%'; };
+      var bottom = points[points.length - 1];
+      var shapes = [
+        ['0% 0%'].concat(points.map(at), ['0% 100%']).join(', '),
+        points.map(at).concat(['100% 100%', '100% 0%']).join(', ')
+      ];
+      shapes.forEach(function (shape, i) {
+        var piece = card.cloneNode(true);
+        piece.classList.add('piece');
+        place(piece, r);
+        piece.style.clipPath = 'polygon(' + shape + ')';
+        piece.style.webkitClipPath = 'polygon(' + shape + ')';
+        piece.style.transformOrigin = bottom[0].toFixed(1) + '% 100%'; // 아래쪽 찢긴 점을 축으로 위가 V자로 벌어진다
+        fx().appendChild(piece);
+        var side = i ? 1 : -1;
+        var ms = rnd(900, 1050);
+        motion(piece, [
+          { transform: 'translate(0,0) rotate(0deg)', easing: 'cubic-bezier(.15,.85,.3,1)' },
+          { transform: 'translate(' + side * rnd(4, 8) + 'px,' + rnd(0, 3) + 'px) rotate(' + side * rnd(9, 15) + 'deg)', offset: 0.3, easing: 'cubic-bezier(.5,0,.9,.5)' },
+          { transform: 'translate(' + side * rnd(18, 34) + 'px,' + rnd(120, 170) + 'px) rotate(' + side * rnd(35, 60) + 'deg)', opacity: 0 }
+        ], ms);
+        later(ms + 60, drop(piece));
+      });
+      drop(card)();
+      crumbs(r, points);
+    });
+  }
+
+  /** 종이 부스러기: 찢어지는 선을 따라 위에서 아래로 튄다. */
+  function crumbs(r, points) {
+    for (var i = 0; i < 12; i += 1) {
+      var p = points[Math.floor(Math.random() * points.length)];
+      var bit = document.createElement('div');
+      var size = rnd(2.5, 5.5);
+      bit.className = 'fx-bit';
+      place(bit, { x: r.x + p[0] / 100 * r.w, y: r.y + p[1] / 100 * r.h, w: size, h: size * rnd(0.6, 1.2) });
+      fx().appendChild(bit);
+      var dx = rnd(-28, 28);
+      var ms = rnd(520, 760);
+      var delay = p[1] * 1.2;
+      motion(bit, [
+        { transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+        { transform: 'translate(' + (dx * 0.6) + 'px,' + (-rnd(8, 26)) + 'px) rotate(' + rnd(-120, 120) + 'deg)', opacity: 1, offset: 0.35 },
+        { transform: 'translate(' + dx + 'px,' + rnd(30, 70) + 'px) rotate(' + rnd(-300, 300) + 'deg)', opacity: 0 }
+      ], ms, { delay: delay, easing: 'cubic-bezier(.2,.6,.4,1)', fill: 'both' });
+      later(delay + ms + 60, drop(bit));
+    }
+  }
+
 
   var PHASE = { lobby: '대기 중', focus: '집중', playing: '진행 중', result: '게임 종료' };
 
@@ -208,7 +516,7 @@
         drawn.handEnded = !!state.result;
         drawn.handCount = you.hand.length;
         $('hand').innerHTML = you.inGame
-          ? (you.hand.length ? you.hand.map(function (value) { return '<div class="card mind-card' + (dealt ? '' : ' still') + '">' + Number(value) + '</div>'; }).join('') : '<span class="none">다 냈습니다</span>')
+          ? (you.hand.length ? you.hand.map(function (value) { return '<div class="card mind-card' + (dealt ? '' : ' still') + '" data-value="' + Number(value) + '">' + Number(value) + '</div>'; }).join('') : '<span class="none">다 냈습니다</span>')
           : '';
       }
       var leftovers = state.result ? state.players.filter(function (p) { return p.hand && p.hand.length; }) : [];
@@ -262,7 +570,14 @@
     nickname: nickname,
     onMessage: function (data) {
       if (data.type === 'error') { pendingPlay = false; releaseSending(); showError(data.message); if (state) render(); return; }
-      if (data.type === 'mindState') { settlePending(data); releaseSending(); state = data; render(); }
+      if (data.type === 'mindState') {
+        settlePending(data);
+        releaseSending();
+        var snap = beforeDraw(data);
+        state = data;
+        render();
+        afterDraw(snap, data);
+      }
     }
   });
 }());

@@ -16,6 +16,9 @@
  *   - 새 카드가 나오면 가운데 카드는 새로 그린다(방금 나온 카드에 등장 애니메이션)
  *   - 버튼을 누르면 서버 답을 기다리는 동안 바로 눌림 표시가 난다
  *   - 수리검을 제안한 사람에게 누구를 기다리는지 보여 준다
+ *   - 실수 연출: 쥐고 있던 사람은 자기 손패 자리에서, 다른 사람은 가운데 더미 옆에서 카드가 찢어진다.
+ *     낸 카드에 ✕ 도장. 끝나면 연출 층이 비고, 새로고침해도 지난 실수를 다시 재생하지 않는다.
+ *     동작 줄이기를 켠 사람에게는 찢지 않고 빨간 테두리로만 보인다.
  *
  * 실행: node test/mind-ui-test.js
  */
@@ -119,13 +122,48 @@ function check(name, ok, detail) {
     if (await phase(a) === 'playing') {
       const vals = [];
       for (const p of pages) vals.push(await p.isEnabled('#play') ? await lowest(p) : -1);
-      const who = pages[vals.indexOf(Math.max(...vals))];
+      const top = Math.max(...vals);
+      const who = pages[vals.indexOf(top)];
+      const victims = pages.filter((p, i) => p !== who && vals[i] >= 0 && vals[i] < top);
       const livesBefore = await a.textContent('#lives');
+      // 폰은 "동작 줄이기"를 켠 사람으로 본다(찢지 않고 빨간 테두리로만)
+      await phone.emulateMedia({ reducedMotion: 'reduce' });
+      const fxCount = (sel) => (p) => p.evaluate((s) => document.querySelectorAll(s).length, sel);
+      const seen = (p, sel, timeout) => p.waitForFunction((s) => document.querySelectorAll(s).length > 0, sel, { timeout }).then(() => true, () => false);
+      const everPieces = pages.map((p) => p.evaluate(() => {
+        window.__pieces = 0;
+        const watch = () => { window.__pieces = Math.max(window.__pieces, document.querySelectorAll('.mind-fx .piece').length); window.__watch = requestAnimationFrame(watch); };
+        watch();
+      }));
+      await Promise.all(everPieces);
       await who.click('#play');
+      const moving = victims.filter((p) => p !== phone);
+      const [handTorn, besidePile, calmCopies] = await Promise.all([
+        Promise.all(moving.map((p) => seen(p, '.mind-fx .card.doomed', 1500))),
+        who === phone ? Promise.resolve(true) : seen(who, '.mind-fx .card', 2500),
+        seen(phone, '.mind-fx .card.doomed', 2500),
+      ]);
+      check('실수 연출: 쥐고 있던 사람 화면에서 자기 카드가 찢어질 준비를 한다(손패 자리)', moving.length === 0 || handTorn.every(Boolean), `${moving.length}명`);
+      check('실수 연출: 다른 사람 화면에서는 그 사람 카드가 가운데 옆에 나타난다', besidePile);
+      check('실수 연출: 동작 줄이기를 켠 사람도 버려지는 카드를 빨간 테두리로 본다', calmCopies);
       await wait(400);
       const event = await a.getAttribute('#event', 'class');
       check('실수하면 목숨이 줄고 무엇이 버려졌는지 크게 보인다', /mistake/.test(event) && (await a.textContent('#lives')) !== livesBefore,
         `${event} ${livesBefore} → ${await a.textContent('#lives')}`);
+      // 실수로 남은 카드가 다 버려지면 다음 레벨로 넘어가 더미가 비므로 도장을 찍을 카드가 없다.
+      const stamp = await a.evaluate(() => { const t = document.getElementById('pile-top'); return { text: t.textContent, bad: t.classList.contains('bad') }; });
+      check('실수 연출: 낸 카드에 ✕ 도장이 찍힌다(더미에 남아 있을 때)', stamp.text === String(top) ? stamp.bad : !stamp.bad, JSON.stringify(stamp) + ` 낸 카드 ${top}`);
+      const cleared = await Promise.all(pages.map((p) => p.waitForFunction(() => { const l = document.querySelector('.mind-fx'); return !l || l.children.length === 0; }, null, { timeout: 7000 }).then(() => true, () => false)));
+      check('실수 연출: 끝나면 연출 층이 빈다(남는 조각이 없다)', cleared.every(Boolean), cleared.join(','));
+      const pieces = [];
+      for (const p of pages) pieces.push(await p.evaluate(() => { cancelAnimationFrame(window.__watch); return window.__pieces; }));
+      check('실수 연출: 카드가 두 조각으로 찢어진다(동작 줄이기가 아닌 화면)', pages.filter((p) => p !== phone).every((p) => pieces[pages.indexOf(p)] >= 2), pieces.join(','));
+      check('실수 연출: 동작 줄이기 화면에서는 찢지 않는다', pieces[pages.indexOf(phone)] === 0, String(pieces[pages.indexOf(phone)]));
+      await phone.emulateMedia({ reducedMotion: 'no-preference' });
+      await a.reload();
+      await a.waitForSelector('#players .player');
+      await wait(500);
+      check('실수 연출: 새로고침해도 지난 실수를 다시 재생하지 않는다', (await fxCount('.mind-fx .card, .mind-fx .piece')(a)) === 0);
     }
 
     // 보스 키: 진행 중에 누가 가리면 모두 멈춘다
