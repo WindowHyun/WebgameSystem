@@ -306,6 +306,30 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     check('두 손가락으로 벌려 확대하는 동작은 바뀌지 않는다', !(await covered()));
     await press([A, B, { x: 190, y: 480, id: 3 }]); await wait(2300); await release();
     check('세 손가락으로 누르고 있으면 바뀌지 않는다', !(await covered()));
+    await press([A, B]); await wait(300); await move([{ ...A, y: A.y + 80 }, { ...B, y: B.y + 80 }]); await wait(2100); await release();
+    check('두 손가락을 함께 크게 밀면(스크롤) 바뀌지 않는다', !(await covered()));
+
+    // [이슈] 엄지로 2초를 꾹 누르면 손가락이 구르며 조금씩 밀린다. 예전에는 30px(5mm쯤)만 밀려도 조용히
+    // 무효가 되어, 손을 뗐다 다시 눌러야 가려졌다("2초보다 더 길게 눌러야 뜬다").
+    await press([A, B]);
+    for (let step = 1; step <= 8; step += 1) {
+      await wait(200);
+      await move([{ ...A, x: A.x + step * 4, y: A.y + step * 2 }, { ...B, x: B.x + step * 3, y: B.y - step * 2 }]); // 끝에 48px·40px
+    }
+    await wait(700);
+    const drifted = await covered();
+    await release(); await wait(200);
+    check('엄지가 누르는 동안 조금씩 밀려도(40~50px) 2초면 가려진다', drifted);
+    if (drifted) { await phone.touchscreen.tap(190, 330); await wait(700); }
+    // 첫 엄지가 두 번째를 기다리는 동안 밀린 것은 세지 않는다(두 손가락이 다 닿은 때부터 잰다).
+    // (혼자 크게 밀리면 브라우저가 스크롤로 가져가므로 기다리는 동안은 조금만 민다)
+    await press([A]); await wait(100); await move([{ ...A, x: A.x + 6 }]); await wait(100);
+    const A2 = { ...A, x: A.x + 6 };
+    await press([A2, B]); await wait(300); await move([{ ...A2, x: A2.x + 27 }, { ...B, x: B.x - 3 }]); await wait(2000); // 닿은 곳부터는 33px, 다 닿은 때부터는 27px
+    const waited = await covered();
+    await release(); await wait(200);
+    check('첫 엄지가 두 번째를 기다리는 동안 밀린 것은 세지 않는다', waited);
+    if (waited) { await phone.touchscreen.tap(190, 330); await wait(700); }
 
     // [이슈] 실제 폰에서는 2초를 버티는 동안 엄지가 조금씩 움직이고, 브라우저가 그걸 확대·스크롤로
     // 가져가며 누르기를 취소해 가려지지 않았다. 재는 동안의 작은 움직임은 브라우저에 넘기지 않고(기본 동작
