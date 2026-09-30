@@ -64,7 +64,10 @@
   var TAP_GUARD_MS = 500;
   var HOLD_MS = 2000;  // [요청] 두 손가락을 함께 대고 이만큼 누르고 있어야 바뀐다
   var LAND_MS = 1000;  // 두 번째 손가락은 첫 손가락이 닿고 이 안에 닿아야 한다(오래 대고 있던 엄지와 구분)
-  var HOLD_MOVE = 30;  // 누르는 동안 한 손가락이라도 이만큼(px) 넘게 움직이면 확대·스크롤로 본다
+  // [이슈] 30px(폰에서 5mm쯤)로는 너무 빡빡했다. 엄지로 2초를 꾹 누르면 손가락이 구르며 그만큼은 밀려서,
+  // 재던 것이 조용히 무효가 되고 손을 뗐다 다시 눌러야 가려졌다("2초보다 더 길게 눌러야 뜬다").
+  var HOLD_MOVE = 60;   // 누르는 동안 한 손가락이라도 이만큼(px, 1cm쯤) 넘게 밀리면 스크롤로 본다
+  var PINCH_MOVE = 60;  // 두 손가락 사이가 이만큼 넘게 벌어지거나 좁혀지면 확대로 본다
 
   function covers() { return tall() ? TALL_COVERS : WIDE_COVERS; }
 
@@ -194,9 +197,10 @@
   // [요청] 폰: 두 손가락 2초 누르기. 터치 이벤트 대신 포인터 이벤트로 손가락을 센다 - 누르던 요소가
   // 그사이 다시 그려져(innerHTML) 문서에서 빠지면 touchend가 window까지 오지 않아 뗀 손가락을 놓쳤다.
   // 포인터는 그럴 때 손가락 아래 요소로 다시 전달된다. 스크롤을 막지 않도록 듣기만 한다.
-  var fingers = {};       // 지금 닿아 있는 손가락: pointerId → { x, y, at }
+  var fingers = {};       // 지금 닿아 있는 손가락: pointerId → { x, y(지금 위치), at(닿은 때) }
   var fingerCount = 0;
   var holdTimer = null;
+  var holdFrom = null;    // 재기 시작할 때(두 손가락이 다 닿은 순간)의 위치와 두 손가락 사이 거리
   var holdSpent = false;  // 이번에 닿은 손가락들로는 더 바꾸지 않는다(이미 바꿨거나 무효) - 모두 뗄 때까지
 
   function stopHold(spent) {
@@ -223,16 +227,33 @@
     var first = Infinity;
     Object.keys(fingers).forEach(function (id) { first = Math.min(first, fingers[id].at); });
     if (Date.now() - first > LAND_MS) { holdSpent = true; return; } // 오래 대고 있던 엄지 + 새 손가락
+    // 움직임은 두 손가락이 다 닿은 이 순간부터 잰다. 첫 엄지가 두 번째를 기다리는 동안 밀린 것까지 세지 않는다.
+    holdFrom = { points: {}, spread: spread() };
+    Object.keys(fingers).forEach(function (id) { holdFrom.points[id] = { x: fingers[id].x, y: fingers[id].y }; });
     holdTimer = setTimeout(function () {
       holdTimer = null;
       holdSpent = true;
       toggle();
     }, HOLD_MS);
   }, true);
+  function spread() {
+    var ids = Object.keys(fingers);
+    if (ids.length !== 2) return 0;
+    var dx = fingers[ids[0]].x - fingers[ids[1]].x;
+    var dy = fingers[ids[0]].y - fingers[ids[1]].y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
   window.addEventListener('pointermove', function (event) {
-    if (!holdTimer || event.pointerType !== 'touch') return;
-    var from = fingers[event.pointerId];
-    if (from && Math.abs(event.clientX - from.x) + Math.abs(event.clientY - from.y) > HOLD_MOVE) stopHold(true);
+    if (event.pointerType !== 'touch') return;
+    var finger = fingers[event.pointerId];
+    if (!finger) return;
+    finger.x = event.clientX;
+    finger.y = event.clientY;
+    if (!holdTimer) return;
+    var from = holdFrom.points[event.pointerId];
+    var slid = from && Math.abs(finger.x - from.x) + Math.abs(finger.y - from.y) > HOLD_MOVE;
+    var pinched = Math.abs(spread() - holdFrom.spread) > PINCH_MOVE;
+    if (slid || pinched) stopHold(true);
   }, true);
   function lift(event) {
     if (event.pointerType !== 'touch' || !fingers[event.pointerId]) return;
@@ -248,8 +269,8 @@
   // [이슈] 실제 폰에서는 두 엄지로 2초를 버티는 동안 손가락이 조금씩 움직이고, 브라우저가 그 작은
   // 움직임을 확대(핀치)·스크롤로 가져가면서 포인터를 취소(pointercancel)해 누르기가 끊겼다. 그래서
   // 두 손으로 눌러도 가려지지 않았다(헤드리스 브라우저의 가짜 터치로는 드러나지 않았다).
-  // 두 손가락 누르기를 재는 동안에는 움직임을 브라우저에 넘기지 않는다. 크게 움직이면(HOLD_MOVE를
-  // 넘으면) 위의 pointermove가 재기를 멈추므로, 그때부터는 확대·스크롤이 평소대로 된다.
+  // 두 손가락 누르기를 재는 동안에는 움직임을 브라우저에 넘기지 않는다. 크게 밀거나 벌리면(HOLD_MOVE·
+  // PINCH_MOVE를 넘으면) 위의 pointermove가 재기를 멈추므로, 그때부터는 확대·스크롤이 평소대로 된다.
   // (포인터 이벤트가 같은 입력의 터치 이벤트보다 먼저 오므로, 여기서 보는 holdTimer는 이미 최신이다.)
   window.addEventListener('touchmove', function (event) {
     if (holdTimer && event.cancelable) event.preventDefault();
