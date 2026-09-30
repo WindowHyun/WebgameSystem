@@ -93,7 +93,7 @@
   // 폰에서 보스 키를 켜는 방법(public/cover.js)은 눈에 보이는 버튼이 없어서 여기서 알려 준다.
   var note = document.createElement('p');
   note.className = 'help-note';
-  note.textContent = '보스 키: 두 손가락으로 화면을 2초 동안 누르고 있으면 모두의 화면이 쇼핑몰 화면으로 가려집니다. 가려진 화면은 한 번 누르면 돌아옵니다.';
+  note.textContent = '보스 키: 두 손가락으로 화면을 1.5초 동안 누르고 있으면 모두의 화면이 쇼핑몰 화면으로 가려집니다. 가려진 화면은 한 번 누르면 돌아옵니다.';
   var foot = document.createElement('div');
   var close = document.createElement('button');
   close.type = 'button';

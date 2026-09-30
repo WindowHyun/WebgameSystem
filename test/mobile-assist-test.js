@@ -8,7 +8,7 @@
  *   - 10분 동안 아무도 만지지 않으면 풀고, 다시 만지면 건다
  *   - 실제 Chromium(가짜 없이)에서도 오류가 나지 않는다
  *   - 폰(마우스 없음)에서만 카드 게임 상단에 "?"가 붙고, 누르면 지금 보이는 버튼의 설명이 모두 나온다
- *     보스 키를 폰에서 켜는 법(두 손가락 2초 누르기)도 함께 알려 준다(포털에도 적혀 있다)
+ *     보스 키를 폰에서 켜는 법(두 손가락 1.5초 누르기)도 함께 알려 준다(포털에도 적혀 있다)
  *     서버가 띄우는 창(수리검 투표)은 설명 창 위에 뜬다. 재연결 중 320px 상단바도 찌그러지지 않는다
  *     누를 수 없는 버튼은 그렇다고 적는다. 닫기·바깥 누르기로 닫힌다. 데스크톱에는 없다
  *   - 가장 작은 폰(320px)에서도 "?"가 상단에서 넘치거나 겹치지 않는다
@@ -105,8 +105,8 @@ function fakeWakeLock() {
     }
     const portal = await enter(null, '폰-포털', PHONE);
     check('포털은 걸지 않는다(게임 화면만)', (await wake(portal)).requests === 0);
-    check('포털: 폰에는 보스 키 켜는 법(두 손가락 2초 누르기)이 적혀 있다',
-      await portal.isVisible('.touch-hint') && /두 손가락으로 화면을 2초 동안 누르고/.test(await portal.textContent('.touch-hint')));
+    check('포털: 폰에는 보스 키 켜는 법(두 손가락 1.5초 누르기)이 적혀 있다',
+      await portal.isVisible('.touch-hint') && /두 손가락으로 화면을 1\.5초 동안 누르고/.test(await portal.textContent('.touch-hint')));
     const deskPortal = await enter(null, '데스크톱-포털', DESKTOP);
     check('포털: PC에는 그 안내가 보이지 않는다', !(await deskPortal.isVisible('.touch-hint')));
 
@@ -137,8 +137,8 @@ function fakeWakeLock() {
     const sheet = await phone.evaluate(() => [...document.querySelectorAll('#help-sheet dt')].map((dt) => [dt.textContent, dt.nextElementSibling.textContent]));
     const byLabel = Object.fromEntries(sheet);
     check('누르면 설명 창이 뜬다', await phone.isVisible('#help-sheet'));
-    check('설명 창에 폰에서 보스 키 켜는 법(두 손가락 2초 누르기)과 돌아오는 법이 나온다',
-      /두 손가락으로 화면을 2초 동안 누르고/.test(await phone.textContent('#help-sheet .help-note')) && /한 번 누르면 돌아옵니다/.test(await phone.textContent('#help-sheet .help-note')));
+    check('설명 창에 폰에서 보스 키 켜는 법(두 손가락 1.5초 누르기)과 돌아오는 법이 나온다',
+      /두 손가락으로 화면을 1\.5초 동안 누르고/.test(await phone.textContent('#help-sheet .help-note')) && /한 번 누르면 돌아옵니다/.test(await phone.textContent('#help-sheet .help-note')));
     check('지금 보이는 버튼과 설명이 나온다', byLabel['준비'] === '게임 참가 준비 상태를 설정하거나 취소합니다.'
       && /새 라운드를 시작/.test(byLabel['게임 시작'] || ''), JSON.stringify(sheet));
     check('숨은 버튼(배팅 단계의 콜·폴드)은 나오지 않는다', !Object.keys(byLabel).some((l) => /^(콜|폴드|올인)/.test(l)), Object.keys(byLabel).join(', '));
