@@ -124,12 +124,33 @@ for (const game of Object.keys(CARD_GAME_MESSAGES)) {
     try {
       const joined = room.join({ nickname: '가'.repeat(30) });
       const emoji = room.join({ nickname: '😀'.repeat(30) });
-      const names = [joined, emoji].map((r) => (r && r.playerId ? room.stateFor(r.playerId).players.find((p) => p.id === r.playerId).nickname : null));
+      // [리뷰] 여러 코드 포인트로 된 글자(가족 이모지 = 사람 셋을 잇는 ZWJ 조합, 국기 = 두 글자 조합)도
+      // 한 글자로 센다. 예전에는 코드 포인트로 잘라 24번째에 걸린 가족·국기 이모지가 반으로 갈렸다.
+      const family = '👨‍👩‍👧';
+      const flag = '🇰🇷';
+      const combined = room.join({ nickname: '나'.repeat(23) + family + flag });
+      const names = [joined, emoji, combined].map((r) => (r && r.playerId ? room.stateFor(r.playerId).players.find((p) => p.id === r.playerId).nickname : null));
       check(`${game}: 긴 이름은 24글자로 잘라 들어간다(이모지도 반으로 쪼개지지 않는다)`,
         names[0] === '가'.repeat(24) && names[1] === '😀'.repeat(24), names.map((n) => n && `${Array.from(n).length}자`).join(', '));
+      check(`${game}: 가족·국기 이모지처럼 합쳐진 글자도 한 글자로 세고 갈라지지 않는다`,
+        names[2] === '나'.repeat(23) + family, JSON.stringify(names[2]));
     } finally {
       if (room.dispose) room.dispose();
     }
+  }
+}
+
+// 라이어 방도 같은 자르기(web/protocol.js의 cleanNickname)를 쓴다.
+{
+  const { createRoom } = require('../web/room');
+  const room = createRoom({ onChange() {} });
+  try {
+    const flag = '🇰🇷';
+    const r = room.join({ nickname: '라'.repeat(23) + flag + flag });
+    const me = r && r.playerId ? room.stateFor(r.playerId).players.find((p) => p.id === r.playerId) : null;
+    check('라이어: 국기 이모지가 24번째에 걸려도 반으로 갈라지지 않는다', !!me && me.nickname === '라'.repeat(23) + flag, JSON.stringify(me && me.nickname));
+  } finally {
+    if (room.dispose) room.dispose();
   }
 }
 

@@ -67,9 +67,12 @@ const readable = (text) => text.split(/\r?\n/).filter((line) => line.trim() && !
 const GROUPS = process.platform !== 'win32'; // 윈도에는 프로세스 그룹이 없어 taskkill /T로 대신한다
 let current = null; // 지금 도는 스위트
 
-/** 스위트와 그 스위트가 띄운 프로세스를 모두 끈다. */
+/**
+ * 스위트와 그 스위트가 띄운 프로세스를 모두 끈다. [리뷰] 직계 자식이 이미 끝났어도 그룹은 끈다 -
+ * 스위트가 띄운 서버(손주)만 남아 포트를 쥐고 있는 경우가 바로 끄려던 경우다.
+ */
 function killTree(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child || !child.pid) return;
   try {
     if (GROUPS) process.kill(-child.pid, 'SIGKILL');
     else spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
@@ -106,6 +109,7 @@ function runSuite(file, kind) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      killTree(child); // 스위트가 끄지 않고 남긴 서버·브라우저를 정리한다(다음 스위트가 포트를 못 잡는다)
       current = null;
       resolve({ status, signal, error, timedOut, ...out });
     };

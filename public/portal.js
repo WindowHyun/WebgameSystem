@@ -16,7 +16,12 @@
   document.getElementById('name-form').onsubmit = function (event) {
     event.preventDefault();
     // 입력칸은 24자로 막혀 있지만 iPhone 한글 입력기는 그걸 넘기는 일이 있다. 저장할 때 맞춘다.
-    var name = Array.from(input.value.trim()).slice(0, 24).join('');
+    // 서버(web/protocol.js의 cleanNickname)와 같이 사람이 보는 한 글자 단위로 센다(가족·국기 이모지가 갈라지지 않게).
+    var text = input.value.trim();
+    var chars = window.Intl && Intl.Segmenter
+      ? Array.from(new Intl.Segmenter('ko', { granularity: 'grapheme' }).segment(text), function (part) { return part.segment; })
+      : Array.from(text);
+    var name = chars.slice(0, 24).join('');
     if (name) showGames(name);
   };
   document.getElementById('rename').onclick = function () {

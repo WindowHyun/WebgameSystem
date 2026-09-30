@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
 const { createCoverPause } = require('./cover-pause');
+const { cleanNickname } = require('./protocol');
 
 const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
@@ -219,7 +220,7 @@ function createPokerRoom(options) {
   }
 
   function join({ nickname, token: oldToken }) {
-    const clean = Array.from(String(nickname || '').trim()).slice(0, 24).join(''); // 글자 단위로 자른다(이모지가 반으로 쪼개지지 않게)
+    const clean = cleanNickname(nickname); // 글자 단위로 자른다(web/protocol.js)
     if (!clean) return { error: '닉네임을 입력해 주세요.' };
     // Render 재배포·모바일 네트워크 전환에서는 새 소켓이 먼저 열리고 이전 소켓의
     // close가 늦게 도착할 수 있다. 토큰이 같으면 연결 상태와 관계없이 같은 자리다.
@@ -627,7 +628,8 @@ function createPokerRoom(options) {
     // 그만뒀다고 구경까지 막을 이유는 없다.
     const viewerInRound = !!me && dealtIn.includes(pid);
     return {
-      type: 'pokerState', phase, baseBet, pot, currentBet, minRaise, allInCap, hostId, turnPlayerId: current() && current().id,
+      // 차례는 배팅 중에만 있다. 판이 끝난 뒤에도 마지막 차례를 보내면 화면이 없는 차례를 그렸다(블랙잭과 같게).
+      type: 'pokerState', phase, baseBet, pot, currentBet, minRaise, allInCap, hostId, turnPlayerId: phase === 'betting' && current() ? current().id : null,
       // 차례인 사람이 화면을 가려 제한시간이 멈춰 있는가(web/cover-pause.js)
       paused: pause.pausedAt() !== null,
       result, history: history.slice(-12), you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: dealtIn.includes(me.id) } : null,

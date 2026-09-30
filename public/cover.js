@@ -207,6 +207,7 @@
   function stopHold(spent) {
     clearTimeout(holdTimer);
     holdTimer = null;
+    window.removeEventListener('touchmove', keepTouchMove, true);
     if (spent) holdSpent = true;
   }
   function resetFingers() {
@@ -232,10 +233,10 @@
     holdFrom = { points: {}, spread: spread() };
     Object.keys(fingers).forEach(function (id) { holdFrom.points[id] = { x: fingers[id].x, y: fingers[id].y }; });
     holdTimer = setTimeout(function () {
-      holdTimer = null;
-      holdSpent = true;
+      stopHold(true);
       toggle();
     }, HOLD_MS);
+    window.addEventListener('touchmove', keepTouchMove, { passive: false, capture: true });
   }, true);
   function spread() {
     var ids = Object.keys(fingers);
@@ -272,10 +273,12 @@
   // 두 손으로 눌러도 가려지지 않았다(헤드리스 브라우저의 가짜 터치로는 드러나지 않았다).
   // 두 손가락 누르기를 재는 동안에는 움직임을 브라우저에 넘기지 않는다. 크게 밀거나 벌리면(HOLD_MOVE·
   // PINCH_MOVE를 넘으면) 위의 pointermove가 재기를 멈추므로, 그때부터는 확대·스크롤이 평소대로 된다.
-  // (포인터 이벤트가 같은 입력의 터치 이벤트보다 먼저 오므로, 여기서 보는 holdTimer는 이미 최신이다.)
-  window.addEventListener('touchmove', function (event) {
+  // (포인터 이벤트가 같은 입력의 터치 이벤트보다 먼저 오므로, 재기 시작한 뒤의 touchmove부터 여기로 온다.)
+  // [리뷰] 이 리스너는 재는 동안에만 단다(위의 pointerdown이 달고 stopHold가 뗀다). 늘 달아 두면
+  // passive:false 때문에 모든 페이지의 한 손가락 스크롤까지 메인 스레드를 기다렸다.
+  function keepTouchMove(event) {
     if (holdTimer && event.cancelable) event.preventDefault();
-  }, { passive: false, capture: true });
+  }
   // iOS 사파리는 두 손가락 확대를 gesture 이벤트로 시작한다. 재는 동안에는 막는다.
   ['gesturestart', 'gesturechange'].forEach(function (type) {
     window.addEventListener(type, function (event) { if (holdTimer) event.preventDefault(); }, { passive: false });

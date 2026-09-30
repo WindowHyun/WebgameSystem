@@ -30,6 +30,7 @@
 
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
+const { cleanNickname } = require('./protocol');
 
 const MIN_PLAYERS = 2;
 const MAX_PLAYERS = 4;
@@ -222,7 +223,7 @@ function createMindRoom(options) {
   }
 
   function join({ nickname, token }) {
-    const clean = Array.from(String(nickname || '').trim()).slice(0, 24).join('');
+    const clean = cleanNickname(nickname); // 글자 단위로 자른다(web/protocol.js)
     if (!clean) return { error: '닉네임을 입력해 주세요.' };
     const restored = token ? players.find((p) => p.token === token) : null;
     if (restored) {
