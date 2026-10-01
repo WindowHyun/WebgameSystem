@@ -1,0 +1,85 @@
+/* 갈팡질팡 - 포커 화면(poker.css, responsive-fixes.css)의 틀 위에 후보판만 얹는다. */
+
+/* 제한시간이 없는 게임이다. 포커의 "30초 내 선택" 표시를 지운다. */
+.galpang-page .round-info:after{content:none}
+
+/* 왼쪽 패널은 참가자 대신 힌트 기록이다. */
+.hint-panel #hints{display:flex;flex-direction:column;gap:8px}
+.hint-card{padding:10px 10px 9px;border:1px solid #5d2c5f;border-radius:6px;background:#350d36;color:#fff}
+.hint-card.latest{border-color:#ecb22e;background:#4a154b}
+.hint-card b{display:block;margin-bottom:6px;font-size:11px;letter-spacing:.04em;color:#e9dfea}
+.hint-option{display:flex;align-items:center;gap:8px;margin-top:5px;padding:6px 8px;border-radius:5px;background:#ffffff14;font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.hint-option i{flex:0 0 auto;width:20px;height:20px;display:grid;place-items:center;border-radius:50%;background:#ffffff26;font-size:11px;font-style:normal;font-weight:700}
+.hint-option.picked{background:#ecb22e;color:#3f2e00;font-weight:700}
+.hint-option.picked i{background:#3f2e0026}
+.hint-card small{display:block;margin-top:7px;color:#c9b7cb;font-size:10px}
+
+#board{min-height:330px;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px 16px;border:1px solid #350d36;border-radius:8px;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a;color:#f4e8f5;text-align:center}
+.rules{max-width:620px;margin:0;font-size:13px;line-height:1.65}
+.rules strong{color:#ecb22e}
+
+.grid{display:grid;width:100%;max-width:640px;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.cand{position:relative;min-height:72px;padding:22px 6px 8px;border:2px solid #ffffff33;border-radius:8px;background:#fff;color:#1d1c1d;font-size:15px;font-weight:700;line-height:1.25;overflow-wrap:anywhere}
+@media(hover:hover){.cand:hover:not(:disabled){background:#fff8e6}}
+.cand .no{position:absolute;left:8px;top:5px;color:#6b6b6f;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.cand.selected{border-color:#ecb22e;background:#fff3cd;box-shadow:0 0 0 2px #ecb22e}
+.cand.removed{background:#ffffff40;color:#ffffffa0;border-style:dashed;text-decoration:line-through;opacity:.6}
+.cand.removed .no{color:#ffffff90}
+.cand.wrong:after{content:"오답";position:absolute;right:6px;top:5px;padding:1px 5px;border-radius:8px;background:#d72c0d;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
+.cand:disabled{cursor:not-allowed}
+/* 끝난 뒤 정답 칸 */
+.cand.answer{opacity:1;border-color:#ecb22e;background:#fff3cd;box-shadow:0 0 0 2px #ecb22e;text-decoration:none}
+.cand.answer .no{color:#6b6b6f}
+.cand.answer:before{content:"정답";position:absolute;right:6px;top:5px;padding:1px 5px;border-radius:8px;background:#007a5a;color:#fff;font-size:10px;font-weight:700}
+.cand.answer.wrong:after{content:none}
+/* 화면에는 보이지 않고 스크린 리더만 읽는 글 */
+.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.notice{min-height:20px;margin:0;color:#ecb22e;font-size:14px;font-weight:700}
+
+/* 결과 */
+.result{width:100%;max-width:640px;padding:16px;border-radius:8px;background:#fff;color:#1d1c1d;text-align:left}
+.result.hidden{display:none}
+.result h2{margin:0 0 6px;font-size:20px}
+.result .answer{margin:0 0 4px;font-size:16px;font-weight:700}
+.result .detail{margin:0 0 12px;color:#616061;font-size:13px}
+.result ol{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.result li{padding:9px 10px;border:1px solid #e4e4e6;border-radius:6px;font-size:13px;line-height:1.55}
+.result li b{margin-right:6px}
+.result li em{font-style:normal;font-weight:700;color:#007a5a}
+.result li span{display:block;color:#616061;font-size:12px}
+.result.won h2{color:#007a5a}
+.result.lost h2{color:#a52323}
+
+/* 명령어 입력 */
+.console{margin:0;padding:8px 20px;border-top:1px solid #e4e4e6;background:#fff;color:#616061;font-size:12px}
+.console summary{cursor:pointer;padding:6px 0}
+.log{max-height:150px;margin:6px 0;padding:8px 10px;border-radius:6px;background:#1d1c1d;color:#e9e9ea;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;overflow:auto}
+.log:empty{display:none}
+.command-form{display:flex;gap:8px}
+.command-form input{flex:1}
+.button-link{display:inline-grid;place-items:center;min-height:38px;padding:0 15px;border:1px solid #d8d8da;border-radius:4px;background:#fff;color:#1d1c1d;font-weight:700;text-decoration:none}
+.controls .text-button{margin-left:auto}
+#end-controls .button-link{margin-left:auto}
+
+/* 연결이 끊긴 동안은 후보도 누를 수 없다(poker.css가 조작부는 막는다). */
+body[data-offline] #grid,body[data-offline] .console form{pointer-events:none;opacity:.55}
+
+@media(max-width:760px){
+  /* 조작부를 화면 아래에 붙인다. poker.css가 폰에서 main을 스크롤 상자로 만들어 두면 조작부가 화면이 아니라
+     main 안에 붙어서, 후보가 늘어난 화면에서는 버튼이 아래로 밀려난다(responsive-fixes.css의 같은 처방 참고). */
+  .galpang-page main{overflow:visible}
+  /* 힌트 기록은 옆으로 넘기는 띠로 둔다. 새 힌트가 나오면 맨 끝으로 스크롤한다(galpang.js). */
+  .hint-panel{padding:8px 10px}
+  .hint-panel #hints{flex-direction:row;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
+  .hint-card{flex:0 0 min(210px,70vw);scroll-snap-align:start;padding:8px 9px}
+  .hint-option{padding:5px 7px;font-size:12px}
+  #board{min-height:0;padding:14px 10px}
+  .grid{gap:6px}
+  .cand{min-height:64px;padding:20px 4px 6px;font-size:13px}
+  .console{padding:6px 12px}
+  .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .controls .text-button,#end-controls .button-link{margin-left:0}
+  .button-link{min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){.hint-card{scroll-behavior:auto}}

@@ -13,7 +13,7 @@
 // nickname: 방이 실제로 쓰는 이름 길이(글자 수).
 // nicknameInput: 참가 요청에서 받아 주는 길이. iPhone 한글 입력기는 입력칸의 글자 수 제한(24자)을
 //   넘기는 일이 있어서, 여기서 24자로 거절하면 이름 때문에 입장조차 못 했다. 넉넉히 받고 방이 24자로 자른다.
-const LIMITS = { nickname: 24, nicknameInput: 64, text: 300, word: 60, id: 64, token: 64 };
+const LIMITS = { nickname: 24, nicknameInput: 64, text: 300, word: 60, id: 64, token: 64, command: 100 };
 
 /**
  * 참가 이름을 방이 쓰는 길이(LIMITS.nickname 글자)로 다듬는다. 모든 방(라이어·포커·블랙잭·더 마인드)이
@@ -49,7 +49,7 @@ const CLIENT_MESSAGES = {
 };
 
 /**
- * [리뷰 P1-02] 카드 게임(포커·블랙잭·더 마인드)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
+ * [리뷰 P1-02] 카드 게임(포커·블랙잭·더 마인드·갈팡질팡)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
  * 검사한다. 예전에는 게임 서버 분기와 각 방 안에 검사가 흩어져 있어서, 새 요청을 추가할 때 빠뜨리기 쉬웠다.
  * 여기서는 형식만 본다. 금액은 숫자(칸을 비우면 브라우저가 보내는 null 포함)인지만 보고, 100원 단위나
  * 보유 칩 같은 규칙은 방이 알맞은 안내와 함께 거절한다.
@@ -84,6 +84,15 @@ const CARD_GAME_MESSAGES = {
     star: () => null,
     starVote: (m) => (str(m.voteId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'voteId/agree'),
   },
+  // 혼자 하는 게임: 준비·시작이 없고 조작은 모두 명령어 한 줄이다. Enter만 친 빈 줄도 받는다(방이 무시한다).
+  galpang: {
+    ping: CARD_COMMON.ping,
+    cover: CARD_COMMON.cover,
+    coverState: CARD_COMMON.coverState,
+    join: CARD_COMMON.join,
+    leave: CARD_COMMON.leave,
+    command: (m) => (typeof m.line === 'string' && m.line.length <= LIMITS.command ? null : 'line'),
+  },
 };
 
 function checkAgainst(table, msg) {
@@ -100,7 +109,7 @@ function validateClientMessage(msg) {
   return checkAgainst(CLIENT_MESSAGES, msg);
 }
 
-/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'mind'. 문제가 없으면 null, 있으면 사유 문자열. */
+/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'mind' | 'galpang'. 문제가 없으면 null, 있으면 사유 문자열. */
 function validateCardGameMessage(game, msg) {
   if (!Object.hasOwn(CARD_GAME_MESSAGES, game)) return `알 수 없는 게임: ${String(game).slice(0, 32)}`;
   return checkAgainst(CARD_GAME_MESSAGES[game], msg);
