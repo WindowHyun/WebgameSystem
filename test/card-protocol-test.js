@@ -3,7 +3,7 @@
 /**
  * 카드 게임 요청 형식 검사(web/protocol.js의 validateCardGameMessage).
  *
- *   - 화면(public/poker.js·blackjack.js·mind.js)이 실제로 보내는 요청은 모두 통과한다.
+ *   - 화면(public/poker.js·blackjack.js·mind.js·galpang.js)이 실제로 보내는 요청은 모두 통과한다.
  *     여기서 막히면 그 버튼이 통째로 안 먹는다.
  *   - 형식이 틀린 요청(모르는 type, 문자열 불리언, 객체 ID, 너무 긴 이름 등)은 방에 닿기 전에 거절한다.
  *   - 게임마다 자기 요청만 받는다(포커에 hit, 블랙잭에 starVote 등은 거절).
@@ -66,6 +66,20 @@ const SENT = {
     { type: 'star' },
     { type: 'starVote', voteId: ID, agree: false },
   ],
+  // 혼자 하는 게임: 준비·시작이 없고 조작은 모두 명령어 한 줄이다(Enter만 친 빈 줄도 받는다).
+  galpang: [
+    { type: 'ping' },
+    { type: 'cover' },
+    { type: 'coverState', covered: true },
+    { type: 'join', nickname: '김하늘', token: null },
+    { type: 'join', nickname: '김하늘', token: TOKEN },
+    { type: 'leave' },
+    { type: 'command', line: 'remove 3 5' },
+    { type: 'command', line: 'guess 5' },
+    { type: 'command', line: 'next' },
+    { type: 'command', line: '' },
+    { type: 'command', line: '가'.repeat(100) },
+  ],
 };
 
 for (const [game, messages] of Object.entries(SENT)) {
@@ -93,6 +107,14 @@ const BAD = [
   ['포커에 블랙잭 요청', 'poker', { type: 'hit' }],
   ['블랙잭에 더 마인드 요청', 'blackjack', { type: 'starVote', voteId: ID, agree: true }],
   ['더 마인드에 배팅 요청', 'mind', { type: 'raise', amount: 100 }],
+  ['갈팡질팡에 준비 요청', 'galpang', { type: 'ready', ready: true }],
+  ['갈팡질팡에 시작 요청', 'galpang', { type: 'start' }],
+  ['갈팡질팡에 더 마인드 요청', 'galpang', { type: 'play' }],
+  ['줄이 없는 명령', 'galpang', { type: 'command' }],
+  ['숫자 명령', 'galpang', { type: 'command', line: 5 }],
+  ['객체 명령', 'galpang', { type: 'command', line: { $gt: '' } }],
+  ['너무 긴 명령(101자)', 'galpang', { type: 'command', line: 'x'.repeat(101) }],
+  ['포커에 갈팡질팡 명령', 'poker', { type: 'command', line: 'next' }],
   ['모르는 게임', 'liar', { type: 'ping' }],
   ['프로토타입 이름 게임', '__proto__', { type: 'ping' }],
 ];
@@ -119,7 +141,8 @@ for (const game of Object.keys(CARD_GAME_MESSAGES)) {
   const { createPokerRoom } = require('../web/poker-room');
   const { createBlackjackRoom } = require('../web/blackjack-room');
   const { createMindRoom } = require('../web/mind-room');
-  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['mind', createMindRoom]]) {
+  const { createGalpangRoom } = require('../web/galpang-room');
+  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom]]) {
     const room = create({ onChange() {}, onAction() {} });
     try {
       const joined = room.join({ nickname: '가'.repeat(30) });

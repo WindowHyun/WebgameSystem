@@ -18,6 +18,7 @@ const { createRoom } = require('./room');
 const { createPokerRoom } = require('./poker-room');
 const { createBlackjackRoom } = require('./blackjack-room');
 const { createMindRoom } = require('./mind-room');
+const { createGalpangRoom } = require('./galpang-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage, validateCardGameMessage } = require('./protocol');
 const { log, warn, error } = require('../logger');
@@ -59,6 +60,10 @@ const CARD_GAME_ACTIONS = {
     play: (room, id) => room.play(id),
     star: (room, id) => room.proposeStar(id),
     starVote: (room, id, m) => room.voteStar(id, m.voteId, m.agree === true),
+  },
+  // 혼자 하는 게임이라 준비·시작이 없다. 모든 조작이 명령어 한 줄이다(web/galpang/parser.js).
+  galpang: {
+    command: (room, id, m) => room.command(id, m.line),
   },
 };
 
@@ -117,7 +122,7 @@ function createGameServer(options) {
 
   const clients = new Set(); // { ws, playerId }
   /**
-   * [리뷰 P2-02] 카드 게임(포커·블랙잭·더 마인드). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
+   * [리뷰 P2-02] 카드 게임(포커·블랙잭·더 마인드·갈팡질팡). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
    * 보스 키 전파·포털 상태·정리가 모두 이 표를 돈다. 카드 게임을 하나 더 넣을 때는 여기와
    * CARD_GAME_ACTIONS, web/protocol.js의 CARD_GAME_MESSAGES만 고치면 된다.
    *   label      연결·요청 로그 이름   logLabel   관리 로그 이름   portalLabel 포털 채널 이름
@@ -126,6 +131,7 @@ function createGameServer(options) {
     poker: { label: '포커', logLabel: '포커', portalLabel: '인디언 포커', create: createPokerRoom, actions: CARD_GAME_ACTIONS.poker, clients: new Set(), room: null },
     blackjack: { label: '블랙잭', logLabel: '블랙잭', portalLabel: '블랙잭 21', create: createBlackjackRoom, actions: CARD_GAME_ACTIONS.blackjack, clients: new Set(), room: null },
     mind: { label: '더 마인드', logLabel: '마인드', portalLabel: '더 마인드', create: createMindRoom, actions: CARD_GAME_ACTIONS.mind, clients: new Set(), room: null },
+    galpang: { label: '갈팡질팡', logLabel: '갈팡질팡', portalLabel: '갈팡질팡', create: createGalpangRoom, actions: CARD_GAME_ACTIONS.galpang, clients: new Set(), room: null },
   };
   const cardGames = () => Object.values(CARD_GAMES);
   const portalClients = new Set();
@@ -157,14 +163,23 @@ function createGameServer(options) {
     broadcastPortal();
   }
 
-  function broadcastCardGame(game) {
+  /**
+   * 카드 게임 상태를 접속자 각각에게 "그 사람 몫으로" 보낸다. onlyId를 주면 그 참가자에게만 보낸다 -
+   * 혼자 하는 게임(갈팡질팡)은 한 사람이 눌렀다고 남의 화면까지 다시 보낼 이유가 없다.
+   */
+  function broadcastCardGame(game, onlyId) {
     if (!game.room) return;
-    for (const client of game.clients) if (client.playerId) sendTo(client.ws, game.room.stateFor(client.playerId));
+    for (const client of game.clients) {
+      if (!client.playerId || (onlyId && client.playerId !== onlyId)) continue;
+      const state = game.room.stateFor(client.playerId);
+      if (state) sendTo(client.ws, state);
+    }
     broadcastPortal();
   }
 
-  function broadcastPortal() {
-    if (!room || cardGames().some((game) => !game.room)) return;
+  /** 포털에 보여 줄 게임별 인원·상태. 방이 아직 다 만들어지기 전이면 null. */
+  function portalPayload() {
+    if (!room || cardGames().some((game) => !game.room)) return null;
     const liar = room._debug();
     const label = (info) => info.phase !== 'lobby' && info.phase !== 'result' ? '진행중' : (info.playerCount ? '진행 대기중' : '대기중');
     const liarCount = [...clients].filter((c) => c.playerId).length;
@@ -173,7 +188,20 @@ function createGameServer(options) {
       const info = game.room.status();
       games[key] = { label: game.portalLabel, playerCount: info.playerCount, status: label(info) };
     }
-    const payload = { type: 'games', games };
+    return { type: 'games', games };
+  }
+
+  /**
+   * 포털 접속자에게 인원·상태를 보낸다. 같은 내용이면 다시 보내지 않는다 - 혼자 하는 게임(갈팡질팡)은
+   * 명령 한 번마다 상태가 알려져서, 그때마다 포털 접속자 전원에게 똑같은 글을 보내게 된다.
+   */
+  let lastPortalJson = null;
+  function broadcastPortal() {
+    const payload = portalPayload();
+    if (!payload) return;
+    const json = JSON.stringify(payload);
+    if (json === lastPortalJson) return;
+    lastPortalJson = json;
     for (const client of portalClients) sendTo(client.ws, payload);
   }
 
@@ -318,7 +346,9 @@ function createGameServer(options) {
           else if (type === 'cover') broadcastCover(client, '포털 접속자');
         } catch {}
       });
-      broadcastPortal();
+      // 새로 붙은 포털 접속자에게는 지금 상태를 바로 보낸다(바뀐 게 없어도).
+      const current = portalPayload();
+      if (current) sendTo(ws, current);
       return;
     }
     if (Object.hasOwn(CARD_GAMES, game)) { handleCardGameConnection(ws, ip, game); return; }
@@ -550,7 +580,7 @@ function createGameServer(options) {
         },
       });
       for (const game of cardGames()) {
-        game.room = game.create({ onChange: () => broadcastCardGame(game), onAction: actionLogger(game.logLabel) });
+        game.room = game.create({ onChange: (id) => broadcastCardGame(game, id), onAction: actionLogger(game.logLabel) });
       }
       startHeartbeat();
       server = http.createServer(handleHttp);
@@ -682,6 +712,7 @@ function createGameServer(options) {
     }
     for (const game of cardGames()) game.clients.clear();
     portalClients.clear();
+    lastPortalJson = null;
     if (wss) { try { wss.close(); } catch { /* 무시 */ } wss = null; }
     if (server) { try { server.close(); } catch { /* 무시 */ } server = null; }
     room = null;

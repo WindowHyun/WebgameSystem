@@ -11,6 +11,7 @@
     "test:all": "node test/run-all.js --all",
     "play": "node test/play-test.js",
     "restart": "node test/restart-test.js",
+    "galpang": "node web/galpang/cli.js",
     "lint": "eslint . --ext .js"
   },
   "dependencies": {
