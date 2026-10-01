@@ -12,7 +12,8 @@
  *   - 폰 길게 누르기로는 덮이지 않는다
  *   - [요청] 폰은 두 손가락을 함께 대고 1.5초 누르고 있으면 모두의 화면을 가린다(한 번 더 하면 돌아온다).
  *     짧은 톡·두 엄지가 잠깐 겹친 것·1.5초 전에 뗀 것·확대·세 손가락·오래 대고 있던 엄지에 나중에
- *     닿은 손가락으로는 바뀌지 않는다. 누르던 참가자 줄이 다시 그려져도 손가락을 놓치지 않는다
+ *     닿은 손가락으로는 바뀌지 않는다. 누르던 참가자 줄이 다시 그려져도 손가락을 놓치지 않는다.
+ *     스크롤을 막는 touchmove 리스너는 재는 동안에만 붙는다
  *   - 누르고 있던 중에 남이 가리면 손을 떼도 풀리지 않는다(그림 위에서 시작한 누르기만 푼다)
  *   - [요청] 세로로 든 폰은 모바일 쇼핑몰 화면(5장 중 무작위)으로 가린다. 가로로 돌린 폰,
  *     PC의 세로 창(좁혀도), 세로로 든 태블릿은 PC 쇼핑몰 화면이다
@@ -347,6 +348,20 @@ console.error = (...args) => { serverLog.push(args.join(' ')); originalError(...
     const pinch = await phone.evaluate(() => window.__moves.splice(0));
     await release(); await wait(200);
     check('크게 벌리면(확대) 평소대로 브라우저에 넘긴다', pinch.length === 2 && pinch.every((v) => !v), pinch.join(','));
+    // [리뷰] 스크롤을 막을 수 있는(passive가 아닌) touchmove 리스너는 재는 동안에만 붙는다. 늘 붙어 있으면
+    // 폰에서 한 손가락 스크롤마다 브라우저가 스크립트를 기다린다.
+    const blockingMoves = async () => {
+      const { result } = await touch.send('Runtime.evaluate', { expression: 'window' });
+      const { listeners } = await touch.send('DOMDebugger.getEventListeners', { objectId: result.objectId });
+      return listeners.filter((l) => l.type === 'touchmove' && !l.passive).length;
+    };
+    const idleMoves = await blockingMoves();
+    await press([A, B]); await wait(300);
+    const holdMoves = await blockingMoves();
+    await release(); await wait(200);
+    const afterMoves = await blockingMoves();
+    check('스크롤을 막는 touchmove 리스너는 두 손가락으로 재는 동안에만 붙는다',
+      idleMoves === 0 && holdMoves === 1 && afterMoves === 0, `평소 ${idleMoves}, 재는 동안 ${holdMoves}, 뗀 뒤 ${afterMoves}`);
     await press([A]); await wait(1500); await press([A, B]); await wait(2300); await release();
     check('오래 대고 있던 엄지에 나중에 닿은 손가락은 바뀌지 않는다', !(await covered()));
 

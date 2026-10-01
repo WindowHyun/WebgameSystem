@@ -98,6 +98,7 @@ assert.equal(quitRoom.fold(quitter), null);
 for (const viewer of [qa.playerId, qb.playerId]) {
   const s = quitRoom.stateFor(viewer);
   assert.equal(s.phase, 'result');
+  assert.equal(s.turnPlayerId, null, '판이 끝나면 차례는 없다(마지막 차례를 보내지 않는다)');
   assert.equal(s.result.revealed, false, '쇼다운 없이 끝난 판');
   const mine = s.players.find((p) => p.id === viewer).card;
   assert.ok(mine && !mine.hidden && mine.rank, '폴드로 끝난 판도 끝나면 자기 카드를 볼 수 있어야 한다');

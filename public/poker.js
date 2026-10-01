@@ -152,8 +152,7 @@
       // 올인했다는 건 그 금액 줄이 이미 말해 주므로 한 단어로 둔다.
       if (player.connected === false) status = '끊김';
       var initial = Array.from(player.nickname)[0] || '나';
-      // 판이 끝난 뒤에는 "차례" 표시를 남기지 않는다(서버는 마지막 차례를 그대로 보낸다).
-      return '<div class="player ' + (state.phase === 'betting' && player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>';
+      return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>';
     }).join('');
 
     var canSeeTable = state.phase !== 'betting' || (state.you.inRound && !you.isFolded);

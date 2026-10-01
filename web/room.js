@@ -24,7 +24,7 @@
  */
 
 const crypto = require('crypto');
-const { normalizeWord } = require('./protocol');
+const { normalizeWord, cleanNickname } = require('./protocol');
 const WORD_LIST = require('./words');
 const { createModeration } = require('./moderation');
 const { createCoverPause } = require('./cover-pause');
@@ -370,9 +370,8 @@ function createRoom(options) {
   // ───────────────────────────── 참가 / 접속 ─────────────────────────────
 
   function join(input) {
-    // [L3] slice()는 UTF-16 기준이라 24번째가 이모지 중간이면 깨진 글자가 남는다.
-    // 글자(코드 포인트) 단위로 자른다.
-    const nickname = Array.from(String(input.nickname).trim()).slice(0, 24).join('');
+    // [L3] slice()는 UTF-16 기준이라 24번째가 이모지 중간이면 깨진 글자가 남는다. 글자 단위로 자른다(web/protocol.js).
+    const nickname = cleanNickname(input.nickname);
 
     // 토큰이 같으면 연결 상태와 관계없이 같은 자리다. 모바일에서 화면을 전환하거나
     // 잠깐 백그라운드로 내리면 OS가 WebSocket을 조용히 끊어 버리는데, 서버는 그걸

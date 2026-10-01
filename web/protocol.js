@@ -15,6 +15,19 @@
 //   넘기는 일이 있어서, 여기서 24자로 거절하면 이름 때문에 입장조차 못 했다. 넉넉히 받고 방이 24자로 자른다.
 const LIMITS = { nickname: 24, nicknameInput: 64, text: 300, word: 60, id: 64, token: 64 };
 
+/**
+ * 참가 이름을 방이 쓰는 길이(LIMITS.nickname 글자)로 다듬는다. 모든 방(라이어·포커·블랙잭·더 마인드)이
+ * 이것 하나를 쓴다 - 예전에는 같은 자르기가 방마다 숫자 24를 박은 채 복사돼 있었다.
+ * 글자는 사람이 보는 한 글자(자소 묶음) 단위로 센다. 코드 포인트(Array.from)로 자르면 가족·국기·
+ * 피부색 이모지처럼 여러 코드 포인트로 된 글자가 반으로 갈려 깨진 글자로 남았다.
+ */
+const graphemes = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter('ko', { granularity: 'grapheme' }) : null;
+function cleanNickname(value) {
+  const text = String(value == null ? '' : value).trim();
+  const chars = graphemes ? Array.from(graphemes.segment(text), (part) => part.segment) : Array.from(text);
+  return chars.slice(0, LIMITS.nickname).join('');
+}
+
 function str(v, max) { return typeof v === 'string' && v.trim().length > 0 && v.length <= max; }
 function optStr(v, max) { return v === undefined || v === null || (typeof v === 'string' && v.length <= max); }
 
@@ -98,4 +111,4 @@ function normalizeWord(word) {
   return String(word == null ? '' : word).trim().toLowerCase().replace(/\s+/g, '');
 }
 
-module.exports = { validateClientMessage, validateCardGameMessage, CARD_GAME_MESSAGES, normalizeWord, LIMITS };
+module.exports = { validateClientMessage, validateCardGameMessage, CARD_GAME_MESSAGES, normalizeWord, cleanNickname, LIMITS };

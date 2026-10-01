@@ -19,6 +19,9 @@
  *   - 실수 연출: 쥐고 있던 사람은 자기 손패 자리에서, 다른 사람은 가운데 더미 옆에서 카드가 찢어진다.
  *     낸 카드에 ✕ 도장. 끝나면 연출 층이 비고, 새로고침해도 지난 실수를 다시 재생하지 않는다.
  *     동작 줄이기를 켠 사람에게는 찢지 않고 빨간 테두리로만 보인다. 진동은 쓰지 않는다.
+ *   - (상태를 손으로 넣어) 서버가 새로 떠 사건 번호가 다시 시작해도 첫 실수를 연출한다. 상관없는 상태에서는
+ *     손패 위치를 재지 않는다. 실수로 레벨이 끝나 받은 새 패는 같은 숫자여도 옛 자리에서 당기지 않는다.
+ *     버튼 눌림 잠금은 남의 상태가 아니라 내 요청이 반영된 상태가 와야 풀린다.
  *
  * 실행: node test/mind-ui-test.js
  */
@@ -270,6 +273,127 @@ function check(name, ok, detail) {
       }, [long(false), long(true)]);
       check(`폰(${name}): 레벨 8에 판이 길어도 맨 위에서 "카드 내기"가 화면 안에 있다`, seen.inView, JSON.stringify(seen));
       check(`폰(${name}): 수리검을 제안한 사람에게 누구를 기다리는지 보인다`, /동의 2\/4명/.test(seen.message) && /이도현, 최유나님을 기다리는 중/.test(seen.message), seen.message);
+      await context.close();
+    }
+
+    // [리뷰] 상태를 손으로 넣어 순서를 정한다. 서버에서 오는 진짜 메시지는 막고(__quiet), 보내는 것도 막는다.
+    {
+      const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const page = await context.newPage();
+      page.on('pageerror', (e) => errors.push(`주입: ${e}`));
+      await page.addInitScript(() => {
+        const Original = window.WebSocket;
+        const Hooked = function (url) {
+          const ws = new Original(url);
+          window.__ws = ws;
+          // onmessage보다 먼저 붙는다. 조용히 모드에서는 서버에서 온 진짜 메시지(isTrusted)를 여기서 멈춘다.
+          ws.addEventListener('message', (e) => { if (window.__quiet && e.isTrusted) e.stopImmediatePropagation(); });
+          const send = ws.send.bind(ws);
+          ws.send = (data) => { if (!window.__quiet) send(data); };
+          return ws;
+        };
+        Hooked.prototype = Original.prototype;
+        Object.assign(Hooked, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+        window.WebSocket = Hooked;
+        window.__deliver = (s) => window.__ws.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(s) }));
+      });
+      await page.goto(`http://127.0.0.1:${port}/`);
+      await page.fill('#nickname', '주입');
+      await page.press('#nickname', 'Enter');
+      await page.click('.game-card.mind');
+      await page.waitForSelector('#players .player', { timeout: 15000 });
+      await page.evaluate(() => { window.__quiet = true; });
+      const state = (over) => Object.assign({
+        type: 'mindState', phase: 'playing', level: 3, levels: 10, lives: 2, stars: 1, maxLives: 5, maxStars: 3, reward: null,
+        pile: [], discarded: [], lastEvent: null, pauseReason: null, result: null, history: [], minPlayers: 2, maxPlayers: 4,
+        readyCount: 0, canStart: false, starVote: null,
+        you: { id: 'me', ready: false, focused: true, inGame: true, hand: [20, 40, 60] },
+        players: [
+          { id: 'me', nickname: '주입', connected: true, ready: false, inGame: true, focused: true, cardCount: 3, hand: null },
+          { id: 'p2', nickname: '상대', connected: true, ready: false, inGame: true, focused: true, cardCount: 1, hand: null },
+        ],
+      }, over);
+      const mistake = (seq, lost) => ({ seq, kind: 'mistake', text: '실수!', played: { byId: 'p2', by: '상대', value: 50 }, lost: [{ id: 'me', nickname: '주입', cards: lost }] });
+      const deliver = (s) => page.evaluate((x) => window.__deliver(x), s);
+      const settle = () => page.evaluate(() => { document.querySelectorAll('.mind-fx').forEach((l) => { l.textContent = ''; }); });
+      // 손패 카드에 거는 WAAPI(당기기)와 손패 위치 재기를 센다.
+      await page.evaluate(() => {
+        window.__handAnim = [];
+        window.__handRects = 0;
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function () {
+          if (this.closest && this.closest('#hand')) window.__handAnim.push(this.getAttribute('data-value'));
+          return animate.apply(this, arguments);
+        };
+        const rect = Element.prototype.getBoundingClientRect;
+        Element.prototype.getBoundingClientRect = function () {
+          if (this.matches && this.matches('#hand .card')) window.__handRects += 1;
+          return rect.apply(this, arguments);
+        };
+      });
+      const counters = () => page.evaluate(() => ({ anim: window.__handAnim.slice(), rects: window.__handRects }));
+      const reset = () => page.evaluate(() => { window.__handAnim = []; window.__handRects = 0; });
+
+      // 1) 서버가 새로 떠 사건 번호가 1부터 다시 시작해도 첫 실수를 연출한다.
+      await deliver(state({ lastEvent: { seq: 900, kind: 'levelUp', text: '레벨 2 통과' } }));
+      await deliver(state({ lastEvent: null })); // 새로 뜬 서버 - 사건 없음
+      await deliver(state({ lastEvent: mistake(1, [20]), pile: [{ value: 50, byId: 'p2', by: '상대' }], you: { id: 'me', ready: false, focused: true, inGame: true, hand: [40, 60] } }));
+      const torn = await page.waitForFunction(() => document.querySelectorAll('.mind-fx .card').length > 0, null, { timeout: 2000 }).then(() => true, () => false);
+      check('서버가 새로 떠 사건 번호가 1부터 다시 세도 첫 실수를 연출한다', torn);
+      await wait(1200);
+      await settle();
+
+      // 2) 손패 위치는 연출에 쓸 때만 잰다: 남이 집중을 바꾼 상태에서는 재지 않는다.
+      const base = state({ lastEvent: mistake(1, [20]), pile: [{ value: 50, byId: 'p2', by: '상대' }], you: { id: 'me', ready: false, focused: true, inGame: true, hand: [40, 60] } });
+      await reset();
+      await deliver(Object.assign({}, base, { players: base.players.map((p) => (p.id === 'p2' ? Object.assign({}, p, { focused: false }) : p)) }));
+      const quietRects = (await counters()).rects;
+      await deliver(Object.assign({}, base, { pile: base.pile.concat({ value: 55, byId: 'p2', by: '상대' }) }));
+      const landRects = (await counters()).rects;
+      check('상관없는 상태에서는 손패 위치를 재지 않는다(레이아웃을 강제로 다시 계산하지 않는다)', quietRects === 0 && landRects > 0, `상관없는 상태 ${quietRects}번, 카드가 나왔을 때 ${landRects}번`);
+      await wait(600);
+
+      // 3) 같은 레벨 실수는 남은 카드를 당기고, 실수로 레벨이 끝나 새 패를 받으면 같은 숫자여도 당기지 않는다.
+      const pile2 = [{ value: 50, byId: 'p2', by: '상대' }, { value: 55, byId: 'p2', by: '상대' }];
+      await deliver(state({ lastEvent: mistake(1, [20]), pile: pile2, you: { id: 'me', ready: false, focused: true, inGame: true, hand: [30, 40, 60, 70] } }));
+      await wait(300);
+      await reset();
+      await deliver(state({ lastEvent: mistake(3, [30]), pile: pile2.concat({ value: 57, byId: 'p2', by: '상대' }), you: { id: 'me', ready: false, focused: true, inGame: true, hand: [40, 60, 70] } }));
+      await wait(1600);
+      const pulled = (await counters()).anim;
+      check('같은 레벨 실수: 찢긴 뒤 남은 카드를 제자리로 당긴다(비교 기준)', pulled.length > 0, pulled.join(','));
+      await settle();
+      await reset();
+      await deliver(state({
+        level: 4, phase: 'focus', pile: [], lastEvent: mistake(4, [40, 60, 70]),
+        you: { id: 'me', ready: false, focused: false, inGame: true, hand: [40, 72, 88, 95] },
+      }));
+      await wait(1600);
+      const newLevel = (await counters()).anim;
+      check('실수로 레벨이 끝나 새 패를 받으면 같은 숫자 카드라도 옛 자리에서 당기지 않는다', newLevel.length === 0, newLevel.join(','));
+      await settle();
+
+      // 4) 눌림 잠금은 내 요청이 반영된 상태가 와야 풀린다. 남의 상태가 먼저 와도 풀리지 않는다.
+      const focusState = (mine, theirs) => state({
+        level: 4, phase: 'focus', pile: [], lastEvent: mistake(4, [40, 60, 70]),
+        you: { id: 'me', ready: false, focused: mine, inGame: true, hand: [40, 72, 88, 95] },
+        players: [
+          { id: 'me', nickname: '주입', connected: true, ready: false, inGame: true, focused: mine, cardCount: 4, hand: null },
+          { id: 'p2', nickname: '상대', connected: true, ready: false, inGame: true, focused: theirs, cardCount: 4, hand: null },
+        ],
+      });
+      await deliver(focusState(false, false));
+      const lock = await page.evaluate((other) => {
+        const f = document.getElementById('focus');
+        f.click();
+        const pressed = f.disabled && f.classList.contains('sending');
+        window.__deliver(other); // 상대가 먼저 집중했다 - 내 요청은 아직 반영 전
+        return { pressed, held: f.disabled && f.classList.contains('sending') };
+      }, focusState(false, true));
+      await deliver(focusState(true, true));
+      const released = await page.evaluate(() => { const f = document.getElementById('focus'); return { disabled: f.disabled, sending: f.classList.contains('sending'), text: f.textContent }; });
+      check('눌림 잠금: 남의 상태가 먼저 와도 풀리지 않는다(두 번 누른 것이 나가지 않는다)', lock.pressed && lock.held, JSON.stringify(lock));
+      check('눌림 잠금: 내 요청이 반영된 상태가 오면 풀린다', !released.disabled && !released.sending && released.text === '집중 취소', JSON.stringify(released));
       await context.close();
     }
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));

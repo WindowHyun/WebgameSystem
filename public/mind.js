@@ -55,22 +55,35 @@
 
   /**
    * 누르는 즉시 눌림 표시를 한다. 서버까지 다녀오는 동안(Render까지 왕복 수백 ms) 버튼에 아무
-   * 변화가 없어서 눌렸는지 알 수 없었다. 다음 상태나 오류가 오면 풀고, 답이 없어도 잠시 뒤 푼다.
-   * 그동안 버튼을 잠가 두 번 눌러 켰다 꺼지는 일도 막는다.
+   * 변화가 없어서 눌렸는지 알 수 없었다. 그동안 버튼을 잠가 두 번 눌러 켰다 꺼지는 일도 막는다.
+   * 잠금은 그 버튼의 요청이 반영된 상태(settled)가 오거나, 오류가 오거나, 답이 없어 잠시 지났을 때 푼다.
+   * [리뷰] 예전에는 아무 상태나 오면 풀어서, 내 요청보다 남의 상태가 먼저 오면 잠금이 일찍 풀려
+   * 두 번 누른 것이 그대로 나갔다(서버가 거절해 오류 알림이 떴다).
    */
-  var sending = [];
+  var sending = []; // { button, settled(next) }
   var sendingTimer = null;
-  function markSending(button) {
+  function markSending(button, settled) {
     button.classList.add('sending');
     button.disabled = true;
-    sending.push(button);
+    sending.push({ button: button, settled: settled });
     clearTimeout(sendingTimer);
     sendingTimer = setTimeout(function () { releaseSending(); if (state) render(); }, 1500);
   }
-  function releaseSending() {
-    clearTimeout(sendingTimer);
-    sending.forEach(function (button) { button.classList.remove('sending'); button.disabled = false; });
-    sending = [];
+  /** next가 있으면 그 상태에 반영된 요청만 푼다. 없으면(오류·시간 초과) 모두 푼다. */
+  function releaseSending(next) {
+    var waiting = [];
+    sending.forEach(function (entry) {
+      if (next && !entry.settled(next)) { waiting.push(entry); return; }
+      entry.button.classList.remove('sending');
+      entry.button.disabled = false;
+    });
+    sending = waiting;
+    if (!sending.length) clearTimeout(sendingTimer);
+  }
+  /** 누른 순간의 상태와 비교해 pick(상태)가 바뀌었거나 단계가 바뀌었으면 반영된 것이다. */
+  function changedFrom(before, pick) {
+    var was = pick(before);
+    return function (next) { return next.phase !== before.phase || pick(next) !== was; };
   }
 
   // ─────────────────────────── 실수 연출 ───────────────────────────
@@ -115,18 +128,24 @@
   /** 새 상태를 그리기 전에 지금 화면의 위치를 잡아 둔다. 그린 뒤에는 손패가 이미 바뀌어 있다. */
   function beforeDraw(next) {
     var snap = { event: null, hand: {}, level: state ? state.level : 0, pileLength: state ? state.pile.length : 0 };
-    Array.prototype.forEach.call(document.querySelectorAll('#hand .card'), function (card) {
-      var r = rectOf(card);
-      if (r.w > 0) snap.hand[card.getAttribute('data-value')] = r; // 숨겨진 손패(대기 중 등)는 위치가 없다
-    });
     var event = next.lastEvent;
     if (event && typeof event.seq === 'number') {
       // 처음 받은 상태의 사건은 이미 지난 일이다. 번호가 줄었으면 서버가 새로 뜬 것이다(그것도 넘긴다).
       if (seenEventSeq !== null && event.seq > seenEventSeq) snap.event = event;
       seenEventSeq = event.seq;
-    } else if (seenEventSeq === null) {
+    } else {
+      // 사건이 없는 상태(새 게임이거나, 서버가 새로 떠 번호가 1부터 다시 시작한 방)다. 처음부터 다시 센다.
+      // [리뷰] 예전에는 앞의 번호를 그대로 들고 있어서, 서버가 새로 뜬 뒤 첫 실수를 이미 본 것으로 여겼다.
       seenEventSeq = 0;
     }
+    // 손패 위치는 연출에 쓸 때만 잰다(새 사건이거나 가운데에 카드가 새로 나왔을 때). 상태마다 재면
+    // 서버가 보낼 때마다 레이아웃을 한 번씩 강제로 다시 계산했다.
+    var landed = !!state && next.level === state.level && next.pile.length === state.pile.length + 1;
+    if (!snap.event && !landed) return snap;
+    Array.prototype.forEach.call(document.querySelectorAll('#hand .card'), function (card) {
+      var r = rectOf(card);
+      if (r.w > 0) snap.hand[card.getAttribute('data-value')] = r; // 숨겨진 손패(대기 중 등)는 위치가 없다
+    });
     return snap;
   }
 
@@ -176,7 +195,7 @@
     });
     // 동작 줄이기: 날리거나 찢지 않고, 버려지는 카드를 가운데 더미 옆에 빨간 테두리로 잠깐 보여 준다.
     if (quiet) { tearBesidePile(event.lost, true); return; }
-    if (mine) tearInHand(mine.cards, snap);
+    if (mine) tearInHand(mine.cards, snap, next.level === snap.level);
     if (others.length) tearBesidePile(others, false);
   }
 
@@ -197,7 +216,7 @@
   }
 
   /** 쥐고 있던 사람: 자기 손패의 그 자리에서 찢어진다. 남은 카드는 다 찢어진 뒤에 당겨진다. */
-  function tearInHand(values, snap) {
+  function tearInHand(values, snap, sameLevel) {
     var count = 0;
     values.forEach(function (value, i) {
       var r = snap.hand[String(value)];
@@ -208,9 +227,11 @@
       card.textContent = String(value);
       place(card, r);
       fx().appendChild(card);
-      later(IMPACT_MS + i * 120, function () { doom(card, false); });
+      later(IMPACT_MS + i * 120, function () { doom(card); });
     });
-    if (!count) return;
+    // 실수로 레벨이 끝나 새 패를 받았으면 남은 카드가 없다. 새 카드는 숫자가 같아도 다른 카드이므로
+    // 옛 자리에서 당기지 않고 새 패 등장 애니메이션을 그대로 둔다.
+    if (!count || !sameLevel) return;
     var hold = IMPACT_MS + (count - 1) * 120 + 450;
     Array.prototype.forEach.call(document.querySelectorAll('#hand .card'), function (card) {
       var old = snap.hand[card.getAttribute('data-value')];
@@ -273,18 +294,13 @@
         card.className = 'card mind-card doomed';
         card.textContent = String(value);
         motion(card, [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], 130, { easing: 'ease-out' });
-        later(390, function () { doom(card, false); });
+        later(390, function () { doom(card); });
       });
     });
   }
 
-  /** 떨다가 찢어진다. 동작 줄이기에서는 빨간 테두리로 잠깐 보였다가 사라진다. */
-  function doom(card, quiet) {
-    if (quiet) {
-      motion(card, [{ opacity: 1 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }], 900);
-      later(950, drop(card));
-      return;
-    }
+  /** 떨다가 찢어진다(동작 줄이기는 impact·reveal에서 따로 처리한다 - 여기까지 오지 않는다). */
+  function doom(card) {
     motion(card, shakeFrames(3.5), 200, { fill: 'none' });
     later(200, function () { rip(card); });
   }
@@ -525,19 +541,27 @@
     setHtml('history', state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join(''));
     renderStarVote();
     renderStartConfirm();
+    // 답을 기다리는 버튼은 위에서 다시 켜졌어도 잠가 둔다.
+    sending.forEach(function (entry) { entry.button.disabled = true; });
   }
 
+  function myReady(s) {
+    var me = s.players.find(function (p) { return p.id === s.you.id; });
+    return !!(me && me.ready);
+  }
   $('ready').onclick = function () {
-    var me = state.players.find(function (p) { return p.id === state.you.id; });
-    markSending($('ready'));
-    send('ready', { ready: !(me && me.ready) });
+    markSending($('ready'), changedFrom(state, myReady));
+    send('ready', { ready: !myReady(state) });
   };
   $('leave').onclick = function (event) { event.preventDefault(); if (socket) socket.leave(); };
   $('start').onclick = function () { startConfirmOpen = true; renderStartConfirm(); };
   $('start-cancel').onclick = closeStartConfirm;
   $('start-go').onclick = function () { closeStartConfirm(); send('start'); };
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && startConfirmOpen) closeStartConfirm(); });
-  $('focus').onclick = function () { markSending($('focus')); send('focus', { focused: !state.you.focused }); };
+  $('focus').onclick = function () {
+    markSending($('focus'), changedFrom(state, function (s) { return s.you.focused; }));
+    send('focus', { focused: !state.you.focused });
+  };
   $('play').onclick = function () {
     if (pendingPlay) return;
     pendingPlay = true;
@@ -548,11 +572,22 @@
     pendingTimer = setTimeout(function () { pendingPlay = false; if (state) render(); }, 1500);
     send('play');
   };
-  $('pause').onclick = function () { markSending($('pause')); send('pause'); };
-  $('star').onclick = function () { markSending($('star')); send('star'); };
-  $('star-focus').onclick = function () { markSending($('star-focus')); send('star'); };
-  $('star-yes').onclick = function () { if (!state.starVote) return; markSending($('star-yes')); markSending($('star-no')); send('starVote', { voteId: state.starVote.id, agree: true }); };
-  $('star-no').onclick = function () { if (!state.starVote) return; markSending($('star-yes')); markSending($('star-no')); send('starVote', { voteId: state.starVote.id, agree: false }); };
+  $('pause').onclick = function () { markSending($('pause'), changedFrom(state, function (s) { return s.phase; })); send('pause'); };
+  // 수리검 제안은 투표가 생기거나(또는 수리검 수가 바뀌거나) 단계가 바뀌면 반영된 것이다.
+  var starChanged = function (s) { return (s.starVote ? s.starVote.id : '') + '|' + s.stars; };
+  $('star').onclick = function () { markSending($('star'), changedFrom(state, starChanged)); send('star'); };
+  $('star-focus').onclick = function () { markSending($('star-focus'), changedFrom(state, starChanged)); send('star'); };
+  function vote(agree) {
+    var id = state.starVote && state.starVote.id;
+    if (!id) return;
+    // 내 표가 들어갔거나(yourVote) 투표가 끝났으면 반영된 것이다.
+    var voted = function (next) { return !next.starVote || next.starVote.id !== id || next.starVote.yourVote; };
+    markSending($('star-yes'), voted);
+    markSending($('star-no'), voted);
+    send('starVote', { voteId: id, agree: agree });
+  }
+  $('star-yes').onclick = function () { vote(true); };
+  $('star-no').onclick = function () { vote(false); };
   document.querySelectorAll('button[data-help]').forEach(function (button) {
     function showHelp() { $('action-help').textContent = button.dataset.help; }
     button.addEventListener('mouseenter', showHelp);
@@ -568,7 +603,7 @@
       if (data.type === 'error') { pendingPlay = false; releaseSending(); showError(data.message); if (state) render(); return; }
       if (data.type === 'mindState') {
         settlePending(data);
-        releaseSending();
+        releaseSending(data);
         var snap = beforeDraw(data);
         state = data;
         render();
