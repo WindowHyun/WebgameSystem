@@ -54,7 +54,7 @@ const wrongId = (engine) => engine.state.candidates.find((c) => c.id !== answerO
   check('시작 전이는 INIT → PLAYING 한 번이다', same(e.transitions, ['→ INIT', 'INIT → PLAYING']), e.transitions.join(', '));
   const answers = new Set();
   for (let seed = 1; seed <= 400; seed += 1) answers.add(new GameEngine({ seed }).state.answer.name);
-  check('정답이 한 단어로 쏠리지 않는다(400판에서 120개 넘는 단어가 정답이 된다)', answers.size > 120, `${answers.size}개`);
+  check('정답이 한 단어로 쏠리지 않는다(400판에서 200개 넘는 단어가 정답이 된다)', answers.size > 200, `${answers.size}개`);
 }
 
 // ── seed ──

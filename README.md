@@ -50,7 +50,7 @@ npm run galpang -- --seed 100 --debug    # 정답·힌트 계획·상태 전이�
 | `web/galpang/engine.js` | 규칙·상태(INIT → PLAYING → WON / LOST / QUIT). 출력과 입력 읽기는 하지 않습니다 |
 | `web/galpang/hint.js` | 힌트 5개를 시작할 때 정해 두고 라운드마다 하나씩 공개합니다. 공개 전 품질 검사 |
 | `web/galpang/parser.js` · `renderer.js` · `session.js` | 명령어 해석 · 글자 출력 · 대화 흐름(포기 확인 등). 터미널과 사이트가 같이 씁니다 |
-| `web/galpang/data/words.json` · `hints.json` | 단어 192개(12개 카테고리 × 16)와 그 특징 · 힌트 축 62개(난이도 1~5, 난이도마다 11~13개) |
+| `web/galpang/data/words.json` · `hints.json` | 단어 384개(12개 카테고리 × 32)와 그 특징 · 힌트 축 92개(난이도 1~5, 난이도마다 17~19개) |
 | `web/galpang-room.js` | 사이트용 방. 사람마다 판이 따로이고, 끊겨도 같은 토큰이면 이어집니다 |
 
 단어나 축을 추가·수정하면 `node test/galpang-hint-test.js`가 오타·모순·편중을 잡아 줍니다.
