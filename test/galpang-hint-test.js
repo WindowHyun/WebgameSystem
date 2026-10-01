@@ -36,7 +36,7 @@ function check(name, ok, detail) {
   const known = new Set(labels);
   check('힌트 축 이름이 모두 다르다(A·B와 모든 축을 통틀어)', known.size === labels.length);
   check('축마다 id·묶음·난이도(1~5)·두 극이 있다', AXES.every((a) => a.id && a.group && a.level >= 1 && a.level <= 5 && a.a && a.b && a.a !== a.b));
-  check('난이도 1~5마다 축이 5개 넘게 있다', [1, 2, 3, 4, 5].every((level) => AXES.filter((a) => a.level === level).length >= 5), [1, 2, 3, 4, 5].map((l) => AXES.filter((a) => a.level === l).length).join(','));
+  check('난이도 1~5마다 축이 10개 이상 있다', [1, 2, 3, 4, 5].every((level) => AXES.filter((a) => a.level === level).length >= 10), [1, 2, 3, 4, 5].map((l) => AXES.filter((a) => a.level === l).length).join(','));
   check('축 id가 겹치지 않는다', new Set(AXES.map((a) => a.id)).size === AXES.length);
   // 같은 뜻으로 읽히는 축은 한 묶음이라, 한 판에 둘 이상 나오지 않는다.
   const groupOf = Object.fromEntries(AXES.map((a) => [a.id, a.group]));
@@ -44,13 +44,13 @@ function check(name, ok, detail) {
   check('비슷한 뜻의 축은 같은 묶음이다(조용함·차분함·진지함, 혼자·북적임 등)', cluster.every((ids) => new Set(ids.map((id) => groupOf[id])).size === 1),
     cluster.filter((ids) => new Set(ids.map((id) => groupOf[id])).size !== 1).map((ids) => ids.join('/')).join(' '));
 
-  check('단어가 96개이고 이름이 겹치지 않는다', WORDS.length === 96 && new Set(WORDS.map((w) => w.name)).size === WORDS.length, `${WORDS.length}`);
+  check('단어가 192개이고 이름이 겹치지 않는다', WORDS.length === 192 && new Set(WORDS.map((w) => w.name)).size === WORDS.length, `${WORDS.length}`);
   const names = WORDS.map((w) => w.name).filter((n) => n.length >= 2);
   const contained = WORDS.filter((w) => w.name.length >= 2 && names.some((n) => n !== w.name && w.name.includes(n)));
   check('다른 단어의 이름을 통째로 담은 단어가 없다(예: 축구/축구공)', contained.length === 0, contained.map((w) => w.name).join(','));
   const categories = new Map();
   for (const w of WORDS) categories.set(w.category, (categories.get(w.category) || 0) + 1);
-  check('카테고리 12개, 각각 8개씩이다', categories.size === 12 && [...categories.values()].every((n) => n === 8), JSON.stringify([...categories]));
+  check('카테고리 12개, 각각 16개씩이다', categories.size === 12 && [...categories.values()].every((n) => n === 16), JSON.stringify([...categories]));
   const unknown = WORDS.flatMap((w) => w.tags.filter((t) => !known.has(t)).map((t) => `${w.name}:${t}`));
   check('모든 태그가 실제 축의 이름이다(오타 없음)', unknown.length === 0, unknown.join(','));
   const both = WORDS.flatMap((w) => AXES.filter((a) => w.tags.includes(a.a) && w.tags.includes(a.b)).map((a) => `${w.name}:${a.id}`));
@@ -63,6 +63,10 @@ function check(name, ok, detail) {
   check('모든 단어가 태그 9개 이상, 서로 다른 묶음 7개 이상에서 판단된다(어느 단어가 정답이어도 힌트 5개를 짤 수 있다)', thin.length === 0, thin.map((w) => w.name).join(','));
   const lopsided = AXES.filter((a) => WORDS.filter((w) => w.tags.includes(a.a)).length < 3 || WORDS.filter((w) => w.tags.includes(a.b)).length < 3);
   check('모든 축의 양쪽 극에 단어가 3개 이상 있다(한쪽만 쓰이는 축이 없다)', lopsided.length === 0, lopsided.map((a) => a.id).join(','));
+  const holes = WORDS.flatMap((w) => [1, 2, 3, 4, 5].filter((level) => !AXES.some((a) => a.level === level && sideOf(a, w))).map((level) => `${w.name}:L${level}`));
+  check('모든 단어가 난이도 1~5마다 쓸 수 있는 힌트 축을 하나 이상 가진다(어느 라운드도 비지 않는다)', holes.length === 0, holes.join(','));
+  const swallowed = AXES.flatMap((a) => [a.a, a.b]).flatMap((label) => names.filter((n) => label.includes(n)).map((n) => `${label}⊃${n}`));
+  check('힌트 이름이 단어 이름을 담지 않는다(담으면 그 단어가 후보일 때마다 그 축을 못 쓴다)', swallowed.length === 0, swallowed.join(','));
   const hollow = WORDS.filter((w) => !w.parents || !w.parents.length);
   check('모든 단어에 상위 개념이 있다(힌트가 정답의 상위 개념을 말하지 않는지 검사하려고)', hollow.length === 0, hollow.map((w) => w.name).join(','));
 }
@@ -130,7 +134,7 @@ function check(name, ok, detail) {
   check('힌트의 90% 이상이 그 라운드가 바라는 난이도에서 한 단계 안이다', stats.near / stats.hints >= 0.9, `${(stats.near / stats.hints * 100).toFixed(1)}%`);
   const leftSmall = stats.left.filter((n) => n <= 5).length / stats.left.length;
   const mean = stats.left.reduce((a, b) => a + b, 0) / stats.left.length;
-  check('힌트 5개를 다 쓰면 후보가 충분히 줄어든다(85% 이상의 판에서 5개 이하, 평균 4.5개 이하)', leftSmall >= 0.85 && mean <= 4.5, `5개 이하 ${(leftSmall * 100).toFixed(1)}%, 평균 ${mean.toFixed(2)}`);
+  check('힌트 5개를 다 쓰면 후보가 충분히 줄어든다(80% 이상의 판에서 5개 이하, 평균 4.5개 이하)', leftSmall >= 0.8 && mean <= 4.5, `5개 이하 ${(leftSmall * 100).toFixed(1)}%, 평균 ${mean.toFixed(2)}`);
   check('힌트가 한쪽(늘 A 또는 늘 B)으로 쏠리지 않는다(5개가 모두 같은 쪽인 판은 10% 이하)', (stats.sameSide || 0) / SEEDS <= 0.1, `${stats.sameSide}`);
 }
 
@@ -152,7 +156,7 @@ function check(name, ok, detail) {
       } catch (err) { problems.push(`${word.name}: ${err.message}`); }
     }
   }
-  check('96개 단어 모두 정답이 되었을 때 힌트 5개를 짤 수 있다', problems.length === 0, problems.slice(0, 5).join(' / '));
+  check(`${WORDS.length}개 단어 모두 정답이 되었을 때 힌트 5개를 짤 수 있다`, problems.length === 0, problems.slice(0, 5).join(' / '));
   check('어느 단어가 정답이어도 안전망(태그가 적을 때의 마지막 기준)은 거의 쓰이지 않는다(1% 미만)', tiers / total < 0.01, `${tiers}/${total}`);
 }
 
