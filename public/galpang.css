@@ -13,6 +13,10 @@
 .hint-option.picked{background:#ecb22e;color:#3f2e00;font-weight:700}
 .hint-option.picked i{background:#3f2e0026}
 .hint-card small{display:block;margin-top:7px;color:#c9b7cb;font-size:10px}
+/* 왼쪽 패널 위쪽은 참가자, 아래쪽이 힌트 기록이다. poker.css가 모든 제목 앞에 붙이는 "모여서 게임"은 한 번만 쓴다. */
+.hint-panel .hints-title{margin-top:18px}
+.hint-panel .hints-title:before{content:none}
+.hints-empty{margin:0 10px;color:#c9b7cb;font-size:12px;line-height:1.5}
 
 #board{min-height:330px;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:20px 16px;border:1px solid #350d36;border-radius:8px;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a;color:#f4e8f5;text-align:center}
 .rules{max-width:620px;margin:0;font-size:13px;line-height:1.65}
@@ -27,6 +31,8 @@
 .cand.removed .no{color:#ffffff90}
 .cand.wrong:after{content:"오답";position:absolute;right:6px;top:5px;padding:1px 5px;border-radius:8px;background:#d72c0d;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
 .cand:disabled{cursor:not-allowed}
+/* 투표 중인 제안의 대상 후보(지우려는 후보가 정답인지는 서버도 보지 않는다) */
+.cand.proposed{border-color:#ecb22e;border-style:dashed;box-shadow:0 0 0 2px #ecb22e}
 /* 끝난 뒤 정답 칸 */
 .cand.answer{opacity:1;border-style:solid;border-color:#ecb22e;background:#fff3cd;color:#1d1c1d;box-shadow:0 0 0 2px #ecb22e;text-decoration:none}
 .cand.answer .no{color:#6b6b6f}
@@ -61,7 +67,7 @@
 .command-form input{flex:1}
 .button-link{display:inline-grid;place-items:center;min-height:38px;padding:0 15px;border:1px solid #d8d8da;border-radius:4px;background:#fff;color:#1d1c1d;font-weight:700;text-decoration:none}
 .controls .text-button{margin-left:auto}
-#end-controls .button-link{margin-left:auto}
+#lobby .button-link{margin-left:auto}
 
 /* 연결이 끊긴 동안은 후보도 누를 수 없다(poker.css가 조작부는 막는다). */
 body[data-offline] #grid,body[data-offline] .console form{pointer-events:none;opacity:.55}
@@ -72,6 +78,7 @@ body[data-offline] #grid,body[data-offline] .console form{pointer-events:none;op
   .galpang-page main{overflow:visible}
   /* 힌트 기록은 옆으로 넘기는 띠로 둔다. 새 힌트가 나오면 맨 끝으로 스크롤한다(galpang.js). */
   .hint-panel{padding:8px 10px}
+  .hint-panel #players{margin-bottom:8px}
   .hint-panel #hints{flex-direction:row;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
   .hint-card{flex:0 0 min(210px,70vw);scroll-snap-align:start;padding:8px 9px}
   .hint-option{padding:5px 7px;font-size:12px}
@@ -80,7 +87,7 @@ body[data-offline] #grid,body[data-offline] .console form{pointer-events:none;op
   .cand{min-height:64px;padding:20px 4px 6px;font-size:13px}
   .console{padding:6px 12px}
   .controls{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .controls .text-button,#end-controls .button-link{margin-left:0}
+  .controls .text-button,#lobby .button-link{margin-left:0}
   .button-link{min-height:44px}
 }
 @media(prefers-reduced-motion:reduce){.hint-card{scroll-behavior:auto}}

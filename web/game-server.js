@@ -61,8 +61,12 @@ const CARD_GAME_ACTIONS = {
     star: (room, id) => room.proposeStar(id),
     starVote: (room, id, m) => room.voteStar(id, m.voteId, m.agree === true),
   },
-  // 혼자 하는 게임이라 준비·시작이 없다. 모든 조작이 명령어 한 줄이다(web/galpang/parser.js).
+  // 준비·시작은 다른 게임과 같다. 판을 바꾸는 조작은 모두 명령어 한 줄이고(web/galpang/parser.js), 방이 그것을
+  // 과반수 동의를 받는 제안으로 바꾼다. 제안에 대한 찬반은 vote로 보낸다.
   galpang: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    start: (room, id) => room.begin(id),
+    vote: (room, id, m) => room.vote(id, m.proposalId, m.agree === true),
     command: (room, id, m) => room.command(id, m.line),
   },
 };
@@ -165,7 +169,7 @@ function createGameServer(options) {
 
   /**
    * 카드 게임 상태를 접속자 각각에게 "그 사람 몫으로" 보낸다. onlyId를 주면 그 참가자에게만 보낸다 -
-   * 혼자 하는 게임(갈팡질팡)은 한 사람이 눌렀다고 남의 화면까지 다시 보낼 이유가 없다.
+   * 한 사람에게만 답하는 경우(갈팡질팡의 도움말·목록·입력 오류)에 남의 화면까지 다시 보낼 이유가 없다.
    */
   function broadcastCardGame(game, onlyId) {
     if (!game.room) return;
@@ -192,8 +196,8 @@ function createGameServer(options) {
   }
 
   /**
-   * 포털 접속자에게 인원·상태를 보낸다. 같은 내용이면 다시 보내지 않는다 - 혼자 하는 게임(갈팡질팡)은
-   * 명령 한 번마다 상태가 알려져서, 그때마다 포털 접속자 전원에게 똑같은 글을 보내게 된다.
+   * 포털 접속자에게 인원·상태를 보낸다. 같은 내용이면 다시 보내지 않는다 - 갈팡질팡은 명령·투표 한 번마다
+   * 상태가 알려져서, 그때마다 포털 접속자 전원에게 똑같은 글을 보내게 된다.
    */
   let lastPortalJson = null;
   function broadcastPortal() {
