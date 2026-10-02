@@ -17,7 +17,7 @@
 
 const crypto = require('crypto');
 const { createRng } = require('./rng');
-const { STATUS, GameState, CANDIDATE_COUNT, MAX_ROUND, ALLOWED, isFinished } = require('./state');
+const { STATUS, GameState, CANDIDATE_COUNT, CANDIDATE_SPREAD, MAX_ROUND, ALLOWED, isFinished } = require('./state');
 const { pickCandidates, chooseAnswer } = require('./generator');
 const { buildPlan, publicHint } = require('./hint');
 const WORDS = require('./data/words.json');
@@ -30,12 +30,16 @@ class GameEngine {
    * options: { seed, debug, words, axes }
    *   seed   같은 값이면 후보·정답·힌트가 같다. 없으면 무작위.
    *   debug  true면 debugInfo()로 정답·힌트 계획·상태 전이를 볼 수 있다(일반 게임에서는 쓰지 않는다).
+ *   spread 후보를 몇 개 카테고리에서 뽑을지(기본 CANDIDATE_SPREAD), difficulty 힌트 난이도(기본 hint.js의 DIFFICULTY).
+ *          둘 다 시험·시뮬레이션에서 바꿔 보려는 것이다.
    */
   constructor(options) {
     const opts = options || {};
     this.words = opts.words || WORDS;
     this.axes = opts.axes || AXES;
     this.debug = !!opts.debug;
+    this.spread = opts.spread === undefined ? CANDIDATE_SPREAD : opts.spread;
+    this.difficulty = opts.difficulty; // 없으면 hint.js의 기본 난이도
     this.transitions = [];
     this._create(opts.seed === undefined ? randomSeed() : opts.seed);
   }
@@ -47,10 +51,10 @@ class GameEngine {
     this.state = new GameState(seed);
     this._enter(STATUS.INIT);
     const state = this.state;
-    state.candidates = pickCandidates(this.words, createRng(seed, 'candidates'), CANDIDATE_COUNT);
+    state.candidates = pickCandidates(this.words, createRng(seed, 'candidates'), CANDIDATE_COUNT, this.spread);
     state.answer = chooseAnswer(state.candidates, createRng(seed, 'answer'));
     state.plan = buildPlan({
-      answer: state.answer, candidates: state.candidates, axes: this.axes, rng: createRng(seed, 'hints'), rounds: MAX_ROUND,
+      answer: state.answer, candidates: state.candidates, axes: this.axes, rng: createRng(seed, 'hints'), rounds: MAX_ROUND, difficulty: this.difficulty,
     });
     state.hintHistory = [publicHint(state.plan[0])];
     this._answerId = state.answer.id;

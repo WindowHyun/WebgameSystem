@@ -16,6 +16,8 @@
  * 전에는 어떤 메시지에도 실리지 않는다(web/galpang/engine.js의 publicView). 브라우저는 후보 16개와 이미
  * 공개된 힌트만 받는다. seed도 내보내지 않는다 - 규칙 코드가 공개돼 있어서 seed를 알면 정답을 계산할 수 있다.
  * 제안 단계에서도 지우려는 후보가 정답인지는 보지 않는다(web/galpang/actions.js의 problem).
+ * 단, 서버 관리 로그에는 게임을 시작할 때 정답을 한 번 남긴다(운영자가 판을 확인하려는 요청). 로그는 서버 프로세스의
+ * 출력일 뿐 어떤 연결로도 나가지 않는다. 그 밖의 로그 줄에는 후보를 번호로만 쓴다.
  *
  * [재접속] 새로고침·네트워크 전환으로 끊겨도 같은 토큰이면 같은 자리로 돌아온다. 끊긴 사람은 투표 인원에서
  * 빠지고(접속자 과반수), idleMs(기본 30분) 안에 돌아오지 않으면 자리를 정리한다.
@@ -318,7 +320,10 @@ function createGalpangRoom(options) {
     phase = 'playing';
     for (const p of players) { p.pendingQuit = false; p.ready = false; }
     say(going.length > 1 ? `${starter.nickname}님이 게임을 시작했습니다. (${going.length}명: ${going.map((p) => p.nickname).join(', ')})` : null, session.intro());
-    act(starter.nickname, `게임 시작 (${going.length}명: ${going.map((p) => p.nickname).join(', ')})`);
+    // [요청] 운영자가 서버 로그에서 판을 확인할 수 있게 시작할 때 정답을 남긴다. 화면(상태 메시지)에는 끝나기 전에
+    // 정답이 가지 않는다. 이 줄 말고는 로그에 후보 이름을 남기지 않는다(describe의 withNames).
+    const answer = session.engine.state.answer;
+    act(starter.nickname, `게임 시작 (${going.length}명: ${going.map((p) => p.nickname).join(', ')}) · 정답: ${answer.id}번 ${answer.name}`);
     changed();
     return null;
   }

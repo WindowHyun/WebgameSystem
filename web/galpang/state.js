@@ -8,6 +8,9 @@
 
 const STATUS = Object.freeze({ INIT: 'INIT', PLAYING: 'PLAYING', WON: 'WON', LOST: 'LOST', QUIT: 'QUIT' });
 const CANDIDATE_COUNT = 16;
+// 후보 16개를 이 수의 카테고리에서만 뽑는다(카테고리마다 3~4개). 12개 카테고리에서 하나씩 뽑으면 후보끼리 종류가 달라서
+// "살아 있음"이나 "전기를 씀" 같은 힌트 하나에 카테고리째 걸러진다. 비슷한 종류끼리 모아야 후보를 가르기 어렵다.
+const CANDIDATE_SPREAD = 5;
 const MAX_ROUND = 5;
 
 const ALLOWED = {
@@ -35,4 +38,4 @@ class GameState {
   }
 }
 
-module.exports = { STATUS, GameState, CANDIDATE_COUNT, MAX_ROUND, ALLOWED, isFinished };
+module.exports = { STATUS, GameState, CANDIDATE_COUNT, CANDIDATE_SPREAD, MAX_ROUND, ALLOWED, isFinished };

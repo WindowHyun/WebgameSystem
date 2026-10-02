@@ -63,7 +63,9 @@ function setup(extra) {
   const vote = (p, agree) => room.vote(p.playerId, st(p).proposal && st(p).proposal.id, agree);
   /** 지금 판의 정답이 아닌 후보 번호들. */
   const notAnswer = (count) => IDS.filter((id) => id !== answer().id).slice(0, count);
-  return { room, changes, logs, person, st, ready, answer, cmd, vote, notAnswer };
+  /** 시작 줄(운영자 요청으로 정답을 남긴다)을 뺀 나머지 로그에는 이 이름이 없다. */
+  const namelessOutsideStart = (name) => logs.filter((l) => !l.includes(' 게임 시작 (')).every((l) => !l.includes(name));
+  return { room, changes, logs, person, st, ready, answer, cmd, vote, notAnswer, namelessOutsideStart };
 }
 
 (async () => {
@@ -114,7 +116,9 @@ function setup(extra) {
       check('진행 중에는 다시 시작할 수 없다', typeof t.room.begin(a.playerId) === 'string');
       const d = t.person('늦은사람');
       check('진행 중에 들어온 사람은 구경한다(다음 게임부터 참여)', t.st(d).you.inGame === false && t.st(d).phase === 'playing' && t.logs.some((l) => l.includes('늦은사람 입장 (진행 중 - 다음 게임부터)')));
-      check('시작 로그에 참가자 이름이 남는다', t.logs.some((l) => l.includes('게임 시작 (2명: 김하늘, 박서준)')), t.logs.join(' | '));
+      check('시작 로그에 참가자 이름과 정답이 남는다(운영자 요청)', t.logs.some((l) => l === `최민아 게임 시작 (2명: 김하늘, 박서준) · 정답: ${t.answer().id}번 ${t.answer().name}`), t.logs.join(' | '));
+      check('정답은 시작 줄에만 남고 다른 로그 줄에는 후보 이름이 없다', t.namelessOutsideStart(t.answer().name), t.logs.join(' | '));
+      check('시작 줄의 정답이 상태 메시지에는 실리지 않는다(진행 중)', findSecret(t.st(a)) === null && !JSON.stringify(t.st(a)).includes('정답:'), JSON.stringify(t.st(a)).slice(0, 80));
       check('시작을 모두에게 알린 공통 글이 있다(누가 시작했고 누가 함께하는지 + 후보 목록)', t.st(a).output && t.st(a).output.title === '최민아님이 게임을 시작했습니다. (2명: 김하늘, 박서준)' && t.st(a).output.lines.join('\n').includes('[ROUND 1]'), JSON.stringify(t.st(a).output && t.st(a).output.title));
     } finally { t.room.dispose(); }
   }
@@ -264,7 +268,7 @@ function setup(extra) {
       check('끝나면 준비가 풀리고 다시 준비해야 한다(목록·시작 가능 여부)', ended.players.every((x) => x.ready === false) && ended.canStart === false && ended.alone === false);
       check('끝난 뒤의 조작 명령은 종료 안내만 받고 판은 그대로다', t.cmd(a, 'remove 1') === null && t.st(a).reply.lines[0] === '게임이 종료되었습니다.' && t.st(a).status === 'LOST' && t.st(a).round === 2);
       check('끝난 뒤 도움말·목록·기록은 볼 수 있다', t.cmd(a, 'history') === null && t.st(a).reply.lines[0] === '[힌트 기록]' && t.cmd(a, 'list all') === null && t.st(a).reply.lines[0] === '[전체 후보]');
-      check('오답으로 끝난 로그에 정답 이름이 남지 않는다', t.logs.some((l) => l.includes('오답으로 종료 (2라운드)')) && t.logs.every((l) => !l.includes(t.answer().name)), t.logs.slice(-4).join(' | '));
+      check('오답으로 끝난 로그에는(시작 줄을 빼면) 정답 이름이 남지 않는다', t.logs.some((l) => l.includes('오답으로 종료 (2라운드)')) && t.namelessOutsideStart(t.answer().name), t.logs.slice(-4).join(' | '));
 
       // 다시 시작: 준비 → 시작
       check('준비한 사람이 없으면 다시 시작할 수 없다', typeof t.room.begin(a.playerId) === 'string');
@@ -339,7 +343,7 @@ function setup(extra) {
       check('정답 후보를 지우는 제안이 통과되면 그 자리에서 끝나고 정답·해설이 모두에게 간다', lost.status === 'LOST' && lost.summary.how === 'removed' && lost.summary.answer.id === hit.target && lost.summary.explanations.length === 1
         && lost.candidates[hit.target - 1].removed && same(hit.t.st(hit.b).summary, lost.summary) && lost.output.lines.join('\n').includes('정답 후보를 지웠습니다.'));
       check('아닌 후보를 지우는 제안이 통과되면 게임은 이어지고 정답은 없다', miss.t.st(miss.a).status === 'PLAYING' && miss.t.st(miss.a).remaining === 15 && miss.t.st(miss.a).summary === null);
-      check('관리 로그에 정답 후보를 지워서 종료한 것이 남고 정답 이름은 남지 않는다', hit.t.logs.some((l) => l.includes('정답 후보를 지워서 종료 (1라운드)')) && hit.t.logs.every((l) => !l.includes(hit.t.answer().name)), hit.t.logs.slice(-4).join(' | '));
+      check('관리 로그에 정답 후보를 지워서 종료한 것이 남고, 시작 줄 말고는 정답 이름이 남지 않는다', hit.t.logs.some((l) => l.includes('정답 후보를 지워서 종료 (1라운드)')) && hit.t.namelessOutsideStart(hit.t.answer().name) && hit.t.logs.some((l) => l.includes(` · 정답: ${hit.target}번 ${hit.t.answer().name}`)), hit.t.logs.slice(-4).join(' | '));
     } finally { hit.t.room.dispose(); miss.t.room.dispose(); }
   }
 
