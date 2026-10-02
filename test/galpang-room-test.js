@@ -18,6 +18,10 @@ const { createGameServer } = require('../web/game-server');
 const { GameEngine } = require('../web/galpang/engine');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// 정답 후보를 지우면 게임이 끝나므로, 정해 둔 번호를 지우는 시험은 그 번호에 정답이 없는 판에서 해야 한다.
+// 조건에 맞는 seed를 올려 가며 찾으므로, 데이터가 바뀌어 정답이 달라져도 시험이 깨지지 않는다.
+const answerOf = (seed) => new GameEngine({ seed }).state.answer;
+const seedWhere = (ok, from) => { for (let candidate = from; ; candidate += 1) if (ok(candidate)) return candidate; };
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -42,7 +46,7 @@ function findSecret(value, trail) {
   {
     const changes = [];
     const logs = [];
-    const room = createGalpangRoom({ onChange: (id) => changes.push(id), onAction: (who, what) => logs.push(`${who} ${what}`), seed: 100 });
+    const room = createGalpangRoom({ onChange: (id) => changes.push(id), onAction: (who, what) => logs.push(`${who} ${what}`), seed: seedWhere((c) => ![1, 2, 3].includes(answerOf(c).id), 100) });
     try {
       const a = room.join({ nickname: '김하늘' });
       const b = room.join({ nickname: '박서준' });
@@ -111,6 +115,20 @@ function findSecret(value, trail) {
       check('관리 로그에 오답 종료가 남고 정답 이름은 남지 않는다', logs.some((line) => line.includes('오답자 오답으로 종료 (2라운드)')) && logs.every((line) => !line.includes(lostAnswer.name) && !line.includes(answer.name)), logs.slice(-4).join(' | '));
       room.leave(loser.playerId);
 
+      // 정답 후보를 지워도 그 자리에서 끝난다
+      const eraser = room.join({ nickname: '지우개' });
+      const eraseAnswer = room._debug().players.find((p) => p.id === eraser.playerId).session.engine.state.answer;
+      room.command(eraser.playerId, `remove ${eraseAnswer.id === 1 ? 2 : 1}`);
+      check('정답이 아닌 후보를 지우면 게임은 이어지고 정답은 상태에 없다', room.stateFor(eraser.playerId).status === 'PLAYING' && findSecret(room.stateFor(eraser.playerId)) === null && room.stateFor(eraser.playerId).summary === null);
+      room.command(eraser.playerId, `remove ${eraseAnswer.id}`);
+      const erased = room.stateFor(eraser.playerId);
+      check('정답 후보를 지우면 그 자리에서 끝나고(LOST) 정답·지운 후보 표시·공개된 힌트(1개)의 해설이 상태에 실린다', erased.status === 'LOST' && erased.round === 1 && erased.summary.how === 'removed' && erased.summary.answer.name === eraseAnswer.name
+        && erased.summary.explanations.length === 1 && erased.candidates[eraseAnswer.id - 1].removed && erased.candidates.every((c) => !c.wrong), JSON.stringify(erased.summary && { how: erased.summary.how }));
+      check('정답을 지워서 끝난 상태에도 후보의 특징·카테고리·seed·계획은 실리지 않는다', ['tags', 'category', 'parents', 'seed', 'plan', 'side', 'axis'].every((k) => !JSON.stringify(erased).includes(`"${k}"`)));
+      check('정답을 지워서 끝난 뒤에는 종료 안내만 나오고 판은 그대로다', (() => { room.command(eraser.playerId, `guess ${eraseAnswer.id}`); room.command(eraser.playerId, 'next'); const t = room.stateFor(eraser.playerId); return t.status === 'LOST' && t.round === 1 && t.output.lines[0] === '게임이 종료되었습니다.'; })());
+      check('관리 로그에 정답 후보를 지워서 종료한 것이 남고 정답 이름은 남지 않는다', logs.some((line) => line.includes('지우개 정답 후보를 지워서 종료 (1라운드)')) && logs.every((line) => !line.includes(eraseAnswer.name)), logs.slice(-3).join(' | '));
+      room.leave(eraser.playerId);
+
       // 포기 확인
       room.command(b.playerId, 'quit');
       check('quit: 종료 확인 대기(pendingQuit)가 상태에 실린다', room.stateFor(b.playerId).pendingQuit === true && room.stateFor(b.playerId).status === 'PLAYING');
@@ -162,9 +180,10 @@ function findSecret(value, trail) {
   const port = 4812;
   const original = console.error;
   console.error = () => {};
-  // 테스트에서만: 모든 접속의 첫 판을 seed 7로 고정한다. 정답을 맞히는 길을 보려면 정답을 알아야 한다.
-  const SEED = 7;
-  const firstAnswer = new GameEngine({ seed: SEED }).state.answer;
+  // 테스트에서만: 모든 접속의 첫 판을 고정한다. 정답을 맞히거나 지우는 길을 보려면 정답을 알아야 한다.
+  // 이 시험이 지우는 번호(처음 판은 1·2, restart한 판은 4·5·6)에 정답이 없는 seed를 고른다.
+  const SEED = seedWhere((c) => ![1, 2].includes(answerOf(c).id) && ![4, 5, 6].includes(answerOf(`${c}#1`).id), 7);
+  const firstAnswer = answerOf(SEED);
   const awayFrom = (...ids) => Array.from({ length: 16 }, (_, i) => i + 1).filter((id) => !ids.includes(id));
   const [pickA, pickB] = awayFrom(firstAnswer.id); // 정답이 아닌 후보 둘(지워도 정답 제출에 지장이 없다)
   const server = createGameServer({ port, host: '127.0.0.1', galpangSeed: SEED });
@@ -276,6 +295,25 @@ function findSecret(value, trail) {
     await wait(150);
     check('오답으로 끝난 뒤 restart하면 새 판이다', loser.last('galpangState').status === 'PLAYING' && loser.last('galpangState').summary === null && loser.last('galpangState').candidates.every((c) => !c.wrong));
     loser.ws.close();
+
+    // 정답 후보를 지워도 그 자리에서 끝난다
+    const eraser = await open('galpang', '지우개');
+    await wait(150);
+    eraser.send({ type: 'command', line: `remove ${firstAnswer.id === 1 ? 2 : 1}` });
+    await wait(120);
+    check('정답이 아닌 후보를 지우면 게임은 이어진다(정답은 상태에 없다)', eraser.last('galpangState').status === 'PLAYING' && eraser.last('galpangState').summary === null && findSecret(eraser.last('galpangState')) === null);
+    eraser.send({ type: 'command', line: `remove ${firstAnswer.id}` });
+    await wait(150);
+    const erasedState = eraser.last('galpangState');
+    check('정답 후보를 지우면 그 자리에서 LOST이고 정답이 온다(지웠다는 안내·정답 이름)', erasedState.status === 'LOST' && erasedState.summary.how === 'removed' && erasedState.summary.answer.name === firstAnswer.name
+      && erasedState.output.lines.join('\n').includes('정답 후보를 지웠습니다.') && erasedState.output.lines.join('\n').includes(`정답: ${firstAnswer.id}번 ${firstAnswer.name}`));
+    check('정답을 지워서 끝난 상태 메시지에도 후보의 특징·seed·계획은 없다', ['tags', 'category', 'parents', 'seed', 'plan', 'axis'].every((k) => !JSON.stringify(erasedState).includes(`"${k}"`)));
+    eraser.send({ type: 'command', line: 'restart' });
+    await wait(150);
+    eraser.send({ type: 'command', line: `remove ${Array.from({ length: 16 }, (_, i) => i + 1).join(' ')}` });
+    await wait(150);
+    check('후보 16개를 다 지우려 해도 그 자리에서 끝나고 정답이 공개된다(안 끝나고 멈춰 있지 않는다)', eraser.last('galpangState').status === 'LOST' && eraser.last('galpangState').summary.how === 'removed' && eraser.last('galpangState').candidates.every((c) => c.removed));
+    eraser.ws.close();
 
     // 이름이 길어도 잘려 들어온다
     const longName = await open('galpang', '가'.repeat(40));

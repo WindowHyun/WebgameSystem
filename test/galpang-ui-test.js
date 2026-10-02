@@ -9,6 +9,7 @@
  *   - 다음 라운드를 누르면 힌트가 하나 늘고, 마지막 라운드에서는 한 번 더 묻는다
  *   - 정답 제출은 한 번뿐: 누르면 확인 창이 뜨고(다시 고르기·Esc로 취소), 제출해서 틀리면 그 자리에서 게임이 끝나며
  *     정답이 공개된다(1라운드·3라운드). 맞히면 정답 칸이 표시되고 힌트 해설이 나온다
+ *   - 정답 후보를 지워도 그 자리에서 끝난다(하나만 지울 때도, 16개를 다 지울 때도). 지운 정답 칸은 읽히게 표시된다
  *   - 끝나기 전에는 정답·해설이 화면(DOM)에 없다
  *   - 포기는 확인 창을 거친다(계속하기 / 종료). 포기하면 정답은 나오지 않는다
  *   - 새로고침해도 진행 중이던 판이 그대로다. 다시 시작하면 새 판이다
@@ -35,9 +36,11 @@ function check(name, ok, detail) {
   const port = 4623;
   const original = console.error;
   console.error = () => {};
-  // 테스트에서만: 모든 접속의 첫 판을 seed 7로 고정한다. 정답 제출은 한 번뿐이라서, 정답을 맞히는 길을 보려면 정답을
-  // 알아야 한다. 접속 하나가 restart할 때마다 seed가 `7#1`, `7#2`…로 이어진다(web/galpang/session.js).
-  const SEED = 7;
+  // 테스트에서만: 모든 접속의 첫 판을 고정한다. 정답 제출은 한 번뿐이고 정답을 지워도 끝나서, 정답을 맞히거나 지우는
+  // 길을 보려면 정답을 알아야 한다. 접속 하나가 restart할 때마다 seed가 `7#1`, `7#2`…로 이어진다(web/galpang/session.js).
+  // 이 시험의 첫 판이 지우는 번호(2·3·5·8·12)에 정답이 없는 seed를 고른다 - 정답 후보를 지우면 게임이 끝나므로.
+  // 올려 가며 찾으니, 데이터가 바뀌어 정답이 달라져도 시험이 깨지지 않는다.
+  const SEED = (() => { for (let c = 7; ; c += 1) if (![2, 3, 5, 8, 12].includes(new GameEngine({ seed: c }).state.answer.id)) return c; })();
   const answerOfGame = (index) => new GameEngine({ seed: index === 0 ? SEED : `${SEED}#${index}` }).state.answer;
   const wrongPick = (answerId, ...also) => Array.from({ length: 16 }, (_, i) => i + 1).find((id) => id !== answerId && !also.includes(id));
   const server = createGameServer({ port, host: '127.0.0.1', galpangSeed: SEED });
@@ -231,6 +234,48 @@ function check(name, ok, detail) {
       s = await snapshot(page);
       const text3 = await text(page, '#result');
       check('3라운드에서 틀리면 3라운드에서 끝나고 해설은 힌트 3개다', s.status === 'LOST' && s.round === '3 / 5' && /3라운드에서 게임이 끝났습니다/.test(text3) && (await page.locator('#result li').count()) === 3 && text3.includes(`정답: ${answer.name}`), text3.slice(0, 140));
+    }
+
+    // ── 정답 후보를 지워도 그 자리에서 끝 ──
+    await page.click('#restart');
+    await wait(400);
+    gameIndex += 1;
+    {
+      const answer = answerOfGame(gameIndex);
+      const spare = wrongPick(answer.id);
+      await cand(page, spare).click();
+      await page.click('#remove');
+      await wait(300);
+      s = await snapshot(page);
+      check('정답이 아닌 후보를 지우면 게임은 이어진다(제거 표시만 생긴다)', s.status === 'PLAYING' && JSON.stringify(s.removed) === `[${spare}]` && s.round === '1 / 5', JSON.stringify(s));
+      await cand(page, answer.id).click();
+      await page.click('#remove');
+      await wait(400);
+      s = await snapshot(page);
+      const erasedText = await text(page, '#result');
+      check('정답 후보를 지우면 그 자리에서 게임이 끝난다(LOST). 라운드는 그대로 1 / 5', s.status === 'LOST' && s.round === '1 / 5', JSON.stringify(s));
+      check('결과: "정답 후보를 지웠습니다", 지운 정답의 번호·이름이 나온다', /정답 후보를 지웠습니다/.test(erasedText) && erasedText.includes(`${answer.id}번 ${answer.name}`) && !/제출한 답/.test(erasedText), erasedText.slice(0, 140));
+      check('지운 정답 칸이 "정답"으로 표시되고 글자가 읽힌다(흐리게 지워진 모양이 아니다)', (await page.locator('#grid .cand.answer').count()) === 1 && (await page.locator('#grid .cand.answer').getAttribute('data-id')) === String(answer.id)
+        && s.removed.includes(answer.id) && (await page.locator('#grid .cand.answer').evaluate((el) => getComputedStyle(el).color)) === 'rgb(29, 28, 29)');
+      check('해설은 공개된 힌트 1개뿐이고, 낸 오답 표시는 없다', (await page.locator('#result li').count()) === 1 && s.wrong.length === 0);
+      check('상단 안내가 "정답 후보를 지워서 게임이 끝났습니다."이다', /정답 후보를 지워서 게임이 끝났습니다/.test(await text(page, '#message')) && (await text(page, '#phase')) === '실패');
+      check('끝난 뒤에는 다시 시작 / 게임 선택으로만 보이고 후보를 누를 수 없다', await page.isVisible('#restart') && !(await page.isVisible('#live-controls')) && (await page.locator('#grid .cand:not([disabled])').count()) === 0);
+    }
+
+    // ── 후보를 모두 지우려 해도 끝난다(안 끝나고 멈춰 있지 않는다) ──
+    await page.click('#restart');
+    await wait(400);
+    gameIndex += 1;
+    {
+      const answer = answerOfGame(gameIndex);
+      for (let id = 1; id <= 16; id += 1) await cand(page, id).click();
+      check('16개를 모두 고르면 제거 버튼이 "후보 제거 (16)"이다', /후보 제거 \(16\)/.test(await text(page, '#remove')));
+      await page.click('#remove');
+      await wait(400);
+      s = await snapshot(page);
+      const allText = await text(page, '#result');
+      check('후보를 전부 지워도 그 자리에서 끝나고 정답이 공개된다', s.status === 'LOST' && /정답 후보를 지웠습니다/.test(allText) && allText.includes(`${answer.id}번 ${answer.name}`) && s.removed.length === 16
+        && (await page.locator('#grid .cand.answer').count()) === 1, JSON.stringify({ status: s.status, removed: s.removed.length }));
     }
 
     // ── 마지막 라운드와 패배(5라운드가 다 지나서 지는 경우) ──

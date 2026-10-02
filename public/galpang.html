@@ -6,7 +6,7 @@
   <title>갈팡질팡</title>
   <link rel="stylesheet" href="poker.css?v=4">
   <link rel="stylesheet" href="responsive-fixes.css?v=7">
-  <link rel="stylesheet" href="galpang.css?v=3">
+  <link rel="stylesheet" href="galpang.css?v=4">
 </head>
 <body class="galpang-page">
   <div id="app">
@@ -25,7 +25,7 @@
       <section id="table">
         <div class="round-info"><span id="status-chip">후보 16개</span><span id="message">연결하는 중입니다.</span></div>
         <div id="board">
-          <p id="rules" class="rules">16개 후보 중 숨겨진 정답은 <strong>하나</strong>입니다. 힌트를 보고 아닐 것 같은 후보를 지우고, 5라운드 안에 정답을 맞혀 보세요. 정답 제출은 <strong>한 번뿐</strong>입니다 - 틀리면 바로 게임이 끝납니다.</p>
+          <p id="rules" class="rules">16개 후보 중 숨겨진 정답은 <strong>하나</strong>입니다. 힌트를 보고 아닐 것 같은 후보를 지우고, 5라운드 안에 정답을 맞혀 보세요. 정답 제출은 <strong>한 번뿐</strong>입니다 - 틀리면 바로 게임이 끝납니다. 정답 후보를 지워도 바로 끝나니, 지울 때도 신중하게 고르세요.</p>
           <div id="grid" class="grid" role="group" aria-label="후보 16개"></div>
           <p id="notice" class="notice" role="status"></p>
           <div id="result" class="result hidden"></div>
@@ -42,7 +42,7 @@
       </details>
 
       <section id="live-controls" class="controls">
-        <button id="remove" class="secondary" data-help="고른 후보를 정답 후보에서 지웁니다. 정답이어도 막지 않으니 신중하게 지우세요.">후보 제거</button>
+        <button id="remove" class="secondary" data-help="고른 후보를 정답 후보에서 지웁니다. 정답을 지우면 바로 게임이 끝나고 정답이 공개되니 신중하게 지우세요.">후보 제거</button>
         <button id="guess" data-help="고른 후보 하나를 정답으로 제출합니다. 기회는 한 번뿐이라, 틀리면 바로 게임이 끝나고 정답이 공개됩니다.">정답 제출</button>
         <button id="next" class="secondary" data-help="다음 라운드의 힌트를 봅니다. 마지막 라운드에서 누르면 게임이 끝납니다.">다음 라운드</button>
         <button id="quit" class="text-button" data-help="게임을 포기하고 끝냅니다.">포기</button>
@@ -67,7 +67,7 @@
   </div>
   <div id="error" role="alert"></div>
   <script src="game-socket.js?v=2"></script>
-  <script src="galpang.js?v=2"></script>
+  <script src="galpang.js?v=3"></script>
   <script src="mobile.js?v=4"></script>
   <script src="cover.js?v=14"></script>
 </body>

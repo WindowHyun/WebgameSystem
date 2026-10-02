@@ -80,6 +80,8 @@ function createSession(options) {
       case 'remove': {
         const result = engine.remove(command.numbers);
         if (result.code === 'INVALID_NUMBER') return finish(render.outOfRange(engine.state.candidates.length));
+        // 정답 후보를 지웠으면 그 자리에서 끝난다: 지운 번호들 뒤에 결과를 이어 보인다.
+        if (result.code === 'LOST') return finish([...render.removed(result), '', ...render.lost(engine.summary())]);
         return finish(render.removed(result));
       }
       case 'guess': {

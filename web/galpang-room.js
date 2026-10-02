@@ -116,7 +116,10 @@ function createGalpangRoom(options) {
     if (lines.length) { player.seq += 1; player.output = { seq: player.seq, lines }; }
     if (before !== after) {
       if (after === STATUS.WON) act(player.nickname, `정답 (${engine.round}라운드)`);
-      else if (after === STATUS.LOST) act(player.nickname, player.session.engine.state.wrongGuesses.length ? `오답으로 종료 (${engine.round}라운드)` : '실패 (5라운드 종료)');
+      else if (after === STATUS.LOST) {
+        const how = engine.summary().how;
+        act(player.nickname, how === 'wrong' ? `오답으로 종료 (${engine.round}라운드)` : how === 'removed' ? `정답 후보를 지워서 종료 (${engine.round}라운드)` : '실패 (5라운드 종료)');
+      }
       else if (after === STATUS.QUIT) act(player.nickname, '포기');
       else if (after === STATUS.PLAYING) act(player.nickname, '새 게임');
     }

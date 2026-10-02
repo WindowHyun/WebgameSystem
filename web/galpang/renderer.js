@@ -92,8 +92,21 @@ function lostByGuess(summary) {
   ];
 }
 
+/** 정답 후보를 지워서 끝났을 때: 지운 정답과 지금까지 공개된 힌트의 해설. */
+function lostByRemoval(summary) {
+  return [
+    LINE, '정답 후보를 지웠습니다.', LINE, '',
+    '정답이 후보에서 없어져서 게임이 끝났습니다.', '',
+    `정답: ${summary.answer.id}번 ${summary.answer.name}`, '',
+    `${summary.round}라운드에서 끝났습니다.`, '',
+    ...explanations(summary), '',
+    'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.',
+  ];
+}
+
 function lost(summary) {
   if (summary.how === 'wrong') return lostByGuess(summary);
+  if (summary.how === 'removed') return lostByRemoval(summary);
   return [
     LINE, '게임 종료', LINE, '',
     `${summary.maxRound}라운드 안에 정답을 맞히지 못했습니다.`, '',
