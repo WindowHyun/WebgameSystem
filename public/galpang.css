@@ -28,7 +28,7 @@
 .cand.wrong:after{content:"오답";position:absolute;right:6px;top:5px;padding:1px 5px;border-radius:8px;background:#d72c0d;color:#fff;font-size:10px;font-weight:700;text-decoration:none}
 .cand:disabled{cursor:not-allowed}
 /* 끝난 뒤 정답 칸 */
-.cand.answer{opacity:1;border-color:#ecb22e;background:#fff3cd;box-shadow:0 0 0 2px #ecb22e;text-decoration:none}
+.cand.answer{opacity:1;border-style:solid;border-color:#ecb22e;background:#fff3cd;color:#1d1c1d;box-shadow:0 0 0 2px #ecb22e;text-decoration:none}
 .cand.answer .no{color:#6b6b6f}
 .cand.answer:before{content:"정답";position:absolute;right:6px;top:5px;padding:1px 5px;border-radius:8px;background:#007a5a;color:#fff;font-size:10px;font-weight:700}
 .cand.answer.wrong:after{content:none}
@@ -48,6 +48,7 @@
 .result li b{margin-right:6px}
 .result li em{font-style:normal;font-weight:700;color:#007a5a}
 .result li span{display:block;color:#616061;font-size:12px}
+.guess-name{margin:12px 0 4px;color:#1d1c1d!important;font-size:20px;font-weight:700;overflow-wrap:anywhere}
 .result.won h2{color:#007a5a}
 .result.lost h2{color:#a52323}
 
