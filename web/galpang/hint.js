@@ -26,19 +26,31 @@ const { MAX_ROUND } = require('./state');
 // 쓸모 있는 힌트의 기준. 앞에서부터 시도하고, 기준을 만족하는 축이 없을 때만 다음으로 내려간다.
 //   minSame      정답과 같은 쪽 후보 수(정답 포함). 1이면 정답 하나만 콕 집는 직접적인 힌트다.
 //   minOpposite  반대쪽 후보 수. 이만큼은 걸러 낼 수 있어야 힌트다.
-//   minJudged    이 축으로 판단할 수 있는 후보 수(나머지는 판단하지 않음)
+//   minJudged    이 축으로 판단할 수 있는 후보 수(나머지는 판단하지 않음). 어려운 축은 DIFFICULTY.hardJudged로 낮춘다.
 //   maxDistance  라운드가 바라는 난이도에서 벗어나도 되는 폭
 //   repeatGroup  같은 묶음의 축을 한 판에 또 써도 되는가(태그가 아주 적은 단어를 위한 마지막 수단)
 // 뒤의 기준은 거의 쓰이지 않는다 - 어떤 단어·후보 조합에서도 게임이 멈추지 않게 하는 안전망이다.
 const TIERS = [
-  { minSame: 2, minOpposite: 3, minJudged: 5, maxDistance: 2, repeatGroup: false },
-  { minSame: 2, minOpposite: 2, minJudged: 4, maxDistance: 4, repeatGroup: false },
+  { minSame: 2, minOpposite: 2, minJudged: 4, maxDistance: 2, repeatGroup: false },
+  { minSame: 2, minOpposite: 1, minJudged: 3, maxDistance: 4, repeatGroup: false },
   { minSame: 1, minOpposite: 1, minJudged: 3, maxDistance: 4, repeatGroup: false },
   { minSame: 1, minOpposite: 0, minJudged: 1, maxDistance: 4, repeatGroup: false },
   { minSame: 1, minOpposite: 0, minJudged: 1, maxDistance: 4, repeatGroup: true },
 ];
-const ATTEMPTS = 80;       // 힌트 5개를 새로 짜 보는 횟수
-const GOOD_ENOUGH_LEFT = 3; // 5개를 다 쓰면 남는 후보가 이 이하면 잘 짠 것이다
+const ATTEMPTS = 120;      // 힌트 5개를 새로 짜 보는 횟수
+
+/**
+ * 난이도. 시험·시뮬레이션이 바꿔 보려고 GameEngine의 difficulty 옵션으로도 줄 수 있다.
+ *   target     힌트 5개를 다 쓰고도 남는 후보 수의 목표(태그로 판단되지 않는 후보는 남는 것으로 센다).
+ *              예전에는 5개를 80번 짜 보고 후보가 가장 적게 남는 것을 골랐다(목표 3개 이하). 그러면 어느 판이든 힌트만
+ *              따라가면 정답이 거의 드러나서 너무 쉬웠다. 이제는 목표 개수 안팎으로 남는 판을 고른다 - 힌트를 다
+ *              알아도 몇 개 사이에서 골라야 하고, 후보 하나를 정답으로 콕 집어 주는 판은 만들지 않는다.
+ *   tolerance  목표에서 이만큼까지 벗어난 판은 그대로 쓴다. 못 찾으면 목표에 가장 가까운 판을 쓴다.
+ *   hardShare  쓸 수 있는 힌트 중 "어려운 축"(hints.json에서 hard로 표시한, 느낌·기억·맥락처럼 겉으로 안 드러나는 개념)이
+ *              있으면 이 확률로 그쪽에서 고른다(1이면 있을 때는 늘 어려운 축). 어려운 축은 단어마다 판단되는 후보가 적어서, 판단할 수 있는 후보가
+ *              hardJudged개 이상이면 쓴다(쉬운 축은 tier의 minJudged).
+ */
+const DIFFICULTY = { target: 7, tolerance: 1, hardShare: 1, hardJudged: 3 };
 
 /** 후보가 이 축에서 어느 쪽인지: 'A' | 'B' | null(판단하지 않음). */
 function sideOf(axis, candidate) {
@@ -52,6 +64,8 @@ function sideOf(axis, candidate) {
 function isDirect(axis, answer, candidates) {
   const terms = [answer.name, answer.category, ...answer.parents];
   for (const label of [axis.a, axis.b]) {
+    // 정답 이름은 한 글자(예: 책, 꽃)여도 그 글자를 담은 이름("책임이 따름")은 정답을 암시해 보이므로 쓰지 않는다.
+    if (label.includes(answer.name)) return true;
     for (const term of terms) {
       if (label === term) return true;
       if (term.length >= 2 && label.length >= 2 && (label.includes(term) || term.includes(label))) return true;
@@ -101,7 +115,8 @@ function analyze(answer, candidates, axes) {
 }
 
 /** 힌트 한 라운드를 고른다. 못 찾으면 null. */
-function chooseHint({ round, answer, analysis, rng, used }) {
+function chooseHint({ round, answer, analysis, rng, used, difficulty }) {
+  const level = difficulty || DIFFICULTY;
   const judged = analysis.filter((entry) => entry.usable && !used.axes.has(entry.axis.id));
 
   for (const [tierIndex, tier] of TIERS.entries()) {
@@ -109,9 +124,11 @@ function chooseHint({ round, answer, analysis, rng, used }) {
       const levels = levelsAt(round, distance);
       const pool = judged.filter((entry) => levels.includes(entry.axis.level)
         && (tier.repeatGroup || !used.groups.has(entry.axis.group))
-        && entry.same >= tier.minSame && entry.opposite >= tier.minOpposite && entry.judged >= tier.minJudged);
+        && entry.same >= tier.minSame && entry.opposite >= tier.minOpposite
+        && entry.judged >= (entry.axis.hard ? Math.min(tier.minJudged, level.hardJudged) : tier.minJudged));
       if (!pool.length) continue;
-      const { axis, answerSide } = rng.pick(pool);
+      const hard = pool.filter((entry) => entry.axis.hard);
+      const { axis, answerSide } = rng.pick(hard.length && rng.chance(level.hardShare) ? hard : pool);
       const flip = rng.chance(0.5); // 정답이 늘 A에 오지 않게 한다
       const poles = flip ? [axis.b, axis.a] : [axis.a, axis.b];
       const chosen = answerSide === 'A' ? axis.a : axis.b;
@@ -152,11 +169,11 @@ function leftFromAnalysis(plan, analysis, candidateCount) {
   return left;
 }
 
-function draft({ answer, analysis, rng, rounds }) {
+function draft({ answer, analysis, rng, rounds, difficulty }) {
   const used = { groups: new Set(), axes: new Set() };
   const plan = [];
   for (let round = 1; round <= rounds; round += 1) {
-    const hint = chooseHint({ round, answer, analysis, rng, used });
+    const hint = chooseHint({ round, answer, analysis, rng, used, difficulty });
     if (!hint) return null;
     used.groups.add(hint.group);
     used.axes.add(hint.axis);
@@ -166,18 +183,19 @@ function draft({ answer, analysis, rng, rounds }) {
 }
 
 /**
- * 라운드별 힌트를 정한다. 5개를 짜 보고, 다 쓰고도 남는 후보가 너무 많으면(= 힌트가 서로 겹쳐 후보를 못
- * 줄이면) 다시 짠다. 끝까지 못 줄여도 가장 잘 줄인 것을 쓴다 - 게임이 멈추면 안 된다.
+ * 라운드별 힌트를 정한다. 5개를 짜 보고, 다 쓰고 남는 후보 수가 난이도(difficulty)의 목표 안팎(target ± tolerance)이면
+ * 그것을 쓴다. 아니면 다시 짜서, 끝까지 못 찾아도 목표에 가장 가까운 것을 쓴다 - 게임이 멈추면 안 된다.
  */
-function buildPlan({ answer, candidates, axes, rng, rounds }) {
+function buildPlan({ answer, candidates, axes, rng, rounds, difficulty }) {
+  const level = difficulty || DIFFICULTY;
   const analysis = analyze(answer, candidates, axes);
   let best = null;
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    const plan = draft({ answer, analysis, rng, rounds: rounds || MAX_ROUND });
+    const plan = draft({ answer, analysis, rng, rounds: rounds || MAX_ROUND, difficulty: level });
     if (!plan) continue;
     const left = leftFromAnalysis(plan, analysis, candidates.length);
-    if (!best || left < best.left) best = { plan, left };
-    if (left <= GOOD_ENOUGH_LEFT) break;
+    if (!best || Math.abs(left - level.target) < Math.abs(best.left - level.target)) best = { plan, left };
+    if (Math.abs(left - level.target) <= level.tolerance) break;
   }
   if (!best) throw new Error('힌트를 만들지 못했습니다.');
   return best.plan;
@@ -188,4 +206,4 @@ function publicHint(hint) {
   return { round: hint.round, optionA: hint.optionA, optionB: hint.optionB, selected: hint.selected };
 }
 
-module.exports = { buildPlan, publicHint, leftAfter, sideOf, isDirect, topic, TIERS, GOOD_ENOUGH_LEFT };
+module.exports = { buildPlan, publicHint, leftAfter, sideOf, isDirect, topic, TIERS, DIFFICULTY };

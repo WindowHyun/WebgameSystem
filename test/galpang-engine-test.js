@@ -3,7 +3,7 @@
 /**
  * 갈팡질팡 규칙 엔진(web/galpang/engine.js) - 브라우저 없이 규칙만 본다.
  *
- *   - 게임 생성: 후보 16개, 중복 없음, 카테고리가 한쪽으로 쏠리지 않음, 정답은 후보 안에 하나
+ *   - 게임 생성: 후보 16개, 중복 없음, 비슷한 종류 5개 카테고리에서 3~4개씩, 정답은 후보 안에 하나
  *   - seed: 같은 seed면 후보·정답·힌트가 같고, 다른 seed면 다르다. 정답은 힌트 계산과 무관하다
  *   - 상태 머신: INIT → PLAYING → WON | LOST | QUIT, 끝난 게임은 restart로만 다시 시작
  *   - 후보 제거: 정상·중복·이미 제거·범위 밖·소수·여러 개. 정답 후보도 막지 않는다(막으면 정답이 드러난다)
@@ -18,6 +18,8 @@
 
 const { GameEngine, STATUS, CANDIDATE_COUNT, MAX_ROUND } = require('../web/galpang/engine');
 const { createRng } = require('../web/galpang/rng');
+const { CANDIDATE_SPREAD } = require('../web/galpang/state');
+const { pickCandidates } = require('../web/galpang/generator');
 const WORDS = require('../web/galpang/data/words.json');
 const AXES = require('../web/galpang/data/hints.json');
 
@@ -51,18 +53,30 @@ const wrongId = (engine) => engine.state.candidates.find((c) => c.id !== answerO
     if (e.state.candidates.length !== CANDIDATE_COUNT) { ok = false; detail = `seed ${seed}: 후보 ${e.state.candidates.length}개`; }
     else if (new Set(names).size !== CANDIDATE_COUNT) { ok = false; detail = `seed ${seed}: 이름 중복`; }
     else if (!e.state.candidates.includes(e.state.answer)) { ok = false; detail = `seed ${seed}: 정답이 후보에 없음`; }
-    else if (Object.keys(perCategory).length !== categories.size || Math.max(...Object.values(perCategory)) > 2) { ok = false; detail = `seed ${seed}: ${JSON.stringify(perCategory)}`; }
+    else if (Object.keys(perCategory).length !== CANDIDATE_SPREAD || Math.min(...Object.values(perCategory)) < 3 || Math.max(...Object.values(perCategory)) > 4) { ok = false; detail = `seed ${seed}: ${JSON.stringify(perCategory)}`; }
     else if (!same(e.state.candidates.map((c) => c.id), Array.from({ length: CANDIDATE_COUNT }, (_, i) => i + 1))) { ok = false; detail = `seed ${seed}: 번호가 1~16이 아님`; }
   }
   check('300판: 후보는 늘 16개, 이름이 겹치지 않고, 번호는 1~16, 정답은 후보 안에 있다', ok, detail);
-  check('300판: 12개 카테고리가 모두 나오고 한 카테고리는 2개를 넘지 않는다', ok, detail);
+  check(`300판: 후보는 ${CANDIDATE_SPREAD}개 카테고리에서만 뽑히고(비슷한 종류끼리 모여 힌트 하나로 카테고리째 걸러지지 않는다) 한 카테고리에서 3~4개씩이다`, ok, detail);
+  {
+    // 옛 방식(모든 카테고리에서 고르게)도 옵션으로 남아 있다.
+    let spreadOk = true;
+    for (let seed = 1; seed <= 50 && spreadOk; seed += 1) {
+      const per = {};
+      for (const c of new GameEngine({ seed, spread: 0 }).state.candidates) per[c.category] = (per[c.category] || 0) + 1;
+      spreadOk = Object.keys(per).length === categories.size && Math.max(...Object.values(per)) <= 2;
+    }
+    check('spread: 0이면 12개 카테고리에서 고르게 뽑는다(한 카테고리는 2개를 넘지 않는다)', spreadOk);
+    const few = [{ name: '가나', category: 'a', parents: ['x'], tags: [] }, { name: '다라', category: 'a', parents: ['x'], tags: [] }, { name: '마바', category: 'b', parents: ['x'], tags: [] }, { name: '사아', category: 'c', parents: ['x'], tags: [] }];
+    check('고른 카테고리의 단어가 모자라면 다른 카테고리에서 채운다(멈추지 않는다)', pickCandidates(few, createRng(1, 'candidates'), 4, 1).length === 4);
+  }
   const e = new GameEngine({ seed: 1 });
   check('시작하면 PLAYING, 라운드 1, 제거·오답·힌트 기록: 힌트 1개만 공개', e.status === STATUS.PLAYING && e.round === 1 && e.state.removedCandidates.size === 0
     && e.state.wrongGuesses.length === 0 && e.state.hintHistory.length === 1 && e.state.maxRound === MAX_ROUND);
   check('시작 전이는 INIT → PLAYING 한 번이다', same(e.transitions, ['→ INIT', 'INIT → PLAYING']), e.transitions.join(', '));
   const answers = new Set();
   for (let seed = 1; seed <= 400; seed += 1) answers.add(new GameEngine({ seed }).state.answer.name);
-  check('정답이 한 단어로 쏠리지 않는다(400판에서 200개 넘는 단어가 정답이 된다)', answers.size > 200, `${answers.size}개`);
+  check('정답이 한 단어로 쏠리지 않는다(400판에서 250개 넘는 단어가 정답이 된다)', answers.size > 250, `${answers.size}개`);
 }
 
 // ── seed ──
