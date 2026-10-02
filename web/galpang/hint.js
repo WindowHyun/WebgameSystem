@@ -80,23 +80,29 @@ function levelsAt(level, distance) {
   return levels.filter((value) => value >= 1 && value <= MAX_ROUND);
 }
 
+/**
+ * 한 판의 후보·정답이 정해지면 축마다 한 번만 계산해 둔다(후보 16개가 각 축에서 어느 쪽인지, 정답과 같은 쪽·반대쪽이
+ * 몇 개인지). 힌트를 짜는 동안 같은 계산을 라운드·시도마다 되풀이하면 축이 늘수록 한 판을 만드는 데 시간이 걸린다.
+ * 정답을 말하는 축(isDirect)이나 정답이 판단되지 않는 축은 쓸 수 없는 축(usable: false)이다.
+ */
+function analyze(answer, candidates, axes) {
+  return axes.map((axis) => {
+    const answerSide = sideOf(axis, answer);
+    if (!answerSide || isDirect(axis, answer, candidates)) return { axis, usable: false };
+    const sides = candidates.map((candidate) => sideOf(axis, candidate));
+    let same = 0;
+    let opposite = 0;
+    for (const side of sides) {
+      if (side === answerSide) same += 1;
+      else if (side) opposite += 1;
+    }
+    return { axis, usable: true, answerSide, sides, same, opposite, judged: same + opposite };
+  });
+}
+
 /** 힌트 한 라운드를 고른다. 못 찾으면 null. */
-function chooseHint({ round, answer, candidates, axes, rng, used }) {
-  const judged = axes
-    .filter((axis) => !used.axes.has(axis.id))
-    .map((axis) => {
-      const answerSide = sideOf(axis, answer);
-      if (!answerSide || isDirect(axis, answer, candidates)) return null;
-      let same = 0;
-      let opposite = 0;
-      for (const candidate of candidates) {
-        const side = sideOf(axis, candidate);
-        if (side === answerSide) same += 1;
-        else if (side) opposite += 1;
-      }
-      return { axis, answerSide, same, opposite, judged: same + opposite };
-    })
-    .filter(Boolean);
+function chooseHint({ round, answer, analysis, rng, used }) {
+  const judged = analysis.filter((entry) => entry.usable && !used.axes.has(entry.axis.id));
 
   for (const [tierIndex, tier] of TIERS.entries()) {
     for (let distance = 0; distance <= tier.maxDistance; distance += 1) {
@@ -136,11 +142,21 @@ function leftAfter(plan, axes, candidates) {
   })).length;
 }
 
-function draft({ answer, candidates, axes, rng, rounds }) {
+/** leftAfter와 같은 값을 미리 계산해 둔 판단(analysis)으로 구한다. */
+function leftFromAnalysis(plan, analysis, candidateCount) {
+  const byId = new Map(analysis.map((entry) => [entry.axis.id, entry]));
+  let left = 0;
+  for (let i = 0; i < candidateCount; i += 1) {
+    if (plan.every((hint) => { const side = byId.get(hint.axis).sides[i]; return side === null || side === hint.side; })) left += 1;
+  }
+  return left;
+}
+
+function draft({ answer, analysis, rng, rounds }) {
   const used = { groups: new Set(), axes: new Set() };
   const plan = [];
   for (let round = 1; round <= rounds; round += 1) {
-    const hint = chooseHint({ round, answer, candidates, axes, rng, used });
+    const hint = chooseHint({ round, answer, analysis, rng, used });
     if (!hint) return null;
     used.groups.add(hint.group);
     used.axes.add(hint.axis);
@@ -154,11 +170,12 @@ function draft({ answer, candidates, axes, rng, rounds }) {
  * 줄이면) 다시 짠다. 끝까지 못 줄여도 가장 잘 줄인 것을 쓴다 - 게임이 멈추면 안 된다.
  */
 function buildPlan({ answer, candidates, axes, rng, rounds }) {
+  const analysis = analyze(answer, candidates, axes);
   let best = null;
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-    const plan = draft({ answer, candidates, axes, rng, rounds: rounds || MAX_ROUND });
+    const plan = draft({ answer, analysis, rng, rounds: rounds || MAX_ROUND });
     if (!plan) continue;
-    const left = leftAfter(plan, axes, candidates);
+    const left = leftFromAnalysis(plan, analysis, candidates.length);
     if (!best || left < best.left) best = { plan, left };
     if (left <= GOOD_ENOUGH_LEFT) break;
   }
