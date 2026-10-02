@@ -83,10 +83,12 @@
     if (s.status === 'QUIT') return '<h2>게임을 종료했습니다</h2><p class="detail">포기한 게임의 정답은 공개하지 않습니다. 다시 시작하면 새로운 후보로 게임을 할 수 있습니다.</p>';
     var summary = s.summary;
     if (!summary) return '';
-    var title = summary.won ? '정답입니다!' : '게임 종료';
+    var title = summary.won ? '정답입니다!' : summary.how === 'wrong' ? '오답입니다' : '게임 종료';
     var detail = summary.won
-      ? summary.round + '라운드 만에 성공했습니다.' + (summary.wrongGuesses ? ' (오답 ' + summary.wrongGuesses + '번)' : '')
-      : summary.maxRound + '라운드 안에 정답을 맞히지 못했습니다.';
+      ? summary.round + '라운드 만에 성공했습니다.'
+      : summary.how === 'wrong'
+        ? '제출한 답: ' + summary.guessed.id + '번 ' + summary.guessed.name + ' - 정답이 아니어서 ' + summary.round + '라운드에서 게임이 끝났습니다.'
+        : summary.maxRound + '라운드 안에 정답을 맞히지 못했습니다.';
     var items = summary.explanations.map(function (hint) {
       return '<li><b>ROUND ' + hint.round + '</b>A. ' + escapeHtml(hint.optionA) + ' / B. ' + escapeHtml(hint.optionB) + ' → <em>' + hint.selected + '</em>'
         + '<span>' + escapeHtml(hint.reason) + '</span></li>';
@@ -96,7 +98,7 @@
 
   function messageFor(s) {
     if (s.status === 'WON') return '정답을 맞혔습니다!';
-    if (s.status === 'LOST') return s.maxRound + '라운드가 끝났습니다.';
+    if (s.status === 'LOST') return s.summary && s.summary.how === 'wrong' ? '틀린 답을 제출해서 게임이 끝났습니다.' : s.maxRound + '라운드가 끝났습니다.';
     if (s.status === 'QUIT') return '게임을 종료했습니다.';
     return 'ROUND ' + s.round + ' - 힌트를 보고 아닌 후보를 지우거나, 정답을 제출하세요.';
   }
@@ -129,6 +131,7 @@
     $('guess').disabled = selected.length !== 1;
     $('next').textContent = s.round >= s.maxRound ? '마지막 라운드 끝내기' : '다음 라운드';
     $('quit-confirm').classList.toggle('hidden', !s.pendingQuit);
+    if (!live) { $('guess-confirm').classList.add('hidden'); $('next-confirm').classList.add('hidden'); }
 
     // 새 힌트가 나오면 띠(폰)의 맨 끝이 보이게 한다.
     if (s.round !== lastRound) {
@@ -167,9 +170,20 @@
     if (numbers.length) send('remove ' + numbers.join(' '));
     if (state) render();
   };
+  // 정답 제출은 되돌릴 수 없다(틀리면 바로 끝난다). 바로 옆의 "후보 제거"와 헷갈려 누르지 않게 한 번 더 묻는다.
+  var guessPick = 0;
+  function closeGuessConfirm() { $('guess-confirm').classList.add('hidden'); guessPick = 0; }
   $('guess').onclick = function () {
-    var numbers = takeSelection();
-    if (numbers.length === 1) send('guess ' + numbers[0]);
+    if (!state || selected.length !== 1) return;
+    guessPick = selected[0];
+    $('guess-confirm-name').textContent = guessPick + '번 · ' + state.candidates[guessPick - 1].name;
+    $('guess-confirm').classList.remove('hidden');
+  };
+  $('guess-no').onclick = closeGuessConfirm;
+  $('guess-yes').onclick = function () {
+    var pick = guessPick;
+    closeGuessConfirm();
+    if (pick) { selected = []; send('guess ' + pick); }
     if (state) render();
   };
   $('next').onclick = function () {
@@ -186,7 +200,8 @@
   $('leave').onclick = function (event) { event.preventDefault(); if (socket) socket.leave(); };
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;
-    if (!$('next-confirm').classList.contains('hidden')) $('next-confirm').classList.add('hidden');
+    if (!$('guess-confirm').classList.contains('hidden')) closeGuessConfirm();
+    else if (!$('next-confirm').classList.contains('hidden')) $('next-confirm').classList.add('hidden');
     else if (state && state.pendingQuit) send('n');
   });
 

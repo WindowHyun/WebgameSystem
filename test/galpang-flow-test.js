@@ -4,7 +4,7 @@
  * 갈팡질팡 입력·출력(명령어 해석기 + 세션 + 글자 출력 + 터미널 실행기).
  *
  *   [해석기] 대소문자·공백·쉼표·한글 명령·전각 숫자, 숫자가 아닌 입력, 번호 빠짐, 모르는 명령
- *   [흐름]   명세의 화면 그대로: 시작 화면, remove(여러 개·중복·이미 제거·범위 밖·글자), list/list all, guess(오답·제거한
+ *   [흐름]   명세의 화면 그대로: 시작 화면, remove(여러 개·중복·이미 제거·범위 밖·글자), list/list all, guess(오답은 바로 끝·제거한
  *            후보), next, 5라운드 끝, 이긴 뒤/진 뒤에 허용되는 명령, history, help, quit 확인(y/n), restart
  *   [비공개] 게임 중 어떤 출력에도 정답·해설·디버그 줄이 없다. 끝나면 정답과 힌트 해설이 나온다
  *   [재현]   같은 seed면 같은 입력에 같은 출력이다. restart 뒤 게임도 마찬가지다
@@ -108,9 +108,7 @@ const SEED = 100;
   check('"후보" 명령은 list와 같다', run(s, '후보') === run(s, 'list'));
   check('제거한 후보를 guess하면 판정하지 않는다', run(s, 'guess 3') === '3번 후보는 이미 제거한 후보입니다.' && s.engine.status === STATUS.PLAYING);
   check('guess 20 → 범위 안내', run(s, 'guess 20') === '잘못된 후보 번호입니다.\n1~16 사이의 번호를 입력해주세요.');
-  const wrongId = s.engine.state.candidates.find((c) => !c.removed && c.id !== s.engine.state.answer.id).id;
-  check('오답이면 "오답입니다."만 나오고 정답은 공개하지 않는다', run(s, `guess ${wrongId}`) === '오답입니다.' && s.engine.status === STATUS.PLAYING && s.engine.round === 1);
-  check('오답은 라운드를 올리지 않는다', run(s, 'history').split('ROUND').length === 2);
+  check('제거한 후보나 범위 밖 번호를 내도 게임은 계속되고 라운드도 그대로다', s.engine.status === STATUS.PLAYING && run(s, 'history').split('ROUND').length === 2);
   const next = run(s, 'next');
   check('next → 새 라운드와 힌트', /^-{32}\n\n\[ROUND 2\]\n\nA\. .+\nB\. .+\n\n힌트: [AB]$/.test(next), next);
   check('라운드가 바뀌어도 제거한 후보는 그대로다', !/^(1|3|5|8)\. /m.test(run(s, 'list')));
@@ -134,6 +132,44 @@ const SEED = 100;
   const restarted = s.handleLine('restart');
   check('restart: 새 게임 시작 화면이 나오고 PLAYING이다', restarted.lines.join('\n').includes('갈팡질팡') && s.engine.status === STATUS.PLAYING && s.engine.round === 1 && !restarted.exit);
   check('restart한 게임은 후보가 모두 살아 있다', run(s, 'list all').indexOf('[제거됨]') === -1);
+}
+
+// ── 오답은 한 번이면 끝 ──
+{
+  const GAME_OVER = '게임이 종료되었습니다.\n\nrestart 를 입력하면 새 게임을 시작할 수 있습니다.';
+  const wrongOf = (session) => session.engine.state.candidates.find((c) => c.id !== session.engine.state.answer.id && !c.removed);
+  const s = createSession({ seed: 31 });
+  const wrong = wrongOf(s);
+  const answer = s.engine.state.answer;
+  const text = run(s, `guess ${wrong.id}`);
+  check('오답이면 "오답입니다." 제목과 함께 그 자리에서 게임이 끝난다', text.startsWith(`${'='.repeat(32)}\n오답입니다.\n${'='.repeat(32)}`) && s.engine.status === STATUS.LOST && s.engine.round === 1, text.slice(0, 90));
+  check('오답: 낸 답과 정답이 나온다', text.includes(`제출한 답: ${wrong.id}번 ${wrong.name}`) && text.includes(`정답: ${answer.name}`));
+  check('오답: 몇 라운드에서 끝났는지와, 지금까지 공개된 힌트(1개)의 해설만 나온다', text.includes('1라운드에서 끝났습니다.') && text.includes('[힌트 해설]') && text.includes('ROUND 1')
+    && !text.includes('ROUND 2') && (text.match(/판단했습니다\./g) || []).length === 1);
+  check('오답 뒤에는 restart·history·quit만 받는다(같은 답을 또 내거나 next를 눌러도 종료 안내)', ['guess 1', `guess ${wrong.id}`, 'next', 'remove 1', 'list', 'help'].every((c) => run(s, c) === GAME_OVER));
+  check('오답으로 끝난 뒤에도 history는 볼 수 있다', run(s, 'history').startsWith('[힌트 기록]'));
+  const again = s.handleLine('restart');
+  check('오답으로 끝난 뒤 restart하면 새 게임이다(제거·오답 표시 없음)', again.lines.join('\n').includes('갈팡질팡') && s.engine.status === STATUS.PLAYING && s.engine.round === 1
+    && s.engine.state.wrongGuesses.length === 0 && !run(s, 'list all').includes('[제거됨]'));
+
+  // 3라운드에서 틀리면 3라운드에서 끝나고 해설은 힌트 3개다.
+  const t = createSession({ seed: 32 });
+  run(t, 'next'); run(t, 'next');
+  const w3 = wrongOf(t);
+  const out3 = run(t, `guess ${w3.id}`);
+  check('3라운드에서 틀리면 3라운드에서 끝나고 해설은 힌트 3개다', out3.includes('3라운드에서 끝났습니다.') && (out3.match(/판단했습니다\./g) || []).length === 3 && t.engine.round === 3, out3.slice(0, 120));
+
+  // 정답 후보를 지워도 아무 말 없이 계속된다. 낼 수 없으니 5라운드까지 가면 진다.
+  const u = createSession({ seed: 33 });
+  const gone = u.engine.state.answer;
+  check('정답 후보를 지워도 "N번 제거"만 나오고 게임은 계속된다(정답인지 알려 주지 않는다)', run(u, `remove ${gone.id}`) === `${gone.id}번 제거` && u.engine.status === STATUS.PLAYING);
+  check('지운 정답은 낼 수 없다("이미 제거한 후보")', run(u, `guess ${gone.id}`) === `${gone.id}번 후보는 이미 제거한 후보입니다.` && u.engine.status === STATUS.PLAYING);
+
+  // 5라운드가 다 지나서 지는 문구는 그대로다("5라운드 안에 정답을 맞히지 못했습니다").
+  const v = createSession({ seed: 34 });
+  for (let i = 0; i < 4; i += 1) run(v, 'next');
+  const lostText = run(v, 'next');
+  check('5라운드가 지나서 지면 "게임 종료" 제목과 "5라운드 안에 정답을 맞히지 못했습니다."가 나온다(오답 안내와 다르다)', lostText.includes('게임 종료') && lostText.includes('5라운드 안에 정답을 맞히지 못했습니다.') && !lostText.includes('오답입니다.') && !lostText.includes('제출한 답'));
 }
 
 // ── 5라운드 끝 ──
@@ -171,7 +207,7 @@ const SEED = 100;
 
 // ── 재현 ──
 {
-  const script = ['remove 1 2 3', 'list', 'next', 'guess 4', 'history', 'next', 'next', 'next', 'next', 'restart', 'remove 5', 'next', 'help'];
+  const script = ['remove 1 2 3', 'list', 'next', 'guess 3', 'history', 'next', 'next', 'next', 'next', 'restart', 'remove 5', 'next', 'help'];
   const play = (seed) => { const s = createSession({ seed }); return [s.intro().join('\n'), ...script.map((line) => s.handleLine(line).lines.join('\n'))].join('\n--\n'); };
   check('같은 seed면 같은 입력에 대한 출력이 통째로 같다(restart 뒤 게임까지)', play(100) === play(100));
   check('seed가 다르면 출력이 다르다', play(100) !== play(101));
@@ -191,6 +227,10 @@ const SEED = 100;
   check('debug면 seed·정답·힌트 계획·상태 전이가 나온다', intro.includes('[DEBUG] seed = 100') && intro.includes(`[DEBUG] answer = ${loud.engine.state.answer.id}. ${loud.engine.state.answer.name}`)
     && (intro.match(/\[DEBUG\] ROUND \d/g) || []).length === 5 && intro.includes('INIT → PLAYING'));
   check('debug면 상태가 바뀔 때 전이가 한 줄 나온다', run(loud, `guess ${loud.engine.state.answer.id}`).includes('[DEBUG] state: PLAYING → WON'));
+  const loud2 = createSession({ seed: 100, debug: true });
+  loud2.intro(); // 시작 화면에서 처음 상태까지 보여 준 뒤의 바뀜만 한 줄로 나온다
+  const wrongLoud = loud2.engine.state.candidates.find((c) => c.id !== loud2.engine.state.answer.id).id;
+  check('debug: 오답으로 끝나도 전이가 한 줄 나온다(PLAYING → LOST)', run(loud2, `guess ${wrongLoud}`).includes('[DEBUG] state: PLAYING → LOST'));
 }
 
 // ── 터미널 실행기 ──
@@ -200,13 +240,16 @@ const SEED = 100;
   const probe = createSession({ seed: 100 });
   const answerId = probe.engine.state.answer.id;
   const wrongId = probe.engine.state.candidates.find((c) => c.id !== answerId).id;
-  const result = exec(['--seed', '100'], `remove 20\nremove abc\nguess ${wrongId}\nnext\nguess ${answerId}\nquit\n`);
+  const result = exec(['--seed', '100'], `remove 20\nremove abc\nnext\nguess ${answerId}\nquit\n`);
   check('실행기: 정상 종료(코드 0)', result.status === 0, `${result.status} ${result.stderr}`);
-  check('실행기: 시작 화면·오답·정답·해설이 순서대로 나온다', (() => {
+  check('실행기: 시작 화면·잘못된 입력·다음 라운드·정답·해설이 순서대로 나온다', (() => {
     const out = result.stdout;
-    const at = ['갈팡질팡', '잘못된 후보 번호입니다.', '후보 번호는 숫자로 입력해주세요.', '오답입니다.', '[ROUND 2]', '정답입니다!', '[힌트 해설]', '게임을 종료합니다.'].map((t) => out.indexOf(t));
+    const at = ['갈팡질팡', '잘못된 후보 번호입니다.', '후보 번호는 숫자로 입력해주세요.', '[ROUND 2]', '정답입니다!', '[힌트 해설]', '게임을 종료합니다.'].map((t) => out.indexOf(t));
     return at.every((n) => n >= 0) && at.every((n, i) => i === 0 || n > at[i - 1]);
   })(), result.stdout.slice(0, 300));
+  const lostRun = exec(['--seed', '100'], `guess ${wrongId}\nnext\nquit\n`);
+  check('실행기: 오답을 내면 바로 끝나고 정답이 공개되며, 이어지는 입력은 종료 안내만 받는다', lostRun.status === 0 && lostRun.stdout.includes('오답입니다.') && lostRun.stdout.includes(`정답: ${probe.engine.state.answer.name}`)
+    && !lostRun.stdout.includes('[ROUND 2]') && lostRun.stdout.includes('게임이 종료되었습니다.') && lostRun.stdout.includes('게임을 종료합니다.'), lostRun.stdout.slice(-300));
   check('실행기: 일반 실행에는 정답이 게임 중에 나오지 않는다', !/\[DEBUG\]/.test(result.stdout) && result.stdout.indexOf('정답:') > result.stdout.indexOf('정답입니다!') - 5);
   check('실행기: 끝낸 뒤 남은 입력은 처리하지 않는다', !exec(['--seed', '100'], 'quit\ny\nhelp\n').stdout.includes('사용 가능한 명령어'));
   const same2 = exec(['--seed', '100'], 'next\nnext\nhistory\n').stdout === exec(['--seed', '100'], 'next\nnext\nhistory\n').stdout;

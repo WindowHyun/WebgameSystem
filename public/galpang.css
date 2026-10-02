@@ -48,6 +48,7 @@
 .result li b{margin-right:6px}
 .result li em{font-style:normal;font-weight:700;color:#007a5a}
 .result li span{display:block;color:#616061;font-size:12px}
+.guess-name{margin:12px 0 4px;color:#1d1c1d!important;font-size:20px;font-weight:700;overflow-wrap:anywhere}
 .result.won h2{color:#007a5a}
 .result.lost h2{color:#a52323}
 

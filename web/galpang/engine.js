@@ -6,6 +6,9 @@
  *
  * 사용자 입력이 잘못돼도 예외를 던지지 않는다(결과 코드로 알린다). 예외는 엔진 내부 버그일 때만 난다.
  *
+ * 정답 제출은 한 번뿐이다: 맞히면 WON, 틀리면 그 자리에서 LOST(정답·힌트 해설 공개)로 끝난다. 5라운드가 다 지나도
+ * LOST다. 제거한 후보나 범위 밖 번호는 제출로 치지 않고 아무것도 바꾸지 않는다(잘못 눌러 게임이 끝나지 않게).
+ *
  * 숨겨진 정답은 게임이 끝나기 전에는 어떤 메서드로도 나가지 않는다(publicView·summary 참고).
  */
 
@@ -91,7 +94,10 @@ class GameEngine {
     return { ok: true, code: 'REMOVED', removed, alreadyRemoved, remaining: this.remainingIds().length };
   }
 
-  /** 정답 제출. 틀려도 라운드는 그대로다(다음 라운드는 next만 올린다). */
+  /**
+   * 정답 제출. 기회는 한 번이다 - 맞히면 WON, 틀리면 바로 LOST로 끝난다(라운드는 그대로, 정답은 summary()로 공개).
+   * 제거한 후보나 범위 밖 번호는 제출로 치지 않는다.
+   */
   guess(id) {
     if (this.state.status !== STATUS.PLAYING) return { ok: false, code: 'NOT_PLAYING' };
     if (!this._inRange(id)) return { ok: false, code: 'INVALID_NUMBER', invalid: [id] };
@@ -100,8 +106,9 @@ class GameEngine {
       this._enter(STATUS.WON);
       return { ok: true, code: 'WON', round: this.state.currentRound };
     }
-    if (!this.state.wrongGuesses.includes(id)) this.state.wrongGuesses.push(id);
-    return { ok: true, code: 'WRONG', id };
+    this.state.wrongGuesses.push(id);
+    this._enter(STATUS.LOST);
+    return { ok: true, code: 'LOST', reason: 'WRONG_GUESS', id, round: this.state.currentRound };
   }
 
   /** 다음 라운드. 마지막 라운드에서 부르면 정답을 못 맞힌 것으로 끝난다. */
@@ -110,7 +117,7 @@ class GameEngine {
     if (state.status !== STATUS.PLAYING) return { ok: false, code: 'NOT_PLAYING' };
     if (state.currentRound >= state.maxRound) {
       this._enter(STATUS.LOST);
-      return { ok: true, code: 'LOST', round: state.currentRound };
+      return { ok: true, code: 'LOST', reason: 'ROUNDS', round: state.currentRound };
     }
     state.currentRound += 1;
     const hint = publicHint(state.plan[state.currentRound - 1]);
@@ -160,16 +167,22 @@ class GameEngine {
     };
   }
 
-  /** 게임이 이겨서나 져서 끝난 뒤의 결과(정답 공개 + 힌트 해설). 그 전에는 null. 포기(QUIT)는 공개하지 않는다. */
+  /**
+   * 게임이 이겨서나 져서 끝난 뒤의 결과(정답 공개 + 힌트 해설). 그 전에는 null. 포기(QUIT)는 공개하지 않는다.
+   * how: 'won'(맞힘) | 'wrong'(틀린 답을 제출해 끝남, guessed에 낸 후보) | 'rounds'(5라운드가 다 지남)
+   */
   summary() {
     const state = this.state;
     if (state.status !== STATUS.WON && state.status !== STATUS.LOST) return null;
+    const won = state.status === STATUS.WON;
+    const guessed = state.wrongGuesses.length ? state.candidates[state.wrongGuesses[0] - 1] : null;
     return {
-      won: state.status === STATUS.WON,
+      won,
+      how: won ? 'won' : guessed ? 'wrong' : 'rounds',
       round: state.currentRound,
       maxRound: state.maxRound,
       answer: { id: state.answer.id, name: state.answer.name },
-      wrongGuesses: state.wrongGuesses.length,
+      guessed: guessed ? { id: guessed.id, name: guessed.name } : null,
       explanations: state.hintHistory.map((hint) => ({ ...hint, reason: state.plan[hint.round - 1].reason })),
     };
   }
@@ -197,6 +210,10 @@ class GameEngine {
     if (state.answer.id !== this._answerId) problems.push('정답이 바뀜');
     if (state.currentRound < 1 || state.currentRound > state.maxRound) problems.push(`라운드 ${state.currentRound}`);
     for (const id of state.removedCandidates) if (!ids.includes(id)) problems.push(`없는 후보 ${id} 제거`);
+    // 오답은 한 번뿐이고, 있으면 게임은 LOST로 끝나 있다. 정답과 제거한 후보는 오답이 될 수 없다.
+    if (state.wrongGuesses.length > 1) problems.push(`오답이 ${state.wrongGuesses.length}번`);
+    if (state.wrongGuesses.length && state.status !== STATUS.LOST) problems.push('오답을 냈는데 LOST가 아님');
+    if (state.wrongGuesses.includes(state.answer.id)) problems.push('정답이 오답으로 기록됨'); 
     const flagged = state.candidates.filter((candidate) => candidate.removed).map((candidate) => candidate.id).sort((a, b) => a - b);
     const set = [...state.removedCandidates].sort((a, b) => a - b);
     if (JSON.stringify(flagged) !== JSON.stringify(set)) problems.push('제거 표시가 어긋남');

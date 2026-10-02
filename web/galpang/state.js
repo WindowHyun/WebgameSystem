@@ -30,7 +30,7 @@ class GameState {
     this.maxRound = MAX_ROUND;
     this.removedCandidates = new Set(); // 제거한 후보의 id
     this.hintHistory = [];           // 지금까지 공개한 힌트(삭제하지 않는다)
-    this.wrongGuesses = [];          // 오답으로 제출한 후보 id
+    this.wrongGuesses = [];          // 오답으로 제출한 후보 id(오답은 한 번이면 게임이 끝나므로 0개 또는 1개)
     this.plan = [];                  // 시작할 때 정해 둔 라운드별 힌트(공개 전에는 숨김)
   }
 }

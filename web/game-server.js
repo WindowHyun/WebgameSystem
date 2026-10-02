@@ -579,8 +579,11 @@ function createGameServer(options) {
           }
         },
       });
-      for (const game of cardGames()) {
-        game.room = game.create({ onChange: (id) => broadcastCardGame(game, id), onAction: actionLogger(game.logLabel) });
+      for (const [key, game] of Object.entries(CARD_GAMES)) {
+        const roomOptions = { onChange: (id) => broadcastCardGame(game, id), onAction: actionLogger(game.logLabel) };
+        // 테스트에서만: 갈팡질팡의 판을 고정한다(정답을 맞히는 경로를 보려면 정답을 알아야 한다). 실제 서버는 주지 않는다.
+        if (key === 'galpang' && opts.galpangSeed !== undefined) roomOptions.seed = opts.galpangSeed;
+        game.room = game.create(roomOptions);
       }
       startHeartbeat();
       server = http.createServer(handleHttp);

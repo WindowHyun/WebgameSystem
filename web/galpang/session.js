@@ -86,8 +86,8 @@ function createSession(options) {
         const result = engine.guess(command.number);
         if (result.code === 'INVALID_NUMBER') return finish(render.outOfRange(engine.state.candidates.length));
         if (result.code === 'GUESS_REMOVED') return finish([`${result.id}번 후보는 이미 제거한 후보입니다.`]);
-        if (result.code === 'WRONG') return finish(['오답입니다.']);
-        return finish(render.won(engine.summary()));
+        // 맞히면 WON, 틀리면 바로 LOST(정답 공개)다.
+        return finish(result.code === 'WON' ? render.won(engine.summary()) : render.lost(engine.summary()));
       }
       case 'next': {
         const result = engine.next();

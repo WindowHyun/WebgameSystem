@@ -15,6 +15,7 @@
 const WebSocket = require('ws');
 const { createGalpangRoom } = require('../web/galpang-room');
 const { createGameServer } = require('../web/game-server');
+const { GameEngine } = require('../web/galpang/engine');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let pass = 0;
@@ -81,8 +82,7 @@ function findSecret(value, trail) {
       const win = room.join({ nickname: '정답자' });
       const debug = room._debug().players.find((p) => p.id === win.playerId);
       const answer = debug.session.engine.state.answer;
-      room.command(win.playerId, 'guess ' + (answer.id === 1 ? 2 : 1));
-      check('오답이면 정답이 상태에 실리지 않는다', findSecret(room.stateFor(win.playerId)) === null && !JSON.stringify(room.stateFor(win.playerId)).includes('정답:'));
+      check('게임 중에는 정답이 상태에 실리지 않는다', findSecret(room.stateFor(win.playerId)) === null && !JSON.stringify(room.stateFor(win.playerId)).includes('정답:'));
       room.command(win.playerId, 'guess ' + answer.id);
       const done = room.stateFor(win.playerId);
       check('맞히면 정답과 힌트 해설이 상태에 실린다(summary)', done.status === 'WON' && done.summary.answer.name === answer.name && done.summary.explanations.length === 1 && done.summary.explanations[0].reason.includes(answer.name));
@@ -90,6 +90,26 @@ function findSecret(value, trail) {
       check('관리 로그에 정답 이름이 남지 않는다', logs.length > 5 && logs.every((line) => !line.includes(answer.name)) && logs.some((line) => line.includes('정답 (1라운드)')), logs.join(' | '));
       room.command(win.playerId, 'restart');
       check('restart하면 새 판이 시작되고 상태가 초기화된다', room.stateFor(win.playerId).status === 'PLAYING' && room.stateFor(win.playerId).summary === null && room.stateFor(win.playerId).remaining === 16);
+
+      // 오답은 한 번이면 끝이고, 그때 정답이 공개된다
+      const loser = room.join({ nickname: '오답자' });
+      const lostAnswer = room._debug().players.find((p) => p.id === loser.playerId).session.engine.state.answer;
+      const lostWrong = lostAnswer.id === 1 ? 2 : 1;
+      room.command(loser.playerId, 'next');
+      check('오답을 내기 전에는 정답이 상태에 없다', findSecret(room.stateFor(loser.playerId)) === null && room.stateFor(loser.playerId).summary === null);
+      room.command(loser.playerId, `guess ${lostWrong}`);
+      const lost = room.stateFor(loser.playerId);
+      check('오답이면 그 자리에서 끝나고(LOST) 정답·낸 답·공개된 힌트(2개)의 해설이 상태에 실린다', lost.status === 'LOST' && lost.round === 2 && lost.summary.how === 'wrong' && lost.summary.answer.name === lostAnswer.name
+        && lost.summary.guessed.id === lostWrong && lost.summary.explanations.length === 2 && lost.candidates.filter((c) => c.wrong).length === 1, JSON.stringify(lost.summary && { how: lost.summary.how, n: lost.summary.explanations.length }));
+      check('오답으로 끝난 상태에도 후보의 특징·카테고리·seed·계획은 실리지 않는다', ['tags', 'category', 'parents', 'seed', 'plan', 'side', 'axis'].every((k) => !JSON.stringify(lost).includes(`"${k}"`)));
+      const afterLost = JSON.stringify(room.stateFor(loser.playerId).candidates);
+      room.command(loser.playerId, 'next');
+      room.command(loser.playerId, `guess ${lostAnswer.id}`);
+      room.command(loser.playerId, 'remove 1');
+      check('오답으로 끝난 뒤에는 종료 안내만 나오고 판은 그대로다(다시 맞힐 수 없다)', room.stateFor(loser.playerId).status === 'LOST' && room.stateFor(loser.playerId).round === 2
+        && JSON.stringify(room.stateFor(loser.playerId).candidates) === afterLost && room.stateFor(loser.playerId).output.lines[0] === '게임이 종료되었습니다.');
+      check('관리 로그에 오답 종료가 남고 정답 이름은 남지 않는다', logs.some((line) => line.includes('오답자 오답으로 종료 (2라운드)')) && logs.every((line) => !line.includes(lostAnswer.name) && !line.includes(answer.name)), logs.slice(-4).join(' | '));
+      room.leave(loser.playerId);
 
       // 포기 확인
       room.command(b.playerId, 'quit');
@@ -142,7 +162,12 @@ function findSecret(value, trail) {
   const port = 4812;
   const original = console.error;
   console.error = () => {};
-  const server = createGameServer({ port, host: '127.0.0.1' });
+  // 테스트에서만: 모든 접속의 첫 판을 seed 7로 고정한다. 정답을 맞히는 길을 보려면 정답을 알아야 한다.
+  const SEED = 7;
+  const firstAnswer = new GameEngine({ seed: SEED }).state.answer;
+  const awayFrom = (...ids) => Array.from({ length: 16 }, (_, i) => i + 1).filter((id) => !ids.includes(id));
+  const [pickA, pickB] = awayFrom(firstAnswer.id); // 정답이 아닌 후보 둘(지워도 정답 제출에 지장이 없다)
+  const server = createGameServer({ port, host: '127.0.0.1', galpangSeed: SEED });
   await server.start();
   try {
     const open = async (game, nickname, token) => {
@@ -158,7 +183,7 @@ function findSecret(value, trail) {
     const welcome = client.last('welcome');
     check('접속하면 welcome(토큰)과 상태가 온다', !!welcome && !!welcome.token && client.last('galpangState').status === 'PLAYING');
 
-    client.send({ type: 'command', line: 'remove 1 2' });
+    client.send({ type: 'command', line: `remove ${pickA} ${pickB}` });
     client.send({ type: 'command', line: 'next' });
     client.send({ type: 'command', line: 'bogus' });
     await wait(200);
@@ -180,15 +205,11 @@ function findSecret(value, trail) {
     check('형식이 틀린 요청(줄 없음·너무 긴 줄·다른 게임 요청·모르는 type)은 모두 거절한다', errors.length === 6 && errors.every((e) => e.message === '잘못된 요청입니다.') && client.inbox.slice(before).every((m) => m.type === 'error'), String(errors.length));
     check('거절된 요청은 판 상태를 바꾸지 않는다', client.last('galpangState').round === 2);
 
-    // 끝까지: 오답을 계속 내도 게임이 끝나지 않고, 맞히면 정답이 온다
-    for (let id = 1; id <= 16; id += 1) {
-      if (client.last('galpangState').status !== 'PLAYING') break;
-      client.send({ type: 'command', line: `guess ${id}` });
-      await wait(30);
-    }
+    // 맞히면 정답·해설이 온다(틀린 답은 한 번이면 끝이라, 같은 판의 정답을 알고 있어야 이 길을 볼 수 있다)
+    client.send({ type: 'command', line: `guess ${firstAnswer.id}` });
     await wait(150);
     const won = client.last('galpangState');
-    check('(명세대로) 오답은 라운드를 올리지 않고, 맞히면 정답·해설이 온다', won.status === 'WON' && !!won.summary && won.summary.answer.name && won.summary.explanations.length === 2 && won.output.lines.join('\n').includes('정답입니다!'));
+    check('정답을 내면 WON이고 정답·해설(공개된 힌트 2개)이 온다', won.status === 'WON' && !!won.summary && won.summary.answer.name === firstAnswer.name && won.summary.explanations.length === 2 && won.output.lines.join('\n').includes('정답입니다!'));
     check('이긴 상태 메시지에도 후보의 특징·seed·계획은 없다', ['tags', 'category', 'parents', 'seed', 'plan', 'axis'].every((k) => !JSON.stringify(won).includes(`"${k}"`)));
     client.send({ type: 'command', line: 'restart' });
     await wait(150);
@@ -235,6 +256,26 @@ function findSecret(value, trail) {
     await wait(100);
     check('나가면 포털 인원이 줄어든다', portal.last('games').games.galpang.playerCount === 1, JSON.stringify(portal.last('games').games.galpang));
     for (const c of [client, second, other, portal]) c.ws.close();
+
+    // 틀린 답은 한 번이면 끝: 새 접속(같은 seed의 첫 판)으로 확인한다
+    const loser = await open('galpang', '오답자');
+    await wait(150);
+    check('새 접속의 첫 판은 고정한 seed의 판이다(정답은 아직 상태에 없다)', loser.last('galpangState').status === 'PLAYING' && loser.last('galpangState').summary === null && findSecret(loser.last('galpangState')) === null);
+    const wrongPick = firstAnswer.id === 1 ? 2 : 1;
+    loser.send({ type: 'command', line: `guess ${wrongPick}` });
+    await wait(150);
+    const lostState = loser.last('galpangState');
+    check('틀린 답을 내면 그 자리에서 LOST이고 정답이 온다(오답 안내·정답 이름·낸 답)', lostState.status === 'LOST' && lostState.summary.how === 'wrong' && lostState.summary.answer.name === firstAnswer.name
+      && lostState.summary.guessed.id === wrongPick && lostState.output.lines.join('\n').includes('오답입니다.') && lostState.output.lines.join('\n').includes(`정답: ${firstAnswer.name}`));
+    check('오답으로 끝난 상태 메시지에도 후보의 특징·seed·계획은 없다', ['tags', 'category', 'parents', 'seed', 'plan', 'axis'].every((k) => !JSON.stringify(lostState).includes(`"${k}"`)));
+    loser.send({ type: 'command', line: `guess ${firstAnswer.id}` });
+    loser.send({ type: 'command', line: 'next' });
+    await wait(150);
+    check('오답으로 끝난 뒤에는 정답을 다시 내도 이길 수 없다(종료 안내만 온다)', loser.last('galpangState').status === 'LOST' && loser.last('galpangState').output.lines[0] === '게임이 종료되었습니다.');
+    loser.send({ type: 'command', line: 'restart' });
+    await wait(150);
+    check('오답으로 끝난 뒤 restart하면 새 판이다', loser.last('galpangState').status === 'PLAYING' && loser.last('galpangState').summary === null && loser.last('galpangState').candidates.every((c) => !c.wrong));
+    loser.ws.close();
 
     // 이름이 길어도 잘려 들어온다
     const longName = await open('galpang', '가'.repeat(40));

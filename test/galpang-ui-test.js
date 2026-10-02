@@ -7,7 +7,9 @@
  *   - 후보를 눌러 고르고(다시 누르면 해제), 선택한 후보 제거 / 정답 제출 버튼이 선택 수에 맞게 켜진다
  *   - 제거한 후보는 흐려지고 눌 수 없다. 오답은 "오답" 표시가 붙고 라운드는 그대로다
  *   - 다음 라운드를 누르면 힌트가 하나 늘고, 마지막 라운드에서는 한 번 더 묻는다
- *   - 정답을 맞히면 정답 칸이 표시되고 힌트 해설이 나온다. 끝나기 전에는 정답·해설이 화면(DOM)에 없다
+ *   - 정답 제출은 한 번뿐: 누르면 확인 창이 뜨고(다시 고르기·Esc로 취소), 제출해서 틀리면 그 자리에서 게임이 끝나며
+ *     정답이 공개된다(1라운드·3라운드). 맞히면 정답 칸이 표시되고 힌트 해설이 나온다
+ *   - 끝나기 전에는 정답·해설이 화면(DOM)에 없다
  *   - 포기는 확인 창을 거친다(계속하기 / 종료). 포기하면 정답은 나오지 않는다
  *   - 새로고침해도 진행 중이던 판이 그대로다. 다시 시작하면 새 판이다
  *   - 명령어 입력칸으로도 같은 조작이 된다(remove·help·잘못된 명령)
@@ -19,6 +21,7 @@
 
 const { chromium, devices } = require('playwright');
 const { createGameServer } = require('../web/game-server');
+const { GameEngine } = require('../web/galpang/engine');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 let pass = 0;
@@ -32,7 +35,12 @@ function check(name, ok, detail) {
   const port = 4623;
   const original = console.error;
   console.error = () => {};
-  const server = createGameServer({ port, host: '127.0.0.1' });
+  // 테스트에서만: 모든 접속의 첫 판을 seed 7로 고정한다. 정답 제출은 한 번뿐이라서, 정답을 맞히는 길을 보려면 정답을
+  // 알아야 한다. 접속 하나가 restart할 때마다 seed가 `7#1`, `7#2`…로 이어진다(web/galpang/session.js).
+  const SEED = 7;
+  const answerOfGame = (index) => new GameEngine({ seed: index === 0 ? SEED : `${SEED}#${index}` }).state.answer;
+  const wrongPick = (answerId, ...also) => Array.from({ length: 16 }, (_, i) => i + 1).find((id) => id !== answerId && !also.includes(id));
+  const server = createGameServer({ port, host: '127.0.0.1', galpangSeed: SEED });
   await server.start();
   const browser = await chromium.launch();
   const errors = [];
@@ -55,6 +63,12 @@ function check(name, ok, detail) {
   };
   const cand = (page, id) => page.locator(`#grid .cand[data-id="${id}"]`);
   const text = (page, sel) => page.textContent(sel);
+  const submit = async (page, id) => { // 후보를 고르고 정답 제출 → 확인 창에서 제출
+    await cand(page, id).click();
+    await page.click('#guess');
+    await page.click('#guess-yes');
+    await wait(350);
+  };
   const snapshot = (page) => page.evaluate(() => ({
     round: document.getElementById('round').textContent,
     hints: document.querySelectorAll('#hints .hint-card').length,
@@ -100,30 +114,20 @@ function check(name, ok, detail) {
     await cand(page, 3).click({ force: true }).catch(() => {});
     check('눌러도 선택되지 않는다', await cand(page, 3).getAttribute('aria-pressed') === 'false');
 
-    // ── 오답 ──
-    await cand(page, 1).click();
-    await page.click('#guess');
+    // ── 다음 라운드 ──
+    await page.click('#next');
     await wait(300);
     s = await snapshot(page);
-    const wrongNow = s.status === 'PLAYING';
-    check('정답 제출이 틀리면 "오답" 표시, 안내 문구, 라운드는 그대로다', !wrongNow || (JSON.stringify(s.wrong) === '[1]' && /오답입니다\./.test(await text(page, '#notice')) && s.round === '1 / 5'), JSON.stringify(s) + await text(page, '#notice'));
+    check('다음 라운드: 힌트가 2개, 라운드 2 / 5, 제거 상태 유지', s.hints === 2 && s.round === '2 / 5' && JSON.stringify(s.removed) === '[3,5,8]', JSON.stringify(s));
+    check('새 힌트 안내가 나오고 새 힌트가 강조된다', /ROUND 2 힌트가 나왔습니다/.test(await text(page, '#notice')) && (await page.locator('#hints .hint-card.latest').count()) === 1 && /ROUND 2/.test(await text(page, '#hints .hint-card.latest')));
 
-    // ── 다음 라운드 ──
-    if (wrongNow) {
-      await page.click('#next');
-      await wait(300);
-      s = await snapshot(page);
-      check('다음 라운드: 힌트가 2개, 라운드 2 / 5, 제거 상태 유지', s.hints === 2 && s.round === '2 / 5' && JSON.stringify(s.removed) === '[3,5,8]', JSON.stringify(s));
-      check('새 힌트 안내가 나오고 새 힌트가 강조된다', /ROUND 2 힌트가 나왔습니다/.test(await text(page, '#notice')) && (await page.locator('#hints .hint-card.latest').count()) === 1 && /ROUND 2/.test(await text(page, '#hints .hint-card.latest')));
-
-      // 새로고침: 진행 중이던 판 그대로
-      await page.reload();
-      await page.waitForSelector('#grid .cand');
-      await wait(400);
-      const after = await snapshot(page);
-      check('새로고침해도 같은 판이다(후보 순서·제거·오답·라운드·힌트)', JSON.stringify(after) === JSON.stringify(s), JSON.stringify(after));
-      check('새로고침했을 때 지난 결과 안내를 다시 띄우지 않는다', (await text(page, '#notice')) === '');
-    }
+    // 새로고침: 진행 중이던 판 그대로
+    await page.reload();
+    await page.waitForSelector('#grid .cand');
+    await wait(400);
+    const after = await snapshot(page);
+    check('새로고침해도 같은 판이다(후보 순서·제거·오답·라운드·힌트)', JSON.stringify(after) === JSON.stringify(s), JSON.stringify(after));
+    check('새로고침했을 때 지난 결과 안내를 다시 띄우지 않는다', (await text(page, '#notice')) === '');
 
     // ── 명령어 입력 ──
     await page.click('#console summary');
@@ -173,7 +177,66 @@ function check(name, ok, detail) {
     s = await snapshot(page);
     check('다시 시작하면 새 판이다(제거·오답 없음, 힌트 1개, 라운드 1)', s.status === 'PLAYING' && s.removed.length === 0 && s.wrong.length === 0 && s.hints === 1 && s.round === '1 / 5' && s.chip === '후보 16개', JSON.stringify(s));
 
-    // ── 마지막 라운드와 패배 ──
+    // ── 오답: 한 번이면 끝(1라운드) ──
+    let gameIndex = 1; // 위의 포기 뒤 restart로 두 번째 판이다
+    {
+      const answer = answerOfGame(gameIndex);
+      const wrong = wrongPick(answer.id);
+      await cand(page, wrong).click();
+      await page.click('#guess');
+      await wait(150);
+      check('정답 제출을 누르면 확인 창이 뜬다(바로 제출되지 않는다). 고른 후보가 적혀 있다', await page.isVisible('#guess-confirm') && (await text(page, '#guess-confirm-name')).includes(`${wrong}번`) && (await snapshot(page)).status === 'PLAYING', await text(page, '#guess-confirm-name'));
+      check('확인 창에 "틀리면 바로 게임이 끝난다"고 적혀 있다', /틀리면 바로 게임이 끝나고 정답이 공개됩니다/.test(await text(page, '#guess-confirm')));
+      await page.click('#guess-no');
+      await wait(100);
+      check('"다시 고르기"를 누르면 닫히고, 게임도 고른 후보도 그대로다', !(await page.isVisible('#guess-confirm')) && (await snapshot(page)).status === 'PLAYING' && await cand(page, wrong).getAttribute('aria-pressed') === 'true');
+      await page.click('#guess');
+      await wait(100);
+      await page.keyboard.press('Escape');
+      await wait(100);
+      check('Esc도 제출을 취소한다(게임은 그대로)', !(await page.isVisible('#guess-confirm')) && (await snapshot(page)).status === 'PLAYING');
+      await page.click('#guess');
+      await wait(100);
+      await page.click('#guess-yes');
+      await wait(400);
+      s = await snapshot(page);
+      const lostText = await text(page, '#result');
+      check('제출하면 그 자리에서 게임이 끝난다(LOST). 라운드는 그대로 1 / 5', s.status === 'LOST' && s.round === '1 / 5', JSON.stringify(s));
+      check('결과: "오답입니다", 제출한 답, 정답 이름이 나온다', /오답입니다/.test(lostText) && lostText.includes(`제출한 답: ${wrong}번`) && lostText.includes(`정답: ${answer.name}`), lostText.slice(0, 160));
+      check('낸 후보에 "오답", 정답 칸에 "정답" 표시가 붙는다', JSON.stringify(s.wrong) === `[${wrong}]` && (await page.locator('#grid .cand.answer').count()) === 1 && (await page.locator('#grid .cand.answer').getAttribute('data-id')) === String(answer.id));
+      check('해설은 지금까지 공개된 힌트 1개뿐이다', (await page.locator('#result li').count()) === 1);
+      check('상단 안내가 "틀린 답을 제출해서 게임이 끝났습니다."이다', /틀린 답을 제출해서 게임이 끝났습니다/.test(await text(page, '#message')) && (await text(page, '#phase')) === '실패');
+      check('끝난 뒤에는 다시 시작 / 게임 선택으로만 보이고 후보를 누를 수 없다', await page.isVisible('#restart') && !(await page.isVisible('#live-controls')) && (await page.locator('#grid .cand:not([disabled])').count()) === 0);
+      await page.click('#console summary');
+      await page.fill('#command', 'next');
+      await page.press('#command', 'Enter');
+      await wait(250);
+      check('끝난 뒤 명령어를 보내도 종료 안내만 나오고 판은 그대로다(다음 라운드로 갈 수 없다)', /게임이 종료되었습니다\./.test(await text(page, '#log')) && (await snapshot(page)).status === 'LOST' && (await snapshot(page)).round === '1 / 5');
+      await page.click('#console summary');
+      await page.reload();
+      await page.waitForSelector('#grid .cand');
+      await wait(400);
+      check('새로고침해도 끝난 판과 정답 공개가 그대로다', (await snapshot(page)).status === 'LOST' && (await text(page, '#result')).includes(`정답: ${answer.name}`));
+    }
+
+    // ── 오답: 3라운드에서 틀려도 그 자리에서 끝 ──
+    await page.click('#restart');
+    await wait(400);
+    gameIndex += 1;
+    {
+      const answer = answerOfGame(gameIndex);
+      await page.click('#next'); await wait(150);
+      await page.click('#next'); await wait(250);
+      await submit(page, wrongPick(answer.id));
+      s = await snapshot(page);
+      const text3 = await text(page, '#result');
+      check('3라운드에서 틀리면 3라운드에서 끝나고 해설은 힌트 3개다', s.status === 'LOST' && s.round === '3 / 5' && /3라운드에서 게임이 끝났습니다/.test(text3) && (await page.locator('#result li').count()) === 3 && text3.includes(`정답: ${answer.name}`), text3.slice(0, 140));
+    }
+
+    // ── 마지막 라운드와 패배(5라운드가 다 지나서 지는 경우) ──
+    await page.click('#restart');
+    await wait(400);
+    gameIndex += 1;
     for (let i = 0; i < 4; i += 1) { await page.click('#next'); await wait(120); }
     check('ROUND 5: 버튼 글자가 "마지막 라운드 끝내기"로 바뀌고 힌트가 5개다', /마지막 라운드 끝내기/.test(await text(page, '#next')) && (await snapshot(page)).hints === 5 && (await snapshot(page)).round === '5 / 5');
     await page.click('#next');
@@ -186,25 +249,20 @@ function check(name, ok, detail) {
     await wait(400);
     s = await snapshot(page);
     const resultText = await text(page, '#result');
-    check('끝내면 게임 종료: 정답과 5개 힌트 해설이 나온다', s.status === 'LOST' && /게임 종료/.test(resultText) && /정답: \S/.test(resultText) && (await page.locator('#result li').count()) === 5, resultText.slice(0, 120));
-    const answerName = (resultText.match(/정답: (.+?)5라운드|정답: (\S+)/) || [])[1];
-    check('정답 칸이 후보 판에 표시된다', (await page.locator('#grid .cand.answer').count()) === 1, String(answerName));
+    check('끝내면 게임 종료: 정답과 5개 힌트 해설이 나온다(오답 안내는 없다)', s.status === 'LOST' && /게임 종료/.test(resultText) && /정답: \S/.test(resultText) && !/오답입니다|제출한 답/.test(resultText) && (await page.locator('#result li').count()) === 5, resultText.slice(0, 120));
+    check('정답 칸이 후보 판에 표시되고, 낸 오답은 없다', (await page.locator('#grid .cand.answer').count()) === 1 && s.wrong.length === 0);
     check('해설이 "~쪽이 ~보다 더 가까운 개념으로 판단했습니다"로 나온다', (await page.locator('#result li span').allTextContents()).every((t) => /쪽이 '.+'보다 더 가까운 개념으로 판단했습니다\.$/.test(t)));
 
-    // ── 정답 맞히기(오답을 계속 내도 끝나지 않는다는 명세 그대로) ──
+    // ── 정답 맞히기 ──
     await page.click('#restart');
     await wait(400);
-    for (let id = 1; id <= 16; id += 1) {
-      if ((await snapshot(page)).status !== 'PLAYING') break;
-      await cand(page, id).click();
-      await page.click('#guess');
-      await wait(120);
-    }
-    await wait(250);
+    gameIndex += 1;
+    const winAnswer = answerOfGame(gameIndex);
+    await submit(page, winAnswer.id);
     s = await snapshot(page);
     const won = await text(page, '#result');
-    check('정답을 맞히면 "정답입니다!"와 정답 이름이 나온다', s.status === 'WON' && /정답입니다!/.test(won) && /정답: \S/.test(won), won.slice(0, 100));
-    check('이긴 화면: 정답 칸 표시, 라운드 수, 해설 1개(공개된 힌트만)', (await page.locator('#grid .cand.answer').count()) === 1 && /1라운드 만에 성공했습니다/.test(won) && (await page.locator('#result li').count()) === 1);
+    check('정답을 맞히면 "정답입니다!"와 정답 이름이 나온다', s.status === 'WON' && /정답입니다!/.test(won) && won.includes(`정답: ${winAnswer.name}`), won.slice(0, 100));
+    check('이긴 화면: 정답 칸 표시, 라운드 수, 해설 1개(공개된 힌트만), 오답 표시 없음', (await page.locator('#grid .cand.answer').count()) === 1 && /1라운드 만에 성공했습니다/.test(won) && (await page.locator('#result li').count()) === 1 && s.wrong.length === 0);
     check('이긴 뒤에는 후보를 누를 수 없고 다시 시작만 보인다', await page.isVisible('#restart') && (await page.locator('#grid .cand:not([disabled]):not(.answer)').count()) === 0);
     const pageContext = page.context_;
     await pageContext.close();
