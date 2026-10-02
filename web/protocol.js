@@ -84,13 +84,11 @@ const CARD_GAME_MESSAGES = {
     star: () => null,
     starVote: (m) => (str(m.voteId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'voteId/agree'),
   },
-  // 혼자 하는 게임: 준비·시작이 없고 조작은 모두 명령어 한 줄이다. Enter만 친 빈 줄도 받는다(방이 무시한다).
+  // 준비·시작은 다른 게임과 같고, 판을 바꾸는 조작은 모두 명령어 한 줄이다(방이 과반수 동의를 받는 제안으로
+  // 바꾼다). 제안에 대한 찬반은 vote. Enter만 친 빈 줄도 받는다(방이 무시한다).
   galpang: {
-    ping: CARD_COMMON.ping,
-    cover: CARD_COMMON.cover,
-    coverState: CARD_COMMON.coverState,
-    join: CARD_COMMON.join,
-    leave: CARD_COMMON.leave,
+    ...CARD_COMMON,
+    vote: (m) => (str(m.proposalId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'proposalId/agree'),
     command: (m) => (typeof m.line === 'string' && m.line.length <= LIMITS.command ? null : 'line'),
   },
 };
