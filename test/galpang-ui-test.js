@@ -17,6 +17,7 @@
  *   - 후보 제거·정답 제출·다음 라운드·포기는 제안이 되어 다른 참가자에게 찬반 창이 뜨고, 과반수가 동의해야 실행된다
  *   - 반대가 많으면 취소되고, 구경하는 사람은 판을 보되 조작하지 못한다. 끝난 뒤 다시 준비해서 시작한다
  *   - 폰에서도 투표 창이 화면 안에 들어오고 탭으로 투표할 수 있다
+ *   - 진행하던 참가자가 모두 자리를 비우면(유예가 지나면) 방에 있던 구경꾼 화면이 알아서 대기실로 바뀌고 새로 시작할 수 있다
  * 브라우저 오류·CSP 위반 없음
  *
  * 실행: node test/galpang-ui-test.js
@@ -50,12 +51,12 @@ function check(name, ok, detail) {
   await server.start();
   const browser = await chromium.launch();
   const errors = [];
-  async function enter(name, device) {
+  async function enter(name, device, at) {
     const context = await browser.newContext(device || { viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(`${name}: ${e}`));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
-    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.goto(`http://127.0.0.1:${at || port}/`);
     await page.fill('#nickname', name);
     await page.press('#nickname', 'Enter');
     await page.waitForSelector('.game-card.galpang');
@@ -577,6 +578,47 @@ function check(name, ok, detail) {
       const overflowAfter = await phone.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
       check(`폰(${name}): 라운드가 올라도 가로로 넘치지 않는다`, !overflowAfter);
       await leaveAndClose(phone);
+    }
+
+    // ══════════════ 참가자가 모두 자리를 비운 판 ══════════════
+    {
+      // 끊긴 사람의 유예(기본 30초)를 짧게 준 별도 서버. 다른 장면에는 영향이 없다.
+      const quickPort = port + 1;
+      const quick = createGameServer({ port: quickPort, host: '127.0.0.1', galpangSeed: SEED, galpangVoteGraceMs: 300 });
+      await quick.start();
+      try {
+        const A = await enter('김하늘', null, quickPort);
+        await lobby(A);
+        const B = await enter('박서준', null, quickPort);
+        await lobby(B);
+        const C = await enter('최구경', null, quickPort);
+        await lobby(C);
+        await A.click('#ready');
+        await B.click('#ready');
+        await wait(300);
+        await A.click('#start');
+        await wait(200);
+        await A.click('#start-go');
+        await A.waitForSelector('#grid .cand', { timeout: 15000 });
+        await C.waitForSelector('#grid .cand', { timeout: 15000 });
+        await wait(300);
+        check('구경꾼은 진행 중인 판을 보지만 시작할 수 없다', (await text(C, '#phase')) === '진행 중' && !(await C.isVisible('#live-controls')) && (await snapshot(C)).status === 'PLAYING');
+        // 닫기만 한다(나가기를 누르지 않는다): 참가자 자리는 남고 연결만 끊긴다
+        await A.context_.close();
+        await B.context_.close();
+        await wait(150);
+        check('참가자가 막 끊긴 직후(유예 안)에는 아직 진행 중이다(구경꾼이 가로챌 수 없다)', (await text(C, '#phase')) === '진행 중' && !(await C.isVisible('#lobby')), await text(C, '#message'));
+        await wait(700);
+        check('유예가 지나면 새로고침 없이 대기실 화면으로 바뀌고 이어 갈 사람이 없다고 알린다', (await text(C, '#phase')) === '대기 중' && await C.isVisible('#lobby') && !(await C.isVisible('#live-controls'))
+          && /모두 자리를 비웠습니다/.test(await text(C, '#message')) && /게임 시작을 누르면 새로 시작/.test(await text(C, '#message')), await text(C, '#message'));
+        check('게임 시작 버튼이 켜져 있다(혼자 접속 중이라 준비 없이 시작)', !(await C.isDisabled('#start')) && !(await C.isVisible('#ready')));
+        await C.click('#start');
+        await C.waitForSelector('#live-controls', { state: 'visible', timeout: 15000 });
+        await wait(300);
+        const fresh = await snapshot(C);
+        check('눌러서 새 판이 시작되고 구경꾼이 참가자가 된다(후보 16개, 라운드 1 / 5)', fresh.names.length === 16 && fresh.round === '1 / 5' && fresh.removed.length === 0 && fresh.status === 'PLAYING' && (await text(C, '#phase')) === '진행 중', JSON.stringify(fresh));
+        await leaveAndClose(C);
+      } finally { await quick.stop(); }
     }
 
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));
