@@ -119,6 +119,10 @@
   }
 
   function messageFor(s) {
+    // 진행하던 참가자가 모두 자리를 비웠다: 남은 사람이 새로 시작할 수 있다.
+    if (s.phase === 'playing' && s.abandoned) {
+      return '진행하던 참가자가 모두 자리를 비웠습니다. ' + (s.alone ? '게임 시작을 누르면 새로 시작합니다.' : '준비한 사람끼리 새로 시작할 수 있습니다.');
+    }
     if (s.phase === 'lobby') {
       if (s.alone) return '게임 시작을 누르면 혼자 시작합니다. 다른 사람이 들어오면 준비한 사람끼리 시작합니다.';
       return s.canStart
@@ -190,7 +194,7 @@
 
   function render() {
     var s = state;
-    var playing = s.phase === 'playing';
+    var playing = s.phase === 'playing' && !s.abandoned; // 참가자가 모두 떠난 판은 대기실처럼 준비·시작을 보인다
     var inGame = playing && s.you.inGame;
     var me = s.players.filter(function (p) { return p.id === s.you.id; })[0] || { ready: false };
     document.body.setAttribute('data-status', s.status);
@@ -200,7 +204,7 @@
       return inGame && candidate && !candidate.removed;
     });
 
-    $('phase').textContent = playing ? '진행 중' : s.phase === 'lobby' ? PHASE.lobby : s.status === 'WON' ? '정답!' : s.status === 'LOST' ? '실패' : '종료';
+    $('phase').textContent = playing ? '진행 중' : s.phase === 'lobby' || s.abandoned ? PHASE.lobby : s.status === 'WON' ? '정답!' : s.status === 'LOST' ? '실패' : '종료';
     $('round').textContent = s.phase === 'lobby' ? '-' : s.round + ' / ' + s.maxRound;
     $('status-chip').textContent = s.phase === 'lobby' ? (s.alone ? '혼자' : '준비 ' + s.readyCount + '명') : '후보 ' + s.remaining + '개';
     $('message').textContent = messageFor(s);

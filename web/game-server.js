@@ -587,6 +587,8 @@ function createGameServer(options) {
         const roomOptions = { onChange: (id) => broadcastCardGame(game, id), onAction: actionLogger(game.logLabel) };
         // 테스트에서만: 갈팡질팡의 판을 고정한다(정답을 맞히는 경로를 보려면 정답을 알아야 한다). 실제 서버는 주지 않는다.
         if (key === 'galpang' && opts.galpangSeed !== undefined) roomOptions.seed = opts.galpangSeed;
+        // 테스트에서만: 끊긴 참가자를 투표 인원으로 기다리는 시간(기본 30초)을 줄인다.
+        if (key === 'galpang' && opts.galpangVoteGraceMs !== undefined) roomOptions.voteGraceMs = opts.galpangVoteGraceMs;
         game.room = game.create(roomOptions);
       }
       startHeartbeat();

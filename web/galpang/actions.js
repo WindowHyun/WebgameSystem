@@ -35,14 +35,16 @@ function problem(engine, command) {
 /**
  * 명령을 하고 { lines }를 돌려준다. 게임이 끝났는지는 engine.status로 본다.
  * command: { type: 'remove', numbers } | { type: 'guess', number } | { type: 'next' } | { type: 'quit' }
+ * options.closing: 끝난 글의 마지막 줄(없으면 터미널의 "restart 를 입력하면…"). 사이트 방은 준비·시작 안내를 넘긴다.
  */
-function perform(engine, command) {
+function perform(engine, command, options) {
+  const closing = (options && options.closing) || undefined;
   switch (command.type) {
     case 'remove': {
       const result = engine.remove(command.numbers);
       if (result.code === 'INVALID_NUMBER') return { lines: render.outOfRange(engine.state.candidates.length) };
       // 정답 후보를 지웠으면 그 자리에서 끝난다: 지운 번호들 뒤에 결과를 이어 보인다.
-      if (result.code === 'LOST') return { lines: [...render.removed(result), '', ...render.lost(engine.summary())] };
+      if (result.code === 'LOST') return { lines: [...render.removed(result), '', ...render.lost(engine.summary(), closing)] };
       return { lines: render.removed(result) };
     }
     case 'guess': {
@@ -50,11 +52,11 @@ function perform(engine, command) {
       if (result.code === 'INVALID_NUMBER') return { lines: render.outOfRange(engine.state.candidates.length) };
       if (result.code === 'GUESS_REMOVED') return { lines: [`${result.id}번 후보는 이미 제거한 후보입니다.`] };
       // 맞히면 WON, 틀리면 바로 LOST(정답 공개)다.
-      return { lines: result.code === 'WON' ? render.won(engine.summary()) : render.lost(engine.summary()) };
+      return { lines: result.code === 'WON' ? render.won(engine.summary(), closing) : render.lost(engine.summary(), closing) };
     }
     case 'next': {
       const result = engine.next();
-      if (result.code === 'LOST') return { lines: render.lost(engine.summary()) };
+      if (result.code === 'LOST') return { lines: render.lost(engine.summary(), closing) };
       return { lines: [render.DASH, '', ...render.roundBlock(result.hint)] };
     }
     case 'quit':

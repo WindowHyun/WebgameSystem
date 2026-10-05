@@ -8,9 +8,15 @@
  * 준비 없이 바로 시작할 수 있다. 후보 16개판·힌트·정답은 방 하나에 하나뿐이라 참가자 모두가 같은 화면을 본다.
  *
  * [과반수 동의] 판을 바꾸는 조작은 한 사람이 마음대로 하지 못한다. 누가 "제안"하면(후보 제거·정답 제출·다음 라운드·
- * 포기) 제안한 사람은 찬성으로 치고, 접속 중인 참가자의 과반수(절반을 넘는 수)가 찬성하면 그때 실행한다.
- * 과반수가 될 수 없을 만큼 반대가 나오거나 시간(proposalTimeoutMs)이 지나면 취소한다. 접속한 참가자가
- * 한 명뿐이면 그 한 명이 곧 과반수라 바로 실행된다. 어떤 조작에 동의를 받을지는 NEEDS_CONSENT 표 하나로 정한다.
+ * 포기) 제안한 사람은 찬성으로 치고, 그 제안의 투표 인원 과반수(절반을 넘는 수)가 찬성하면 그때 실행한다.
+ * 과반수가 될 수 없을 만큼 반대가 나오거나 시간(proposalTimeoutMs)이 지나면 취소한다. 어떤 조작에 동의를 받을지는
+ * NEEDS_CONSENT 표 하나로 정한다.
+ *
+ * [투표 인원] 제안을 올리는 순간 "자리에 있는" 참가자가 그 제안의 투표 인원이다. 자리에 있다는 것은 접속 중이거나, 끊긴 지
+ * voteGraceMs(기본 30초)가 안 됐다는 뜻이다. 폰 화면이 잠겨 잠깐 끊긴 사람을 빼고 남은 소수가 되돌릴 수 없는 조작(정답
+ * 제출·포기)을 통과시키지 못하게 하려는 것이다. 투표 중에 끊겨도 인원은 줄지 않고(그 사람 표만 안 들어온다), 나가거나 자리를
+ * 정리당한 사람만 빠진다. 유예가 지나도록 돌아오지 않은 사람은 다음 제안부터 빠진다 - 참가자가 한 명만 자리에 있으면 그
+ * 한 명이 곧 과반수라 바로 실행된다.
  *
  * [정답은 서버만 안다] 정답과 힌트의 속마음(reason)은 이 프로세스 안에만 있고, 게임이 이기거나 져서 끝나기
  * 전에는 어떤 메시지에도 실리지 않는다(web/galpang/engine.js의 publicView). 브라우저는 후보 16개와 이미
@@ -19,8 +25,8 @@
  * 단, 서버 관리 로그에는 게임을 시작할 때 정답을 한 번 남긴다(운영자가 판을 확인하려는 요청). 로그는 서버 프로세스의
  * 출력일 뿐 어떤 연결로도 나가지 않는다. 그 밖의 로그 줄에는 후보를 번호로만 쓴다.
  *
- * [재접속] 새로고침·네트워크 전환으로 끊겨도 같은 토큰이면 같은 자리로 돌아온다. 끊긴 사람은 투표 인원에서
- * 빠지고(접속자 과반수), idleMs(기본 30분) 안에 돌아오지 않으면 자리를 정리한다.
+ * [재접속] 새로고침·네트워크 전환으로 끊겨도 같은 토큰이면 같은 자리로 돌아온다. idleMs(기본 30분) 안에 돌아오지 않으면 자리를
+ * 정리한다. 참가자가 모두 자리를 비운 판(abandoned)은 접속해 있는 구경꾼이 새로 시작할 수 있다.
  */
 
 const crypto = require('crypto');
@@ -38,9 +44,13 @@ const MAX_PLAYERS = 8;
 const ROOM_CAPACITY = 12;
 const IDLE_MS = 30 * 60 * 1000;
 const PROPOSAL_MS = 30 * 1000;
+const VOTE_GRACE_MS = 30 * 1000;
 const MAX_LINE = LIMITS.command; // 요청 형식(web/protocol.js)과 같은 한도
 
-/** 판을 바꾸는 조작 중 접속자 과반수의 동의를 받을 것. false로 바꾸면 그 조작은 누구든 바로 한다. */
+/** 끝난 판의 결과 글 끝에 붙는 안내. 터미널의 "restart 를 입력하면…"은 여럿이 하는 방에서는 통하지 않는다(준비가 먼저다). */
+const ROOM_END_HINT = '새 게임은 화면의 준비 → 게임 시작으로 시작합니다.';
+
+/** 판을 바꾸는 조작 중 투표 인원 과반수의 동의를 받을 것. false로 바꾸면 그 조작은 누구든 바로 한다. */
 const NEEDS_CONSENT = { remove: true, guess: true, next: true, quit: true };
 
 function createGalpangRoom(options) {
@@ -50,6 +60,9 @@ function createGalpangRoom(options) {
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const idleMs = Number.isFinite(opts.idleMs) ? opts.idleMs : IDLE_MS;
   const proposalMs = Number.isFinite(opts.proposalTimeoutMs) ? opts.proposalTimeoutMs : PROPOSAL_MS;
+  const graceMs = Number.isFinite(opts.voteGraceMs) ? opts.voteGraceMs : VOTE_GRACE_MS;
+  // 판 만들기. 테스트에서 실패를 흉내 내려고 바꿔 끼울 수 있다(web/galpang/session.js의 createSession이 기본).
+  const newSession = opts.createSession || createSession;
   // 테스트에서 게임을 고정하려고 주입받는다. 실제 서버는 주지 않는다(판마다 무작위).
   const seed = opts.seed;
   // 타이머 콜백에서 난 예외가 프로세스까지 올라가지 않게 감싼다(web/mind-room.js 참고).
@@ -61,12 +74,12 @@ function createGalpangRoom(options) {
     return timer;
   };
 
-  const players = []; // { id, token, nickname, connected, ready, pendingQuit, reply, replySeq, timer }
+  const players = []; // { id, token, nickname, connected, disconnectedAt, ready, pendingQuit, reply, replySeq, timer, graceTimer }
   let phase = 'lobby'; // lobby(아직 판 없음) | playing | result(끝난 판이 남아 있음)
   let roster = [];     // 이번 판을 뛰는 사람(시작할 때 정해지고, 나가면 줄어든다)
   let session = null;  // 이번 판(web/galpang/session.js). lobby에서는 null
   let games = 0;       // 지금까지 시작한 판 수 - 테스트에서 seed를 `${seed}#${n}`으로 이어 가는 데 쓴다
-  let proposal = null; // { id, cmd, byId, byName, yes: Set, no: Set, timer }
+  let proposal = null; // { id, cmd, byId, byName, electorate: Set, yes: Set, no: Set, timer }
   let output = null;   // 모두에게 보이는 마지막 결과 글 { seq, title, lines }
   let outputSeq = 0;
 
@@ -77,8 +90,15 @@ function createGalpangRoom(options) {
   const changed = (id) => {
     try { notify(id); } catch (err) { logError(`[갈팡질팡 상태 알림 실패] ${err && err.stack ? err.stack : err}`); }
   };
-  /** 이번 판에서 투표할 수 있는 사람: 접속 중인 참가자. */
-  const voters = () => roster.map(find).filter((p) => p && p.connected);
+  /** 자리에 있는 사람: 접속 중이거나, 끊긴 지 유예(voteGraceMs)가 안 된 사람. */
+  const present = (p) => p.connected || (p.disconnectedAt != null && Date.now() - p.disconnectedAt < graceMs);
+  /** 이번 판 참가자 중 자리에 있는 사람. 새 제안의 투표 인원이 된다. */
+  const presentRoster = () => roster.map(find).filter((p) => p && present(p));
+  const inGame = (id) => live() && roster.includes(id);
+  /** 진행 중인 판인데 참가자가 모두 자리를 비웠다. 접속해 있는 구경꾼이 새로 시작할 수 있다. */
+  const abandoned = () => live() && presentRoster().length === 0;
+  /** 정원이 차서 자리를 비워야 할 때 건드리면 안 되는 자리: 아직 돌아올 수 있는 참가자. */
+  const keepSeat = (p) => inGame(p.id) && !abandoned();
   const seedFor = (index) => (seed === undefined ? undefined : (index === 0 ? seed : `${seed}#${index}`));
 
   function uniqueNickname(value, exceptId) {
@@ -153,37 +173,51 @@ function createGalpangRoom(options) {
   function run(cmd, byName, tally) {
     const engine = session.engine;
     const detail = logText(cmd);
-    const done = perform(engine, cmd);
+    const done = perform(engine, cmd, { closing: ROOM_END_HINT });
     say(tally && tally.total > 1 ? `${byName}님의 제안이 통과됐습니다. (동의 ${tally.yes}/${tally.total}명)` : null, done.lines);
     // 어떤 후보를 지웠는지·냈는지는 판 위에 다 보이는 정보다. 정답인지 여부는 따로 남기지 않는다.
     if (cmd.type !== 'quit') act(byName, tally && tally.total > 1 ? `${detail} (동의 ${tally.yes}/${tally.total}명)` : detail);
     if (engine.status !== STATUS.PLAYING) endGame(byName);
   }
 
-  /** 지금 표로 결판이 났는지 본다: 과반수 찬성이면 실행, 과반수가 될 수 없으면 취소. 접속 인원이 바뀔 때도 다시 본다. */
+  /** 제안의 투표 인원: 제안을 올릴 때 자리에 있던 사람 중 아직 이번 판 참가자로 남아 있는 사람. */
+  function members() {
+    return [...proposal.electorate].filter((rid) => roster.includes(rid) && find(rid));
+  }
+
+  /**
+   * 지금 표로 결판이 났는지 본다: 과반수 찬성이면 실행, 과반수가 될 수 없으면 취소. 투표 인원은 제안을 올릴 때 정해져서
+   * 끊긴다고 줄지 않는다(나가거나 자리를 정리당한 사람만 빠진다). 제안한 사람이 끊기면 취소한다.
+   */
   function settle() {
     if (!proposal) return;
-    const connected = voters();
-    const yes = connected.filter((p) => proposal.yes.has(p.id)).length;
-    const no = connected.filter((p) => proposal.no.has(p.id)).length;
-    const need = Math.floor(connected.length / 2) + 1;
-    if (!connected.some((p) => p.id === proposal.byId)) { cancel('제안한 사람이 자리를 비워'); return; }
+    const voting = members();
+    const yes = voting.filter((rid) => proposal.yes.has(rid)).length;
+    const no = voting.filter((rid) => proposal.no.has(rid)).length;
+    const need = Math.floor(voting.length / 2) + 1;
+    const proposer = find(proposal.byId);
+    if (!proposer || !proposer.connected || !voting.includes(proposal.byId)) { cancel('제안한 사람이 자리를 비워'); return; }
     if (yes >= need) {
       const passed = proposal;
       clearProposal();
-      run(passed.cmd, passed.byName, { yes, total: connected.length });
+      run(passed.cmd, passed.byName, { yes, total: voting.length });
       return;
     }
-    if (yes + (connected.length - yes - no) < need) cancel('반대가 많아');
+    if (yes + (voting.length - yes - no) < need) cancel('반대가 많아');
   }
+
+  const busyMessage = () => `이미 투표가 진행 중입니다. (${proposal.byName}님: ${describe(proposal.cmd)})`;
 
   /** 판을 바꾸는 조작을 제안한다. 거절 사유는 돌려주고(화면에 안내), 받아들이면 null. */
   function propose(player, cmd) {
     if (!live()) return '진행 중인 게임이 없습니다.';
     if (!roster.includes(player.id)) return '이번 게임 참가자가 아닙니다. 구경 중에는 조작할 수 없습니다.';
-    if (proposal) return `이미 투표가 진행 중입니다. (${proposal.byName}님: ${describe(proposal.cmd)})`;
+    if (proposal) return busyMessage();
     if (!NEEDS_CONSENT[cmd.type]) { run(cmd, player.nickname, null); changed(); return null; }
-    proposal = { id: makeId(), cmd, byId: player.id, byName: player.nickname, yes: new Set([player.id]), no: new Set(), timer: null };
+    proposal = {
+      id: makeId(), cmd, byId: player.id, byName: player.nickname, electorate: new Set(presentRoster().map((p) => p.id)),
+      yes: new Set([player.id]), no: new Set(), timer: null,
+    };
     act(player.nickname, `제안 - ${logText(cmd)}`);
     settle();
     if (proposal) {
@@ -202,6 +236,7 @@ function createGalpangRoom(options) {
     if (!proposal || proposal.id !== proposalId) return '종료된 투표입니다.';
     const player = find(id);
     if (!player || !roster.includes(id)) return '이번 게임 참가자가 아닙니다.';
+    if (!proposal.electorate.has(id)) return '이번 제안은 올라올 때 자리를 비웠던 분의 표를 받지 않습니다.';
     if (proposal.yes.has(id) || proposal.no.has(id)) return '이미 투표했습니다.';
     (agree ? proposal.yes : proposal.no).add(id);
     act(player.nickname, `${logText(proposal.cmd)} ${agree ? '찬성' : '반대'}`);
@@ -220,6 +255,7 @@ function createGalpangRoom(options) {
   /** 자리를 정리한다(나감·돌아오지 않음). 이번 판 참가자였다면 참가자에서도 뺀다. */
   function dropSeat(player) {
     clearTimeout(player.timer);
+    clearTimeout(player.graceTimer);
     const index = players.indexOf(player);
     if (index >= 0) players.splice(index, 1);
     if (roster.includes(player.id)) {
@@ -241,7 +277,9 @@ function createGalpangRoom(options) {
     const restored = token ? players.find((p) => p.token === token) : null;
     if (restored) {
       clearTimeout(restored.timer);
+      clearTimeout(restored.graceTimer);
       restored.connected = true;
+      restored.disconnectedAt = null;
       restored.nickname = uniqueNickname(clean, restored.id);
       act(restored.nickname, '재접속');
       settle();
@@ -249,14 +287,15 @@ function createGalpangRoom(options) {
       return { playerId: restored.id, token: restored.token, restored: true };
     }
     if (players.length >= ROOM_CAPACITY) {
-      // 끊긴 채 남은 사람 중 이번 판 참가자가 아닌 가장 오래된 자리부터 비운다. 모두 접속 중이면 받을 수 없다.
-      const stale = players.find((p) => !p.connected && !roster.includes(p.id));
+      // 끊긴 채 남은 사람 중 돌아올 수 있는 참가자(진행 중인 판의 참가자)가 아닌 가장 오래된 자리부터 비운다.
+      // 끝난 판의 참가자는 이제 구경꾼과 같다. 모두 접속 중이거나 돌아올 참가자뿐이면 받을 수 없다.
+      const stale = players.find((p) => !p.connected && !keepSeat(p));
       if (!stale) return { error: `방이 가득 찼습니다. (최대 ${ROOM_CAPACITY}명)` };
       dropSeat(stale);
     }
     const player = {
-      id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), connected: true, ready: false,
-      pendingQuit: false, reply: null, replySeq: 0, timer: null,
+      id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), connected: true, disconnectedAt: null, ready: false,
+      pendingQuit: false, reply: null, replySeq: 0, timer: null, graceTimer: null,
     };
     players.push(player);
     act(player.nickname, `입장${live() ? ' (진행 중 - 다음 게임부터)' : ''}`);
@@ -268,8 +307,16 @@ function createGalpangRoom(options) {
     const player = find(id);
     if (!player || !player.connected) return;
     player.connected = false;
+    player.disconnectedAt = Date.now();
     player.pendingQuit = false;
     act(player.nickname, '연결 끊김');
+    // 유예가 끝나면 투표 인원·버려진 판 여부가 시간만으로 바뀐다. 그 사이 아무 일도 없으면 화면에 알림이 가지 않으므로
+    // 끝나는 순간에 한 번 다시 알린다(구경꾼의 게임 시작 버튼이 열리고, 투표 인원 표시가 맞춰진다).
+    clearTimeout(player.graceTimer);
+    player.graceTimer = safeTimeout(() => {
+      const still = find(id);
+      if (still && !still.connected && live()) changed();
+    }, graceMs + 10);
     player.timer = safeTimeout(() => {
       const still = find(id);
       if (!still || still.connected) return;
@@ -292,7 +339,7 @@ function createGalpangRoom(options) {
   // ───────────────────────────── 조작 ─────────────────────────────
 
   function setReady(id, ready) {
-    if (live()) return '게임이 끝난 뒤에 준비할 수 있습니다.';
+    if (live() && !abandoned()) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
     if (!player) return '참가자를 찾을 수 없습니다.';
     player.ready = !!ready;
@@ -309,13 +356,23 @@ function createGalpangRoom(options) {
   function begin(id) {
     const starter = find(id);
     if (!starter || !starter.connected) return '방에 참가한 뒤 시작할 수 있습니다.';
-    if (live()) return '이미 게임이 진행 중입니다.';
+    const takeover = live() && abandoned();
+    if (live() && !takeover) return '이미 게임이 진행 중입니다.';
     const going = joining();
     if (going.length < MIN_PLAYERS) return '준비한 참가자가 1명 이상이어야 합니다. 준비를 눌러 주세요.';
     if (going.length > MAX_PLAYERS) return `갈팡질팡은 ${MAX_PLAYERS}명까지 할 수 있습니다. 준비한 사람을 ${MAX_PLAYERS}명 이하로 맞춰 주세요.`;
+    // 판을 먼저 만든다. 만들다 실패해도(힌트를 못 짜는 드문 경우) 방의 상태는 그대로여야 한다.
+    let next;
+    try {
+      next = newSession({ seed: seedFor(games) });
+    } catch (err) {
+      logError(`[갈팡질팡 판 만들기 실패] ${err && err.stack ? err.stack : err}`);
+      return '게임을 시작하지 못했습니다. 잠시 뒤 다시 시도해 주세요.';
+    }
+    if (takeover) act('진행', '참가자가 모두 자리를 비워 진행 중이던 판을 마치고 새로 시작');
     clearProposal();
     roster = going.map((p) => p.id);
-    session = createSession({ seed: seedFor(games) });
+    session = next;
     games += 1;
     phase = 'playing';
     for (const p of players) { p.pendingQuit = false; p.ready = false; }
@@ -356,9 +413,11 @@ function createGalpangRoom(options) {
     }
     // 여기부터는 판을 바꾸는 명령(remove·guess·next·quit)이다.
     if (!live()) {
-      return tell(player, session ? render.GAME_OVER : ['아직 게임이 시작되지 않았습니다.', '', '준비를 누르고 게임 시작을 눌러 주세요.']);
+      return tell(player, session ? render.gameOver(ROOM_END_HINT) : ['아직 게임이 시작되지 않았습니다.', '', '준비를 누르고 게임 시작을 눌러 주세요.']);
     }
     if (!roster.includes(id)) return '이번 게임 참가자가 아닙니다. 구경 중에는 조작할 수 없습니다.';
+    // 투표가 이미 진행 중이면 어느 조작도 새 제안이 될 수 없다. 포기는 확인까지 받고 나서 거절하지 않게 먼저 알린다.
+    if (proposal) return busyMessage();
     if (cmd.type === 'quit') {
       // 포기는 되돌릴 수 없어서 제안자에게 먼저 한 번 더 묻는다(혼자면 이것이 유일한 확인이다).
       player.pendingQuit = true;
@@ -378,11 +437,12 @@ function createGalpangRoom(options) {
 
   // ───────────────────────────── 상태 ─────────────────────────────
 
+  const nameOf = (id) => (find(id) || {}).nickname || '(나간 참가자)';
   const EMPTY_VIEW = { status: 'LOBBY', round: 0, maxRound: 5, candidates: [], remaining: 0, hints: [], summary: null };
 
   function proposalFor(me) {
     if (!proposal) return null;
-    const connected = voters();
+    const voting = members();
     const cmd = proposal.cmd;
     return {
       id: proposal.id,
@@ -392,14 +452,14 @@ function createGalpangRoom(options) {
       text: describe(cmd),
       // 판에서 이 후보들이 제안 대상이라고 표시하려고 보낸다(지우려는 후보가 정답인지는 알 수 없다).
       numbers: cmd.numbers ? cmd.numbers.slice() : (cmd.number ? [cmd.number] : []),
-      agreed: connected.filter((p) => proposal.yes.has(p.id)).length,
-      refused: connected.filter((p) => proposal.no.has(p.id)).length,
-      needed: Math.floor(connected.length / 2) + 1,
-      total: connected.length,
+      agreed: voting.filter((rid) => proposal.yes.has(rid)).length,
+      refused: voting.filter((rid) => proposal.no.has(rid)).length,
+      needed: Math.floor(voting.length / 2) + 1,
+      total: voting.length,
       yourVote: proposal.yes.has(me.id) ? 'yes' : proposal.no.has(me.id) ? 'no' : null,
-      canVote: roster.includes(me.id) && me.connected,
+      canVote: proposal.electorate.has(me.id) && roster.includes(me.id) && me.connected,
       // 제안했거나 이미 투표한 사람 화면에 "누구를 기다리는지" 보여 주려고 보낸다.
-      waitingFor: connected.filter((p) => !proposal.yes.has(p.id) && !proposal.no.has(p.id)).map((p) => p.nickname),
+      waitingFor: voting.filter((rid) => !proposal.yes.has(rid) && !proposal.no.has(rid)).map((rid) => nameOf(rid)),
     };
   }
 
@@ -410,6 +470,8 @@ function createGalpangRoom(options) {
     const connected = players.filter((p) => p.connected);
     const going = joining();
     const voting = proposal;
+    const dead = abandoned();
+    const seated = presentRoster().length;
     return {
       ...view,
       type: 'galpangState',
@@ -417,21 +479,22 @@ function createGalpangRoom(options) {
       minPlayers: MIN_PLAYERS,
       maxPlayers: MAX_PLAYERS,
       readyCount: going.length,
-      canStart: !live() && me.connected && going.length >= MIN_PLAYERS && going.length <= MAX_PLAYERS,
+      canStart: (!live() || dead) && me.connected && going.length >= MIN_PLAYERS && going.length <= MAX_PLAYERS,
+      abandoned: dead,
       alone: connected.length === 1,
-      voters: voters().length,
-      needed: Math.floor(voters().length / 2) + 1,
-      pendingQuit: live() && me.pendingQuit && roster.includes(me.id),
+      voters: seated,
+      needed: Math.floor(seated / 2) + 1,
+      pendingQuit: inGame(me.id) && me.pendingQuit,
       proposal: proposalFor(me),
       output,
       reply: me.reply,
-      you: { id: me.id, nickname: me.nickname, ready: me.ready, inGame: live() && roster.includes(me.id) },
-      players: players.filter((p) => p.connected || (live() && roster.includes(p.id))).map((p) => ({
+      you: { id: me.id, nickname: me.nickname, ready: me.ready, inGame: inGame(me.id) },
+      players: players.filter((p) => p.connected || inGame(p.id)).map((p) => ({
         id: p.id,
         nickname: p.nickname,
         connected: p.connected,
         ready: p.ready,
-        inGame: live() && roster.includes(p.id),
+        inGame: inGame(p.id),
         vote: voting ? (voting.yes.has(p.id) ? 'yes' : voting.no.has(p.id) ? 'no' : null) : null,
       })),
     };
@@ -439,7 +502,7 @@ function createGalpangRoom(options) {
 
   function dispose() {
     clearProposal();
-    for (const player of players) clearTimeout(player.timer);
+    for (const player of players) { clearTimeout(player.timer); clearTimeout(player.graceTimer); }
     players.length = 0;
   }
 
@@ -447,7 +510,8 @@ function createGalpangRoom(options) {
     join, disconnect, leave, setReady, begin, command, vote, setCovered, stateFor, dispose,
     // 테스트용. 서버는 쓰지 않는다.
     _debug: () => ({ players, roster, phase, session, proposal }),
-    status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }),
+    // 참가자가 모두 떠난 판은 포털에도 "진행중"으로 보이지 않게 끝난 판처럼 알린다.
+    status: () => ({ phase: abandoned() ? 'result' : phase, playerCount: players.filter((p) => p.connected).length }),
   };
 }
 
