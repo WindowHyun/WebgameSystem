@@ -20,6 +20,7 @@
 const { GameEngine } = require('../web/galpang/engine');
 const { createRng } = require('../web/galpang/rng');
 const { pickCandidates } = require('../web/galpang/generator');
+const { CANDIDATE_COUNT, CANDIDATE_SPREAD } = require('../web/galpang/state');
 const { buildPlan, sideOf, isDirect, leftAfter, topic } = require('../web/galpang/hint');
 const WORDS = require('../web/galpang/data/words.json');
 const AXES = require('../web/galpang/data/hints.json');
@@ -179,13 +180,18 @@ function check(name, ok, detail) {
 
 // ── 어느 단어가 정답이어도 ──
 {
+  // 실제 판과 같은 방식으로 후보를 뽑는다(엔진은 비슷한 카테고리 CANDIDATE_SPREAD개에서 CANDIDATE_COUNT개를 뽑는다).
+  // spread 없이 뽑으면 모든 카테고리에서 고르게 뽑는 옛 방식이라, 실제로는 나오지 않는 후보 구성을 시험하게 된다.
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const pickLikeGame = (seed) => pickCandidates(WORDS, createRng(seed, 'candidates'), CANDIDATE_COUNT, CANDIDATE_SPREAD);
+  check('이 시험이 뽑는 후보가 엔진이 실제로 뽑는 후보와 같다(seed 5개)', [1, 7, 42, 500, 1499].every((seed) => same(pickLikeGame(seed).map((c) => c.name), new GameEngine({ seed }).state.candidates.map((c) => c.name))));
   const problems = []; let tiers = 0; let total = 0;
   for (const word of WORDS) {
     for (let k = 0; k < 4; k += 1) {
       // 그 단어가 후보에 들어 있는 판을 하나 찾는다.
       let candidates; let answer;
       for (let seed = 1 + k * 1000; seed < 1000 + k * 1000 && !answer; seed += 1) {
-        candidates = pickCandidates(WORDS, createRng(seed, 'candidates'), 16);
+        candidates = pickLikeGame(seed);
         answer = candidates.find((c) => c.name === word.name);
       }
       if (!answer) { problems.push(`${word.name}: 후보로 뽑히는 판을 못 찾음`); continue; }

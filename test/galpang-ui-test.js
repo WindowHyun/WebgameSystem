@@ -17,6 +17,8 @@
  *   - 후보 제거·정답 제출·다음 라운드·포기는 제안이 되어 다른 참가자에게 찬반 창이 뜨고, 과반수가 동의해야 실행된다
  *   - 반대가 많으면 취소되고, 구경하는 사람은 판을 보되 조작하지 못한다. 끝난 뒤 다시 준비해서 시작한다
  *   - 폰에서도 투표 창이 화면 안에 들어오고 탭으로 투표할 수 있다
+ *   - 고른 후보는 서버가 받아들이기 전에는 지우지 않는다(거절돼도·연결이 끊겨 못 보내도 그대로). 제거 버튼을 두 번 눌러도 한 번만 간다.
+ *     연결이 닫혀 있으면 기록에 남기지 않고 안내하며, 입력창에 쓴 글을 돌려준다
  *   - 진행하던 참가자가 모두 자리를 비우면(유예가 지나면) 방에 있던 구경꾼 화면이 알아서 대기실로 바뀌고 새로 시작할 수 있다
  * 브라우저 오류·CSP 위반 없음
  *
@@ -51,8 +53,9 @@ function check(name, ok, detail) {
   await server.start();
   const browser = await chromium.launch();
   const errors = [];
-  async function enter(name, device, at) {
+  async function enter(name, device, at, prepare) {
     const context = await browser.newContext(device || { viewport: { width: 1280, height: 800 } });
+    if (prepare) await prepare(context);
     const page = await context.newPage();
     page.on('pageerror', (e) => errors.push(`${name}: ${e}`));
     page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
@@ -619,6 +622,99 @@ function check(name, ok, detail) {
         check('눌러서 새 판이 시작되고 구경꾼이 참가자가 된다(후보 16개, 라운드 1 / 5)', fresh.names.length === 16 && fresh.round === '1 / 5' && fresh.removed.length === 0 && fresh.status === 'PLAYING' && (await text(C, '#phase')) === '진행 중', JSON.stringify(fresh));
         await leaveAndClose(C);
       } finally { await quick.stop(); }
+    }
+
+    // ══════════════ 고른 후보·보내기 실패 ══════════════
+    {
+      const answer0 = answerOfGame(0).id;
+      const [x, y, z] = [1, 2, 3, 4, 5, 6].filter((id) => id !== answer0);
+      // 소켓을 붙잡아 두었다가 닫고 다시 붙지 못하게 막는 스크립트: 연결이 끊긴 채 버튼을 누르는 상황을 만든다.
+      const trackSockets = (context) => context.addInitScript(() => {
+        const Native = window.WebSocket;
+        window.__sockets = [];
+        window.__blockWs = false;
+        function Tracked(url, protocols) {
+          const target = window.__blockWs ? 'ws://127.0.0.1:1/' : url;
+          const ws = protocols === undefined ? new Native(target) : new Native(target, protocols);
+          window.__sockets.push(ws);
+          return ws;
+        }
+        Tracked.prototype = Native.prototype;
+        Object.assign(Tracked, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+        window.WebSocket = Tracked;
+      });
+      const logOf = (page) => page.evaluate(() => document.getElementById('log').textContent);
+      const selectedOf = (page) => page.evaluate(() => [...document.querySelectorAll('#grid .cand.selected')].map((el) => Number(el.dataset.id)));
+      const errorsBefore = errors.length;
+
+      const soloServer = createGameServer({ port: port + 2, host: '127.0.0.1', galpangSeed: SEED });
+      await soloServer.start();
+      try {
+        const solo = await enter('김하늘', null, port + 2, trackSockets);
+        await open(solo);
+        await cand(solo, x).click();
+        await solo.dblclick('#remove');
+        await wait(500);
+        const doubled = (await logOf(solo)).split('\n').filter((l) => l === `> remove ${x}`).length;
+        check('제거 버튼을 빠르게 두 번 눌러도 명령은 한 번만 간다(고른 후보를 바로 지우지 않으므로 막는 장치가 따로 있다)', doubled === 1 && (await snapshot(solo)).removed.join() === String(x) && !(await solo.isVisible('#error')), `${doubled}번`);
+        check('제거가 실행되면 지워진 후보는 선택에서 저절로 빠진다', (await selectedOf(solo)).length === 0 && (await solo.isDisabled('#remove')) && (await text(solo, '#remove')) === '후보 제거');
+
+        await cand(solo, y).click();
+        await solo.click('#console summary'); // 명령어 입력칸은 접혀 있다 - 끊기기 전에 열어 둔다
+        await solo.evaluate(() => { window.__blockWs = true; window.__sockets.forEach((ws) => ws.close()); });
+        await wait(250);
+        check('(준비) 연결이 닫혀 재연결 중이다', await solo.evaluate(() => document.body.hasAttribute('data-offline')));
+        const logBefore = await logOf(solo);
+        // 끊긴 동안 마우스는 CSS가 막지만(body[data-offline] .controls button) 키보드(Tab → Enter)는 막지 못한다.
+        await solo.focus('#remove');
+        await solo.keyboard.press('Enter');
+        await wait(200);
+        check('연결이 닫혀 있으면 기록에 남기지 않고 안내한다(보내지도 않았는데 "> remove"가 남던 문제)', (await logOf(solo)) === logBefore && !(await logOf(solo)).includes(`> remove ${y}`) && await solo.isVisible('#error') && /연결이 끊겨/.test(await text(solo, '#error')), await text(solo, '#error'));
+        check('보내지 못했으면 고른 후보를 그대로 둔다(다시 고르지 않아도 된다)', JSON.stringify(await selectedOf(solo)) === `[${y}]` && !(await solo.isDisabled('#remove')) && (await text(solo, '#remove')) === '후보 제거 (1)');
+        await solo.focus('#command');
+        await solo.keyboard.type('help');
+        await solo.keyboard.press('Enter');
+        await wait(150);
+        check('입력창으로 보내지 못하면 쓴 글이 입력창에 돌아온다', (await solo.inputValue('#command')) === 'help' && !(await logOf(solo)).includes('> help'), `입력창="${await solo.inputValue('#command')}" 기록끝="${(await logOf(solo)).split('\n').slice(-2).join(' / ')}"`);
+        await solo.context_.close();
+      } finally { await soloServer.stop(); }
+      // 일부러 막은 연결이 브라우저 콘솔에 남긴 오류는 아래 "오류 없음" 점검에서 뺀다(그 밖의 오류는 그대로 센다).
+      for (let i = errors.length - 1; i >= errorsBefore; i -= 1) if (/WebSocket|ERR_CONNECTION|127\.0\.0\.1:1\b/.test(errors[i])) errors.splice(i, 1);
+
+      const pairServer = createGameServer({ port: port + 3, host: '127.0.0.1', galpangSeed: SEED });
+      await pairServer.start();
+      try {
+        const A = await enter('김하늘', null, port + 3);
+        await lobby(A);
+        const B = await enter('박서준', null, port + 3);
+        await lobby(B);
+        await A.click('#ready');
+        await B.click('#ready');
+        await wait(300);
+        await A.click('#start');
+        await wait(200);
+        await A.click('#start-go');
+        await A.waitForSelector('#grid .cand', { timeout: 15000 });
+        await B.waitForSelector('#grid .cand', { timeout: 15000 });
+        await wait(300);
+        await cand(B, y).click(); // 투표 창이 뜨면 그리드를 누를 수 없으니 B가 먼저 고른다
+        await cand(A, x).click();
+        await A.click('#remove');
+        await wait(300);
+        // 투표 중에는 버튼이 꺼져 있지만, 화면이 갱신되기 전에 눌린 것처럼 서버로 보낸다(서버가 거절하는 경우)
+        await B.evaluate(() => { const button = document.getElementById('remove'); button.disabled = false; button.click(); });
+        await wait(300);
+        check('서버가 거절해도(이미 투표 중) 고른 후보가 그대로 남고 안내가 뜬다', JSON.stringify(await selectedOf(B)) === `[${y}]` && await B.isVisible('#error') && /이미 투표가 진행 중/.test(await text(B, '#error')), `선택=${JSON.stringify(await selectedOf(B))} 안내="${await text(B, '#error')}" 보임=${await B.isVisible('#error')} 기록끝="${(await logOf(B)).split('\n').slice(-2).join(' / ')}"`);
+        check('제안한 사람의 선택도 투표가 끝날 때까지 남는다(되돌릴 수 있게)', JSON.stringify(await selectedOf(A)) === `[${x}]`);
+        await B.click('#vote-yes');
+        await wait(400);
+        check('동의로 제거가 실행되면 제안한 사람의 선택에서는 지워진 후보가 빠지고, 다른 사람의 선택은 남는다', (await selectedOf(A)).length === 0 && JSON.stringify(await selectedOf(B)) === `[${y}]` && (await snapshot(A)).removed.join() === String(x));
+        check('투표가 끝나면 거절됐던 사람의 제거 버튼이 다시 켜진다', !(await B.isDisabled('#remove')) && (await text(B, '#remove')) === '후보 제거 (1)');
+        await cand(B, z).click();
+        check('고른 후보를 이어서 더 고를 수 있다', JSON.stringify((await selectedOf(B)).sort()) === JSON.stringify([y, z].sort()));
+        await leaveAndClose(A);
+        await leaveAndClose(B);
+      } finally { await pairServer.stop(); }
     }
 
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));

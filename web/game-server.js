@@ -148,12 +148,15 @@ function createGameServer(options) {
   let pingTimer = null;
   let initialized = false;
 
+  /** 보냈으면 true. 닫힌 연결이거나 전송이 실패했으면 false(호출한 쪽은 대개 무시한다). */
   function sendTo(ws, payload) {
-    if (ws.readyState !== ws.OPEN) return;
+    if (ws.readyState !== ws.OPEN) return false;
     try {
       ws.send(JSON.stringify(payload));
+      return true;
     } catch (err) {
       warn(`[전송 실패] ${err.message}`);
+      return false;
     }
   }
 
@@ -168,6 +171,33 @@ function createGameServer(options) {
   }
 
   /**
+   * 갈팡질팡 상태에는 결과 글(output)과 개인 답(reply)이 번호(seq)와 함께 실린다. 화면은 번호가 올라갈 때만 글을 읽는데,
+   * 투표 한 표·참가자 한 명이 바뀔 때마다 모두에게 같은 글 전체를 다시 보낼 이유가 없다. 이 연결에 이미 보낸 번호의 글은
+   * 줄을 비우고 repeat 표시를 단다(번호는 남긴다 - 화면이 번호로 새 글을 알아본다). 연결이 새로 붙으면 기록이 없어서
+   * 처음에는 전부 간다. 글이 없는 다른 카드 게임의 상태는 그대로 지나간다.
+   * 줄인 상태와 함께 "이 상태를 보내고 나면 보낸 것으로 칠 번호"를 돌려준다. 전송이 성공했을 때만 기록해야 한다 -
+   * 못 보낸 글을 보낸 것으로 치면 그 글은 화면에 영영 안 뜬다.
+   */
+  function withoutRepeatedText(client, state) {
+    const before = client.sentText && client.sentText.playerId === client.playerId ? client.sentText : { playerId: client.playerId };
+    const sent = { ...before };
+    let slim = state;
+    for (const key of ['output', 'reply']) {
+      const part = state[key];
+      if (!part || !Number.isInteger(part.seq)) { sent[key] = null; continue; }
+      if (sent[key] === part.seq) slim = { ...slim, [key]: { seq: part.seq, title: null, lines: [], repeat: true } };
+      else sent[key] = part.seq;
+    }
+    return { slim, sent };
+  }
+
+  /** 카드 게임 상태 한 건을 그 연결에 보낸다(이미 보낸 글은 줄인다). 보내지 못했으면 기록하지 않는다. */
+  function sendCardState(client, state) {
+    const { slim, sent } = withoutRepeatedText(client, state);
+    if (sendTo(client.ws, slim)) client.sentText = sent;
+  }
+
+  /**
    * 카드 게임 상태를 접속자 각각에게 "그 사람 몫으로" 보낸다. onlyId를 주면 그 참가자에게만 보낸다 -
    * 한 사람에게만 답하는 경우(갈팡질팡의 도움말·목록·입력 오류)에 남의 화면까지 다시 보낼 이유가 없다.
    */
@@ -176,7 +206,7 @@ function createGameServer(options) {
     for (const client of game.clients) {
       if (!client.playerId || (onlyId && client.playerId !== onlyId)) continue;
       const state = game.room.stateFor(client.playerId);
-      if (state) sendTo(client.ws, state);
+      if (state) sendCardState(client, state);
     }
     broadcastPortal();
   }
@@ -649,7 +679,7 @@ function createGameServer(options) {
           replaceConnection(game.clients, client, joined.playerId);
           client.playerId = joined.playerId;
           sendTo(ws, { type: 'welcome', playerId: joined.playerId, token: joined.token });
-          sendTo(ws, room.stateFor(joined.playerId));
+          sendCardState(client, room.stateFor(joined.playerId));
           return;
         }
         if (!client.playerId) { sendTo(ws, { type: 'error', message: '먼저 입장해 주세요.' }); return; }

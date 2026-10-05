@@ -19,11 +19,6 @@ const NO = new Set(['n', 'no', '아니오', '아니', 'ㄴ']);
 // 끝난 게임에서 받아 주는 명령(그 밖의 입력은 "끝났다"고 알려 준다).
 const AFTER_END = new Set(['restart', 'history', 'quit', 'empty']);
 
-/**
- * options: { seed, debug }
- *   seed   처음 게임의 seed. restart마다 `${seed}#1`, `${seed}#2`…로 이어 가서, 같은 seed로 시작한 대화는
- *          통째로 재현된다. 없으면 매 게임 무작위.
- */
 /** y/n 대답을 읽는다: 'yes' | 'no' | null(알아듣지 못함). 포기 확인에 터미널과 사이트 방이 같이 쓴다. */
 function yesNo(line) {
   const word = String(line == null ? '' : line).normalize('NFKC').trim().toLowerCase();
@@ -32,6 +27,11 @@ function yesNo(line) {
   return null;
 }
 
+/**
+ * options: { seed, debug }
+ *   seed   처음 게임의 seed. restart마다 `${seed}#1`, `${seed}#2`…로 이어 가서, 같은 seed로 시작한 대화는
+ *          통째로 재현된다. 없으면 매 게임 무작위.
+ */
 function createSession(options) {
   const opts = options || {};
   let games = 0;

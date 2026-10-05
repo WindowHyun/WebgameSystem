@@ -29,7 +29,7 @@
  */
 
 const crypto = require('crypto');
-const { error: logError } = require('../logger');
+const { createSafeTimeout, uniqueName } = require('./room-helpers');
 const { cleanNickname } = require('./protocol');
 
 const MIN_PLAYERS = 2;
@@ -49,14 +49,8 @@ function createMindRoom(options) {
   const random = opts.random || Math.random;
   const proposalTimeoutMs = Number.isFinite(opts.proposalTimeoutMs) ? opts.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(opts.disconnectGraceMs) ? opts.disconnectGraceMs : 10000;
-  // 타이머 콜백에서 난 예외가 프로세스까지 올라가지 않게 감싼다(web/poker-room.js 참고).
-  const safeTimeout = (fn, ms) => {
-    const timer = setTimeout(() => {
-      try { fn(); } catch (err) { logError(`[더 마인드 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
-    }, ms);
-    if (timer.unref) timer.unref();
-    return timer;
-  };
+  // 타이머 콜백에서 난 예외가 프로세스까지 올라가지 않게 감싼다.
+  const safeTimeout = createSafeTimeout('더 마인드');
 
   const players = []; // { id, token, nickname, connected, ready, focused, hand: [] }
   const history = [];
@@ -88,17 +82,7 @@ function createMindRoom(options) {
   const rosterPlayers = () => roster.map(find).filter(Boolean);
   const changed = () => notify();
 
-  function uniqueNickname(value, exceptId) {
-    const used = new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname));
-    if (!used.has(value)) return value;
-    // 글자(코드 포인트) 단위로 자른다. slice()는 UTF-16 단위라 이모지를 반으로 가른다.
-    const head = (count) => Array.from(value).slice(0, count).join('');
-    for (let n = 2; n < 100; n += 1) {
-      const candidate = `${head(20)}(${n})`;
-      if (!used.has(candidate)) return candidate;
-    }
-    return `${head(18)}-${makeId().slice(0, 4)}`;
-  }
+  const uniqueNickname = (value, exceptId) => uniqueName(new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname)), value, makeId);
 
   function shuffledDeck() {
     const cards = Array.from({ length: 100 }, (_, i) => i + 1);

@@ -40,10 +40,26 @@
     $(id).innerHTML = html;
   }
 
+  // 명령을 보내고 서버의 답(상태 또는 오류)을 기다리는 중. 그동안 판을 바꾸는 버튼은 눌리지 않는다 - 고른 후보를 서버가
+  // 받아들이기 전에는 지우지 않으므로(아래), 두 번 누르면 같은 명령이 두 번 가기 때문이다.
+  var awaiting = false;
+  var awaitingTimer = null;
+  function setAwaiting(value) {
+    awaiting = value;
+    clearTimeout(awaitingTimer);
+    if (value) awaitingTimer = setTimeout(function () { awaiting = false; if (state) render(); }, 3000);
+  }
+
+  /** 명령을 보낸다. 연결이 닫혀 있어 보내지 못하면 기록에 남기지 않고 안내만 하고 false를 돌려준다. */
   function send(line) {
-    if (!socket) return;
+    if (!socket) return false;
+    if (!socket.send('command', { line: line })) {
+      showError('연결이 끊겨 있어 보내지 못했습니다. 다시 연결되면 눌러 주세요.');
+      return false;
+    }
     appendLog('> ' + line);
-    socket.send('command', { line: line });
+    setAwaiting(true);
+    return true;
   }
 
   function appendLog(text) {
@@ -224,10 +240,10 @@
     $('start').textContent = s.phase === 'result' ? '다시 시작' : '게임 시작';
     $('start').disabled = !s.canStart;
     var voting = !!s.proposal;
-    $('remove').disabled = selected.length === 0 || voting;
+    $('remove').disabled = selected.length === 0 || voting || awaiting;
     $('remove').textContent = selected.length ? '후보 제거 (' + selected.length + ')' : '후보 제거';
-    $('guess').disabled = selected.length !== 1 || voting;
-    $('next').disabled = voting;
+    $('guess').disabled = selected.length !== 1 || voting || awaiting;
+    $('next').disabled = voting || awaiting;
     $('next').textContent = s.round >= s.maxRound ? '마지막 라운드 끝내기' : '다음 라운드';
     $('quit').disabled = voting;
     $('quit-confirm').classList.toggle('hidden', !s.pendingQuit);
@@ -263,13 +279,10 @@
     if (at >= 0) selected.splice(at, 1); else selected.push(id);
     render();
   });
-  function takeSelection() {
-    var numbers = selected.slice().sort(function (a, b) { return a - b; });
-    selected = [];
-    return numbers;
-  }
+  // 고른 후보는 서버가 받아들이기 전에는 지우지 않는다. 투표 중이라 거절되거나 연결이 끊겨 못 보냈을 때 다시 고르지 않아도
+  // 된다. 제거가 실행되면 지워진 후보는 다음 상태에서 선택에서 저절로 빠진다(render).
   $('remove').onclick = function () {
-    var numbers = takeSelection();
+    var numbers = selected.slice().sort(function (a, b) { return a - b; });
     if (numbers.length) send('remove ' + numbers.join(' '));
     if (state) render();
   };
@@ -289,7 +302,7 @@
   $('guess-yes').onclick = function () {
     var pick = guessPick;
     closeGuessConfirm();
-    if (pick) { selected = []; send('guess ' + pick); }
+    if (pick) send('guess ' + pick);
     if (state) render();
   };
   $('next').onclick = function () {
@@ -341,7 +354,7 @@
     var input = $('command');
     var line = input.value;
     input.value = '';
-    if (line.trim()) send(line);
+    if (line.trim() && !send(line)) input.value = line; // 보내지 못했으면 쓴 글을 돌려준다
   });
 
   document.querySelectorAll('button[data-help]').forEach(function (button) {
@@ -357,8 +370,9 @@
     tokenKey: TOKEN_KEY,
     nickname: nickname,
     onMessage: function (data) {
-      if (data.type === 'error') { showError(data.message); return; }
+      if (data.type === 'error') { setAwaiting(false); showError(data.message); if (state) render(); return; }
       if (data.type !== 'galpangState') return;
+      setAwaiting(false);
       var previousRound = state ? state.round : data.round;
       state = data;
       var output = data.output;
