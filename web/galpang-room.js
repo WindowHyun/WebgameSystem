@@ -9,8 +9,8 @@
  *
  * [과반수 동의] 판을 바꾸는 조작은 한 사람이 마음대로 하지 못한다. 누가 "제안"하면(후보 제거·정답 제출·다음 라운드·
  * 포기) 제안한 사람은 찬성으로 치고, 그 제안의 투표 인원 과반수(절반을 넘는 수)가 찬성하면 그때 실행한다.
- * 과반수가 될 수 없을 만큼 반대가 나오거나 시간(proposalTimeoutMs)이 지나면 취소한다. 어떤 조작에 동의를 받을지는
- * NEEDS_CONSENT 표 하나로 정한다.
+ * 과반수가 될 수 없을 만큼 반대가 나오거나 시간(proposalTimeoutMs)이 지나면 취소한다. 판을 바꾸는 조작은 예외 없이 모두
+ * 이 제안을 거친다(혼자 접속해 있으면 그 한 명이 곧 과반수라 바로 실행된다).
  *
  * [투표 인원] 제안을 올리는 순간 "자리에 있는" 참가자가 그 제안의 투표 인원이다. 자리에 있다는 것은 접속 중이거나, 끊긴 지
  * voteGraceMs(기본 30초)가 안 됐다는 뜻이다. 폰 화면이 잠겨 잠깐 끊긴 사람을 빼고 남은 소수가 되돌릴 수 없는 조작(정답
@@ -31,6 +31,7 @@
 
 const crypto = require('crypto');
 const { error: logError } = require('../logger');
+const { createSafeTimeout, uniqueName } = require('./room-helpers');
 const { cleanNickname, LIMITS } = require('./protocol');
 const { createSession, yesNo } = require('./galpang/session');
 const { parse } = require('./galpang/parser');
@@ -50,9 +51,6 @@ const MAX_LINE = LIMITS.command; // 요청 형식(web/protocol.js)과 같은 한
 /** 끝난 판의 결과 글 끝에 붙는 안내. 터미널의 "restart 를 입력하면…"은 여럿이 하는 방에서는 통하지 않는다(준비가 먼저다). */
 const ROOM_END_HINT = '새 게임은 화면의 준비 → 게임 시작으로 시작합니다.';
 
-/** 판을 바꾸는 조작 중 투표 인원 과반수의 동의를 받을 것. false로 바꾸면 그 조작은 누구든 바로 한다. */
-const NEEDS_CONSENT = { remove: true, guess: true, next: true, quit: true };
-
 function createGalpangRoom(options) {
   const opts = options || {};
   const notify = opts.onChange || (() => {});
@@ -65,14 +63,8 @@ function createGalpangRoom(options) {
   const newSession = opts.createSession || createSession;
   // 테스트에서 게임을 고정하려고 주입받는다. 실제 서버는 주지 않는다(판마다 무작위).
   const seed = opts.seed;
-  // 타이머 콜백에서 난 예외가 프로세스까지 올라가지 않게 감싼다(web/mind-room.js 참고).
-  const safeTimeout = (fn, ms) => {
-    const timer = setTimeout(() => {
-      try { fn(); } catch (err) { logError(`[갈팡질팡 진행 처리 실패] ${err && err.stack ? err.stack : err}`); }
-    }, ms);
-    if (timer.unref) timer.unref();
-    return timer;
-  };
+  // 타이머 콜백에서 난 예외가 프로세스까지 올라가지 않게 감싼다.
+  const safeTimeout = createSafeTimeout('갈팡질팡');
 
   const players = []; // { id, token, nickname, connected, disconnectedAt, ready, pendingQuit, reply, replySeq, timer, graceTimer }
   let phase = 'lobby'; // lobby(아직 판 없음) | playing | result(끝난 판이 남아 있음)
@@ -101,17 +93,7 @@ function createGalpangRoom(options) {
   const keepSeat = (p) => inGame(p.id) && !abandoned();
   const seedFor = (index) => (seed === undefined ? undefined : (index === 0 ? seed : `${seed}#${index}`));
 
-  function uniqueNickname(value, exceptId) {
-    const used = new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname));
-    if (!used.has(value)) return value;
-    // 글자(코드 포인트) 단위로 자른다. slice()는 UTF-16 단위라 이모지를 반으로 가른다.
-    const head = (count) => Array.from(value).slice(0, count).join('');
-    for (let n = 2; n < 100; n += 1) {
-      const candidate = `${head(20)}(${n})`;
-      if (!used.has(candidate)) return candidate;
-    }
-    return `${head(18)}-${makeId().slice(0, 4)}`;
-  }
+  const uniqueNickname = (value, exceptId) => uniqueName(new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname)), value, makeId);
 
   /** 모두에게 보이는 결과 글. title은 제안이 통과됐다는 알림 같은 머리글(없을 수 있다). */
   function say(title, lines) {
@@ -169,14 +151,14 @@ function createGalpangRoom(options) {
     } else if (engine.status === STATUS.QUIT) act(by, '포기');
   }
 
-  /** 동의를 얻은(또는 동의가 필요 없는) 조작을 실제로 한다. tally는 { yes, total } - 여럿일 때만 머리글을 단다. */
+  /** 동의를 얻은 조작을 실제로 한다. tally는 { yes, total } - 투표 인원이 여럿일 때만 머리글을 단다. */
   function run(cmd, byName, tally) {
     const engine = session.engine;
     const detail = logText(cmd);
     const done = perform(engine, cmd, { closing: ROOM_END_HINT });
-    say(tally && tally.total > 1 ? `${byName}님의 제안이 통과됐습니다. (동의 ${tally.yes}/${tally.total}명)` : null, done.lines);
+    say(tally.total > 1 ? `${byName}님의 제안이 통과됐습니다. (동의 ${tally.yes}/${tally.total}명)` : null, done.lines);
     // 어떤 후보를 지웠는지·냈는지는 판 위에 다 보이는 정보다. 정답인지 여부는 따로 남기지 않는다.
-    if (cmd.type !== 'quit') act(byName, tally && tally.total > 1 ? `${detail} (동의 ${tally.yes}/${tally.total}명)` : detail);
+    if (cmd.type !== 'quit') act(byName, tally.total > 1 ? `${detail} (동의 ${tally.yes}/${tally.total}명)` : detail);
     if (engine.status !== STATUS.PLAYING) endGame(byName);
   }
 
@@ -213,7 +195,6 @@ function createGalpangRoom(options) {
     if (!live()) return '진행 중인 게임이 없습니다.';
     if (!roster.includes(player.id)) return '이번 게임 참가자가 아닙니다. 구경 중에는 조작할 수 없습니다.';
     if (proposal) return busyMessage();
-    if (!NEEDS_CONSENT[cmd.type]) { run(cmd, player.nickname, null); changed(); return null; }
     proposal = {
       id: makeId(), cmd, byId: player.id, byName: player.nickname, electorate: new Set(presentRoster().map((p) => p.id)),
       yes: new Set([player.id]), no: new Set(), timer: null,
@@ -515,4 +496,4 @@ function createGalpangRoom(options) {
   };
 }
 
-module.exports = { createGalpangRoom, MIN_PLAYERS, MAX_PLAYERS, ROOM_CAPACITY, IDLE_MS, PROPOSAL_MS, MAX_LINE, NEEDS_CONSENT };
+module.exports = { createGalpangRoom, MIN_PLAYERS, MAX_PLAYERS, ROOM_CAPACITY, IDLE_MS, PROPOSAL_MS, MAX_LINE };

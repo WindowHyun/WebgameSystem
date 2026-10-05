@@ -15,6 +15,7 @@
  *     onMessage: function (data) {}   // 여기서 처리하지 않는 메시지(상태·오류 등)
  *   });
  *   socket.send('call');  socket.send('raise', { amount: 100 });  socket.leave();
+ *   send는 연결이 열려 있어 보냈으면 true, 재접속 중처럼 닫혀 있으면 보내지 않고 false를 돌려준다.
  *
  * 여기서 처리하는 메시지: pong, cover(보스 키), welcome(토큰), replaced(다른 창이 자리를 가져감),
  * left(나가기 끝). 보스 키 알림(boss-cover, boss-cover-state)도 여기서 서버에 전한다.
@@ -72,8 +73,11 @@
       } catch (error) { /* 사생활 보호 모드 - memoryToken으로 버틴다 */ }
     }
 
+    /** 연결이 열려 있어 보냈으면 true. 재접속 중처럼 닫혀 있으면 보내지 않고 false를 돌려준다(부른 쪽이 알 수 있게). */
     function send(type, extra) {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return false;
+      ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
+      return true;
     }
 
     /**

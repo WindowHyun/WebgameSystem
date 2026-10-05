@@ -706,6 +706,25 @@ function setup(extra) {
     await wait(150);
     check('도움말은 요청한 사람에게만 간다(남의 연결에는 아무 메시지도 가지 않는다)', a.last('galpangState').reply.lines[0] === '사용 가능한 명령어' && b.inbox.length === seenB);
 
+    // 같은 글(번호)은 같은 연결에 두 번 보내지 않는다: 투표 한 표마다 모두에게 같은 글 전체를 다시 보낼 이유가 없다
+    {
+      const full = c.last('galpangState').output;
+      const helpReply = a.last('galpangState').reply;
+      check('(준비) 방금 통과한 제안의 결과 글은 구경꾼에게 줄 전체로 갔고, 도움말 답은 제안자에게 줄 전체로 갔다', full.lines.length > 0 && !full.repeat && helpReply.lines.length > 0 && !helpReply.repeat);
+      const [extra] = IDS.filter((id) => id !== FIRST.id && ![p, q].includes(id));
+      a.send({ type: 'command', line: `remove ${extra}` });
+      await wait(200);
+      const during = { a: a.last('galpangState'), b: b.last('galpangState'), c: c.last('galpangState') };
+      check('제안이 올라와 상태가 다시 가도 이미 보낸 결과 글은 번호만 오고 줄·머리글은 비어 있다(repeat)', [during.a, during.b, during.c].every((m) => m.proposal && m.output.seq === full.seq && m.output.repeat === true && m.output.lines.length === 0 && m.output.title === null), JSON.stringify(during.c.output));
+      check('이미 보낸 개인 답도 같다(제안자의 reply는 번호만)', during.a.reply.seq === helpReply.seq && during.a.reply.repeat === true && during.a.reply.lines.length === 0);
+      check('글만 줄고 상태의 나머지(후보·제안·남은 수)는 그대로 온다', during.c.candidates.length === 16 && during.c.remaining === 14 && during.c.proposal.agreed === 1 && during.c.hints.length === 1);
+      b.send({ type: 'vote', proposalId: during.b.proposal.id, agree: false });
+      await wait(200);
+      const cancelled = { a: a.last('galpangState'), c: c.last('galpangState') };
+      check('새 글이 생기면(제안 취소) 번호가 올라가고 줄 전체가 간다', [cancelled.a, cancelled.c].every((m) => m.output.seq > full.seq && !m.output.repeat && m.output.lines.length > 0 && m.output.lines[0].includes('취소됐습니다')) && cancelled.a.proposal === null, JSON.stringify(cancelled.c.output));
+      check('같은 번호의 개인 답은 제안자에게 계속 번호만 간다', cancelled.a.reply.seq === helpReply.seq && cancelled.a.reply.repeat === true);
+    }
+
     // 잘못된 요청
     const before = a.inbox.length;
     a.send({ type: 'command' });
@@ -739,6 +758,7 @@ function setup(extra) {
     const second = await open('galpang', '김하늘', aToken);
     await wait(200);
     check('같은 토큰의 새 연결은 같은 자리로 돌아온다(결과 화면 유지)', second.last('galpangState') && second.last('galpangState').you.id === welcome.playerId && second.last('galpangState').phase === 'result');
+    check('새 연결에는 기록이 없어서 결과 글이 줄 전체로 간다(앞 연결에 같은 번호를 이미 보냈어도)', second.last('galpangState').output.lines.length > 0 && !second.last('galpangState').output.repeat && second.last('galpangState').output.seq === a.last('galpangState').output.seq, JSON.stringify(second.last('galpangState').output));
     check('앞의 연결은 replaced로 밀려난다', !!a.last('replaced'));
 
     // 다시 시작: 모두 다시 준비
