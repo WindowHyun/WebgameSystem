@@ -51,6 +51,8 @@ const ATTEMPTS = 120;      // 힌트 5개를 새로 짜 보는 횟수
  *              hardJudged개 이상이면 쓴다(쉬운 축은 tier의 minJudged).
  */
 const DIFFICULTY = { target: 7, tolerance: 1, hardShare: 1, hardJudged: 3 };
+/** 일부만 넘긴 난이도는 기본값에 덮어쓴다(빠진 값이 undefined로 남아 어려운 축이 꺼지거나 조기 종료가 안 되는 일이 없게). */
+const resolveDifficulty = (difficulty) => ({ ...DIFFICULTY, ...(difficulty || {}) });
 
 /** 후보가 이 축에서 어느 쪽인지: 'A' | 'B' | null(판단하지 않음). */
 function sideOf(axis, candidate) {
@@ -116,7 +118,7 @@ function analyze(answer, candidates, axes) {
 
 /** 힌트 한 라운드를 고른다. 못 찾으면 null. */
 function chooseHint({ round, answer, analysis, rng, used, difficulty }) {
-  const level = difficulty || DIFFICULTY;
+  const level = resolveDifficulty(difficulty);
   const judged = analysis.filter((entry) => entry.usable && !used.axes.has(entry.axis.id));
 
   for (const [tierIndex, tier] of TIERS.entries()) {
@@ -187,7 +189,7 @@ function draft({ answer, analysis, rng, rounds, difficulty }) {
  * 그것을 쓴다. 아니면 다시 짜서, 끝까지 못 찾아도 목표에 가장 가까운 것을 쓴다 - 게임이 멈추면 안 된다.
  */
 function buildPlan({ answer, candidates, axes, rng, rounds, difficulty }) {
-  const level = difficulty || DIFFICULTY;
+  const level = resolveDifficulty(difficulty);
   const analysis = analyze(answer, candidates, axes);
   let best = null;
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {

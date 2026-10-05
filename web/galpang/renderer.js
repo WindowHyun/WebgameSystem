@@ -8,6 +8,9 @@
 const LINE = '='.repeat(32);
 const DASH = '-'.repeat(32);
 
+// 끝난 글의 마지막 줄. 터미널은 restart·quit 명령을 안내한다. 여럿이 하는 사이트 방은 준비가 먼저라서 다른 글을 넘긴다.
+const RESTART_HINT = 'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.';
+
 const COMMAND_SUMMARY = ['list', 'remove <번호>', 'guess <번호>', 'next', 'history', 'help', 'quit'];
 
 function roundBlock(hint) {
@@ -69,18 +72,18 @@ function explanations(summary) {
   return lines;
 }
 
-function won(summary) {
+function won(summary, closing = RESTART_HINT) {
   return [
     LINE, '정답입니다!', LINE, '',
     `정답: ${summary.answer.name}`, '',
     `${summary.round}라운드 만에 성공했습니다.`, '',
     ...explanations(summary), '',
-    'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.',
+    closing,
   ];
 }
 
 /** 틀린 답을 내서 끝났을 때: 낸 답과 정답, 지금까지 공개된 힌트의 해설. */
-function lostByGuess(summary) {
+function lostByGuess(summary, closing = RESTART_HINT) {
   return [
     LINE, '오답입니다.', LINE, '',
     '정답이 아닌 후보를 제출해서 게임이 끝났습니다.', '',
@@ -88,31 +91,31 @@ function lostByGuess(summary) {
     `정답: ${summary.answer.name}`, '',
     `${summary.round}라운드에서 끝났습니다.`, '',
     ...explanations(summary), '',
-    'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.',
+    closing,
   ];
 }
 
 /** 정답 후보를 지워서 끝났을 때: 지운 정답과 지금까지 공개된 힌트의 해설. */
-function lostByRemoval(summary) {
+function lostByRemoval(summary, closing = RESTART_HINT) {
   return [
     LINE, '정답 후보를 지웠습니다.', LINE, '',
     '정답이 후보에서 없어져서 게임이 끝났습니다.', '',
     `정답: ${summary.answer.id}번 ${summary.answer.name}`, '',
     `${summary.round}라운드에서 끝났습니다.`, '',
     ...explanations(summary), '',
-    'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.',
+    closing,
   ];
 }
 
-function lost(summary) {
-  if (summary.how === 'wrong') return lostByGuess(summary);
-  if (summary.how === 'removed') return lostByRemoval(summary);
+function lost(summary, closing = RESTART_HINT) {
+  if (summary.how === 'wrong') return lostByGuess(summary, closing);
+  if (summary.how === 'removed') return lostByRemoval(summary, closing);
   return [
     LINE, '게임 종료', LINE, '',
     `${summary.maxRound}라운드 안에 정답을 맞히지 못했습니다.`, '',
     `정답: ${summary.answer.name}`, '',
     ...explanations(summary), '',
-    'restart 를 입력하면 새 게임을 시작하고, quit 을 입력하면 종료합니다.',
+    closing,
   ];
 }
 
@@ -141,7 +144,9 @@ function parseError(error) {
   }
 }
 
-const GAME_OVER = ['게임이 종료되었습니다.', '', 'restart 를 입력하면 새 게임을 시작할 수 있습니다.'];
+const GAME_OVER = gameOver('restart 를 입력하면 새 게임을 시작할 수 있습니다.');
+/** 끝난 게임에 보낸 명령에 대한 안내. closing은 마지막 줄(터미널은 restart 안내, 방은 준비·시작 안내). */
+function gameOver(closing) { return ['게임이 종료되었습니다.', '', closing]; }
 const STILL_PLAYING = ['진행 중인 게임이 있습니다.', '', '포기하려면 quit 을 입력하세요.'];
 
 /** 개발용(--debug) 출력. 일반 게임에서는 쓰지 않는다. */
@@ -155,5 +160,5 @@ function debug(info) {
 }
 
 module.exports = {
-  LINE, DASH, intro, roundBlock, list, history, help, explanations, won, lost, removed, outOfRange, parseError, debug, GAME_OVER, STILL_PLAYING,
+  LINE, DASH, intro, roundBlock, list, history, help, explanations, won, lost, removed, outOfRange, parseError, debug, GAME_OVER, gameOver, STILL_PLAYING,
 };

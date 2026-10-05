@@ -5,8 +5,10 @@
  *
  *   [참가]   들어온 사람이 모두에게 보이고, 다른 카드 게임처럼 준비 → 게임 시작으로 한 판을 같이 한다.
  *            준비 안 한 사람·중간에 들어온 사람은 구경한다. 혼자 접속해 있으면 준비 없이 바로 시작한다
- *   [동의]   후보 제거·정답 제출·다음 라운드·포기는 제안이 되고, 접속 중인 참가자의 과반수가 찬성해야 실행된다.
- *            반대가 많거나 시간이 지나면 취소되고, 접속 인원이 바뀌면 다시 센다
+ *   [동의]   후보 제거·정답 제출·다음 라운드·포기는 제안이 되고, 제안이 올라올 때 자리에 있던 참가자의 과반수가
+ *            찬성해야 실행된다. 반대가 많거나 시간이 지나면 취소된다. 끊겨도 그 제안의 인원은 줄지 않고(폰 화면이
+ *            잠겨도 남은 한 명이 혼자 통과시키지 못한다), 유예(30초)가 지나도록 안 돌아온 사람만 다음 제안부터 빠진다
+ *   [버려진 판] 참가자가 모두 유예 안에 돌아오지 않으면 구경꾼이 새 판을 시작할 수 있다
  *   [비공개] 어떤 상태 메시지에도 정답·해설·후보의 특징·seed가 없다(끝나기 전). 제안 단계에서도 지우려는 후보가
  *            정답인지 새지 않는다. 끝난 뒤에는 정답과 해설이 간다. 관리 로그에도 정답 이름이 남지 않는다
  *   [서버]   잘못된 요청은 거절하고, 포털에 인원·상태가 나오며, 보스 키가 퍼진다
@@ -210,7 +212,7 @@ function setup(extra) {
     } finally { t.room.dispose(); }
   }
 
-  // ── 접속자 기준: 끊기면 투표 인원에서 빠진다 ──
+  // ── 투표 인원: 끊겨도(폰 화면이 잠겨도) 그 제안의 인원은 줄지 않는다 ──
   {
     const t = setup();
     try {
@@ -223,21 +225,211 @@ function setup(extra) {
       t.cmd(a, `remove ${p}`);
       t.room.disconnect(b.playerId);
       const sa = t.st(a).proposal;
-      check('투표 중에 한 명이 끊기면 접속자 2명이 기준이 된다(과반수 2명, 동의 1)', sa && sa.total === 2 && sa.needed === 2 && sa.agreed === 1 && t.st(a).voters === 2);
+      check('투표 중에 한 명이 끊겨도 투표 인원은 3명 그대로다(과반수 2명, 동의 1)', sa && sa.total === 3 && sa.needed === 2 && sa.agreed === 1 && t.st(a).voters === 3, JSON.stringify(sa));
       check('끊긴 사람은 참가자 목록에 끊김으로 남는다(이번 판 참가자라서)', t.st(a).players.find((x) => x.nickname === '박서준').connected === false && t.st(a).players.length === 3);
+      check('끊긴 사람을 기다리는 사람으로 보여 준다', same(sa.waitingFor, ['박서준', '최민아']), JSON.stringify(sa.waitingFor));
       t.vote(c, true);
-      check('남은 접속자의 과반수(2/2)가 동의하면 실행된다', t.st(a).remaining === 15 && t.st(a).proposal === null && t.st(a).output.title.includes('(동의 2/2명)'));
+      check('남은 한 명이 동의해 과반수(2/3)가 되면 실행된다', t.st(a).remaining === 15 && t.st(a).proposal === null && t.st(a).output.title.includes('(동의 2/3명)'));
       const back = t.room.join({ nickname: '박서준', token: b.token });
       check('끊겼던 사람이 같은 토큰으로 돌아오면 같은 자리(이번 판 참가자)다', back.restored && back.playerId === b.playerId && t.st(b).you.inGame === true && t.st(b).remaining === 15);
-      check('돌아오면 투표 인원이 다시 3명이다', t.st(a).voters === 3 && t.st(a).needed === 2);
+      check('끊겼다 돌아온 사람이 다음 제안에서 투표할 수 있다', (() => { t.cmd(a, `remove ${q}`); return t.st(b).proposal && t.st(b).proposal.canVote === true && t.st(b).proposal.total === 3; })());
 
+      t.vote(c, false);
+      t.vote(b, false);
+      t.room.disconnect(a.playerId);
+      t.room.join({ nickname: '김하늘', token: a.token });
+      t.cmd(b, `remove ${t.notAnswer(8).filter((id) => ![p, q].includes(id))[0]}`);
+      check('제안이 걸린 채 제안한 사람이 끊기면 제안은 취소된다', t.st(c).proposal !== null && (t.room.disconnect(b.playerId), t.st(c).proposal === null) && t.st(c).output.lines[0].includes('제안한 사람이 자리를 비워'), JSON.stringify(t.st(c).output));
+    } finally { t.room.dispose(); }
+  }
+  {
+    // [리뷰] 세 명 중 두 명의 폰이 잠겼을 때 남은 한 명이 되돌릴 수 없는 조작을 혼자 통과시키면 안 된다.
+    const t = setup({ voteGraceMs: 120, proposalTimeoutMs: 80 });
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      const c = t.person('최민아');
+      t.ready(a, b, c);
+      t.room.begin(a.playerId);
       t.room.disconnect(b.playerId);
       t.room.disconnect(c.playerId);
-      check('접속자가 혼자 남으면 그 한 명이 곧 과반수라 바로 실행된다(머리글 없음)', t.cmd(a, `remove ${q}`) === null && t.st(a).remaining === 14 && t.st(a).proposal === null && t.st(a).output.title === null && t.st(a).voters === 1);
-
+      const wrong = t.notAnswer(1)[0];
+      check('두 명이 잠깐 끊긴 사이 남은 한 명이 정답을 내도 혼자서는 통과하지 못한다(동의 1/3명, 판은 그대로)', t.cmd(a, `guess ${wrong}`) === null
+        && t.st(a).status === 'PLAYING' && t.st(a).proposal && t.st(a).proposal.total === 3 && t.st(a).proposal.needed === 2 && t.st(a).proposal.agreed === 1, JSON.stringify(t.st(a).proposal));
+      check('돌아온 사람이 투표하면 과반수가 된다(끊긴 사이 올라온 제안에도 투표할 수 있다)', (() => { t.room.join({ nickname: '박서준', token: b.token }); return t.st(b).proposal && t.st(b).proposal.canVote === true; })());
+      await wait(150);
+      check('시간이 지나면 제안은 취소되고 판은 그대로다', t.st(a).proposal === null && t.st(a).status === 'PLAYING');
+      t.room.disconnect(b.playerId);
+      // 이 시점에 c는 끊긴 지 유예(120ms)를 넘겼고 b는 방금 끊겼다: 인원은 제안을 올릴 때 자리에 있던 a·b 둘이다.
+      check('투표 인원을 정하는 시점은 제안을 올릴 때다: 방금 끊긴 사람(유예 안)은 인원에 들고, 유예가 지난 사람은 빠진다', (() => { t.cmd(a, `remove ${wrong}`); const pr = t.st(a).proposal; return pr && pr.total === 2 && pr.needed === 2 && same(pr.waitingFor, ['박서준']); })(), JSON.stringify(t.st(a).proposal));
+      await wait(200);
+      check('유예가 지나도록 돌아오지 않으면 다음 제안부터 인원에서 빠져, 혼자 남은 참가자가 바로 실행한다(머리글 없음)', t.cmd(a, `remove ${t.notAnswer(8).filter((id) => id !== wrong)[0]}`) === null
+        && t.st(a).proposal === null && t.st(a).output.title === null && t.st(a).voters === 1 && t.st(a).remaining === 15, JSON.stringify(t.st(a).output));
+      check('유예가 지나 인원에서 빠진 사람은 그 뒤 돌아와도 이미 올라온 제안에는 투표하지 못한다', (() => {
+        t.room.disconnect(a.playerId); t.room.join({ nickname: '김하늘', token: a.token });
+        t.cmd(a, `remove ${t.notAnswer(8).filter((id) => id !== wrong)[1]}`);
+        t.room.join({ nickname: '박서준', token: b.token });
+        return t.st(a).proposal === null; // 한 사람(a)뿐이라 바로 실행됐다
+      })());
+    } finally { t.room.dispose(); }
+  }
+  {
+    // 유예가 지난 사람이 돌아와도 이미 올라온 제안의 인원이 아니다: 세 명 중 한 명만 자리에 있다가 제안이 걸린 상태에서 돌아온 경우
+    const t = setup({ voteGraceMs: 40, proposalTimeoutMs: 5000 });
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      const c = t.person('최민아');
+      t.ready(a, b, c);
+      t.room.begin(a.playerId);
+      t.room.disconnect(b.playerId);
+      await wait(100);
+      t.cmd(a, `remove ${t.notAnswer(1)[0]}`); // 인원: a, c
       t.room.join({ nickname: '박서준', token: b.token });
-      t.cmd(a, `remove ${t.notAnswer(8).filter((id) => ![p, q].includes(id))[0]}`);
-      check('제안이 걸린 채 제안한 사람이 끊기면 제안은 취소된다', t.st(b).proposal !== null && (t.room.disconnect(a.playerId), t.st(b).proposal === null) && t.st(b).output.lines[0].includes('제안한 사람이 자리를 비워'), JSON.stringify(t.st(b).output));
+      const pending = t.st(b).proposal;
+      check('유예가 지난 뒤 돌아온 사람은 이미 올라온 제안에 투표할 수 없다(canVote 거짓, 투표는 안내와 함께 거절)', pending && pending.total === 2 && pending.canVote === false
+        && String(t.room.vote(b.playerId, pending.id, true)).includes('자리를 비웠던'), JSON.stringify(pending));
+      t.vote(c, true);
+      check('인원(김하늘·최민아) 과반수 2/2가 동의하면 실행된다', t.st(a).proposal === null && t.st(a).remaining === 15 && t.st(a).output.title.includes('(동의 2/2명)'));
+    } finally { t.room.dispose(); }
+  }
+
+  // ── 참가자가 모두 자리를 비운 판은 구경꾼이 새로 시작한다 ──
+  {
+    const t = setup({ voteGraceMs: 80 });
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      const s = t.person('구경꾼');
+      t.ready(a, b);
+      t.room.begin(s.playerId);
+      t.room.disconnect(a.playerId);
+      t.room.disconnect(b.playerId);
+      const sent = t.changes.length;
+      check('참가자가 막 끊긴 직후(유예 안)에는 아직 돌아올 수 있으니 판이 진행 중이다(시작·준비 불가)', t.st(s).abandoned === false && t.st(s).canStart === false && typeof t.room.begin(s.playerId) === 'string' && typeof t.room.setReady(s.playerId, true) === 'string');
+      await wait(150);
+      check('유예가 끝나는 순간 방에 있던 구경꾼에게 상태가 다시 간다(시간만 지나서 바뀌는 값이라 알리지 않으면 시작 버튼이 안 열린다)', t.changes.slice(sent).some((id) => id === undefined || id === s.playerId), String(t.changes.length - sent)); // id 없는 알림은 모두에게 보내는 방송이다
+      const idle = t.st(s);
+      check('유예가 지나도 아무도 돌아오지 않으면 판이 버려진 것으로 보인다(abandoned, 시작 가능, 포털에는 진행중이 아님)', idle.abandoned === true && idle.canStart === true && idle.alone === true && t.room.status().phase === 'result', JSON.stringify({ a: idle.abandoned, c: idle.canStart, p: t.room.status() }));
+      check('구경꾼이 준비 없이(혼자 접속) 새 판을 시작할 수 있다: 새 판이 만들어지고 구경꾼이 참가자가 된다', t.room.begin(s.playerId) === null && t.st(s).abandoned === false && t.st(s).phase === 'playing' && t.st(s).you.inGame === true
+        && t.st(s).remaining === 16 && t.st(s).round === 1, JSON.stringify(t.st(s).you));
+      check('버려진 판을 마치고 새로 시작했다는 로그가 남는다', t.logs.some((l) => l.includes('진행 중이던 판을 마치고 새로 시작')), t.logs.slice(-3).join(' | '));
+      const back = t.room.join({ nickname: '김하늘', token: a.token });
+      check('이전 참가자가 돌아오면 같은 자리지만 새 판의 구경꾼이다', back.restored && t.st(a).you.inGame === false && t.st(a).phase === 'playing' && t.st(a).abandoned === false);
+    } finally { t.room.dispose(); }
+  }
+  {
+    // 참가자가 혼자인 판에서 그 사람이 새로고침해도(잠깐 끊겨도) 판이 버려지지 않는다
+    const t = setup({ voteGraceMs: 200 });
+    try {
+      const a = t.person('김하늘');
+      t.room.begin(a.playerId);
+      t.room.disconnect(a.playerId);
+      const s = t.person('구경꾼');
+      check('혼자 하던 사람이 새로고침으로 잠깐 끊겨도 판은 그대로다(구경꾼이 시작을 가로채지 못한다)', t.st(s).abandoned === false && typeof t.room.begin(s.playerId) === 'string');
+      t.room.join({ nickname: '김하늘', token: a.token });
+      check('돌아오면 같은 판이다', t.st(a).status === 'PLAYING' && t.st(a).you.inGame === true && t.st(a).remaining === 16);
+    } finally { t.room.dispose(); }
+  }
+
+  // ── 정원: 끝난 판의 참가자는 구경꾼과 같고, 진행 중인 판의 참가자 자리는 지킨다 ──
+  {
+    const t = setup({ voteGraceMs: 60 });
+    try {
+      const people = Array.from({ length: ROOM_CAPACITY }, (_, i) => t.person(`사람${i + 1}`));
+      t.ready(people[0], people[1]);
+      t.room.begin(people[0].playerId);
+      t.room.disconnect(people[0].playerId);
+      check('진행 중인 판의 참가자가 끊겨도(돌아올 수 있다) 정원이 차 있으면 그 자리를 뺏기지 않는다', !!t.room.join({ nickname: '넘침' }).error && t.st(people[0]) !== null && t.st(people[1]).players.length === ROOM_CAPACITY);
+      t.room.disconnect(people[5].playerId);
+      const next = t.room.join({ nickname: '새사람' });
+      check('같은 때 끊긴 구경꾼의 자리는 판이 진행 중이어도 비워 새로 온 사람을 받는다', !next.error && t.st(people[5]) === null && t.st(people[0]) !== null);
+      t.room.disconnect(people[1].playerId);
+      check('참가자가 모두 끊겨도 유예 안에는 자리가 지켜진다', !!t.room.join({ nickname: '또넘침' }).error);
+      await wait(120);
+      const taken = t.room.join({ nickname: '유예뒤' });
+      check('유예가 지나 버려진 판이 되면 끊긴 참가자의 자리도 비운다(가장 오래된 자리부터)', !taken.error && t.st(people[0]) === null && t.st(people[1]) !== null);
+    } finally { t.room.dispose(); }
+  }
+  {
+    const t = setup();
+    try {
+      const people = Array.from({ length: ROOM_CAPACITY }, (_, i) => t.person(`사람${i + 1}`));
+      const [a, b] = people;
+      t.ready(a, b);
+      t.room.begin(a.playerId);
+      t.cmd(a, 'quit');
+      t.cmd(a, 'y');
+      t.vote(b, true);
+      t.room.disconnect(a.playerId);
+      const next = t.room.join({ nickname: '새사람' });
+      check('끝난 판의 참가자였던 사람이 끊기면 정원이 찼을 때 그 자리를 비운다(구경꾼과 같다)', t.st(b).status === 'QUIT' && !next.error && t.st(a) === null && t.room.status().playerCount === ROOM_CAPACITY);
+    } finally { t.room.dispose(); }
+  }
+
+  // ── 투표 중에는 포기도 처음부터 거절한다 ──
+  {
+    const t = setup();
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      t.ready(a, b);
+      t.room.begin(a.playerId);
+      t.cmd(a, `remove ${t.notAnswer(1)[0]}`);
+      const refusal = t.cmd(b, 'quit');
+      check('투표가 진행 중이면 포기는 종료 확인(y/n)을 묻기 전에 거절된다(진행 중인 제안을 알려 준다)', typeof refusal === 'string' && refusal.includes('이미 투표가 진행 중') && refusal.includes('김하늘')
+        && t.st(b).pendingQuit === false && !(t.st(b).reply && t.st(b).reply.lines.some((l) => l.includes('y/n'))), String(refusal));
+      check('제안한 사람이 포기를 입력해도 같다', typeof t.cmd(a, 'quit') === 'string' && t.st(a).pendingQuit === false);
+      t.vote(b, true);
+      check('투표가 끝나면 포기는 다시 확인을 거쳐 올릴 수 있다', t.cmd(b, 'quit') === null && t.st(b).pendingQuit === true);
+    } finally { t.room.dispose(); }
+  }
+
+  // ── 새 판 만들기는 전부 되거나 전혀 안 된다 ──
+  {
+    const real = require('../web/galpang/session').createSession;
+    let broken = false;
+    const t = setup({ createSession: (o) => { if (broken) throw new Error('힌트를 짜지 못함(시험용 오류)'); return real(o); } });
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      broken = true;
+      t.ready(a);
+      const fail = t.room.begin(a.playerId);
+      check('판을 못 만들면 시작이 거절되고 대기실 그대로다(준비·로그·판 번호가 그대로)', typeof fail === 'string' && fail.includes('시작하지 못했습니다') && t.st(a).phase === 'lobby' && t.st(a).you.ready === true
+        && t.room._debug().session === null && !t.logs.some((l) => l.includes('게임 시작')), String(fail));
+      broken = false;
+      check('다시 시작하면 첫 판이 만들어진다(실패가 판 번호를 쓰지 않았다)', t.room.begin(a.playerId) === null && t.st(a).phase === 'playing' && t.answer().id === FIRST.id);
+      t.cmd(a, 'quit');
+      t.cmd(a, 'y');
+      check('(준비) 혼자 한 판을 포기해 끝냈다', t.st(a).status === 'QUIT' && t.st(a).phase === 'result');
+      const before = JSON.stringify({ round: t.st(a).round, output: t.st(a).output, status: t.st(a).status });
+      t.ready(a, b);
+      broken = true;
+      const again = t.room.begin(a.playerId);
+      check('끝난 판 뒤의 새 판도 못 만들면 결과 화면·준비 상태가 그대로 남는다', typeof again === 'string' && t.st(a).phase === 'result' && t.st(a).you.ready === true && t.st(b).you.ready === true
+        && JSON.stringify({ round: t.st(a).round, output: t.st(a).output, status: t.st(a).status }) === before, String(again));
+      broken = false;
+      check('고쳐지면 같은 준비 상태로 두 번째 판(`seed#1`)이 시작된다', t.room.begin(b.playerId) === null && t.st(a).phase === 'playing' && t.answer().id === answerOf(`${SEED}#1`).id && t.st(a).round === 1);
+    } finally { t.room.dispose(); }
+  }
+
+  // ── 방에서 끝난 글은 터미널 안내(restart)가 아니라 준비 → 게임 시작을 알린다 ──
+  for (const kind of ['오답 제출', '정답 제출', '정답 후보 제거']) {
+    const t = setup();
+    try {
+      const a = t.person('김하늘');
+      const b = t.person('박서준');
+      t.ready(a, b);
+      t.room.begin(a.playerId);
+      const pick = kind === '오답 제출' ? t.notAnswer(1)[0] : t.answer().id;
+      t.cmd(a, kind === '정답 후보 제거' ? `remove ${pick}` : `guess ${pick}`);
+      t.vote(b, true);
+      const out = t.st(a).output.lines.join('\n');
+      check(`${kind}로 끝난 결과 글은 "restart 를 입력하면"이 아니라 준비 → 게임 시작으로 안내한다`, t.st(a).phase === 'result' && !out.includes('restart') && out.includes('준비 → 게임 시작'), out.split('\n').slice(-2).join(' / '));
+      t.cmd(a, 'remove 1');
+      const reply = t.st(a).reply.lines.join('\n');
+      check(`${kind} 뒤에 판을 바꾸는 명령을 입력해도 같은 안내를 받는다`, !reply.includes('restart') && reply.includes('준비 → 게임 시작') && reply.includes('게임이 종료되었습니다'), reply);
     } finally { t.room.dispose(); }
   }
 

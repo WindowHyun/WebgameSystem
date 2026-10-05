@@ -156,6 +156,27 @@ function check(name, ok, detail) {
   check('힌트가 한쪽(늘 A 또는 늘 B)으로 쏠리지 않는다(5개가 모두 같은 쪽인 판은 10% 이하)', (stats.sameSide || 0) / SEEDS <= 0.1, `${stats.sameSide}`);
 }
 
+// ── 난이도 옵션: 일부만 줘도 나머지는 기본값이다 ──
+{
+  // [리뷰] difficulty를 { target } 처럼 일부만 주면 나머지 항목이 undefined로 덮여 어려운 축이 안 쓰이는 문제가 있었다.
+  const SEEDS = 120;
+  const run = (difficulty) => {
+    const plans = []; let hard = 0; let hints = 0; let left = 0;
+    for (let seed = 1; seed <= SEEDS; seed += 1) {
+      const { plan, candidates } = new GameEngine({ seed, difficulty }).state;
+      plans.push(plan.map((h) => `${h.axis}:${h.selected}`).join(','));
+      for (const h of plan) { hints += 1; if (AXES.find((a) => a.id === h.axis).hard) hard += 1; }
+      left += leftAfter(plan, AXES, candidates);
+    }
+    return { sig: plans.join('|'), hard: hard / hints, left: left / SEEDS };
+  };
+  const base = run(undefined);
+  check('기본값과 같은 항목만 일부 줘도 기본과 똑같은 판이 나온다(나머지를 undefined로 덮지 않는다)', run({ tolerance: 1 }).sig === base.sig && run({ target: 7 }).sig === base.sig && run({ hardShare: 1, hardJudged: 3 }).sig === base.sig);
+  const easier = run({ target: 3 });
+  check('target만 바꿔도 어려운 축 비율은 기본값(hardShare)을 따른다', easier.hard >= 0.4 && Math.abs(easier.hard - base.hard) < 0.15, `${(easier.hard * 100).toFixed(1)}% / 기본 ${(base.hard * 100).toFixed(1)}%`);
+  check('target을 낮추면(3) 남는 후보가 실제로 줄어든다(옵션이 먹는다)', easier.left < base.left - 1, `${easier.left.toFixed(2)} / 기본 ${base.left.toFixed(2)}`);
+}
+
 // ── 어느 단어가 정답이어도 ──
 {
   const problems = []; let tiers = 0; let total = 0;
