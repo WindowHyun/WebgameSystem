@@ -89,7 +89,7 @@ function fakeWakeLock() {
 
   try {
     console.log('\n=== 화면 꺼짐 방지 ===');
-    for (const game of ['liar', 'poker', 'blackjack', 'mind']) {
+    for (const game of ['liar', 'poker', 'blackjack', 'holdem', 'mind']) {
       const p = await enter(game, `폰-${game}`, PHONE);
       const w = await wake(p);
       check(`${game}: 들어가면 화면 꺼짐 방지를 건다`, w.requests === 1, JSON.stringify(w));
@@ -186,7 +186,7 @@ function fakeWakeLock() {
     if (voteOnTop) { await mp.tap('#star-no'); await wait(200); }
     await mp.tap('#help-sheet button.secondary');
 
-    for (const game of ['poker', 'blackjack', 'mind']) {
+    for (const game of ['poker', 'blackjack', 'holdem', 'mind']) {
       const small = await enter(game, `작은폰-${game}`, SMALL);
       const box = await small.evaluate(() => {
         const bar = document.querySelector('.topbar').getBoundingClientRect();

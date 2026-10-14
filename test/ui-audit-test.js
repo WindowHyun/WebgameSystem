@@ -170,7 +170,7 @@ async function run(browser, label, contextOptions, port) {
     await wait(400);
     await inspect(portal, label, 'portal-2-게임목록');
 
-    for (const game of ['liar', 'poker', 'blackjack', 'mind']) {
+    for (const game of ['liar', 'poker', 'blackjack', 'holdem', 'mind']) {
       const pages = [];
       const gameCtxs = [];
       for (const name of NAMES) {

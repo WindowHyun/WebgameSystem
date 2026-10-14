@@ -17,6 +17,7 @@ const { WebSocketServer } = require('ws');
 const { createRoom } = require('./room');
 const { createPokerRoom } = require('./poker-room');
 const { createBlackjackRoom } = require('./blackjack-room');
+const { createHoldemRoom } = require('./holdem-room');
 const { createMindRoom } = require('./mind-room');
 const { createGalpangRoom } = require('./galpang-room');
 const { isAllowedOrigin } = require('./origin');
@@ -46,6 +47,18 @@ const CARD_GAME_ACTIONS = {
     start: (room, id) => room.begin(id),
     hit: (room, id) => room.hit(id),
     stand: (room, id) => room.stand(id),
+    call: (room, id) => room.call(id),
+    raise: (room, id, m) => room.raise(id, m.amount),
+    allin: (room, id) => room.allin(id),
+    fold: (room, id) => room.fold(id),
+    donate: (room, id, m) => room.donate(id, m.targetId, m.amount),
+  },
+  // 인디언 포커와 같은 요청이다(블라인드 제안도 baseBet으로 받는다 - 기본 배팅금이 곧 빅 블라인드다).
+  holdem: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    baseBet: (room, id, m) => room.setBaseBet(id, m.amount),
+    baseBetVote: (room, id, m) => room.voteBaseBet(id, m.proposalId, m.agree),
+    start: (room, id) => room.begin(id),
     call: (room, id) => room.call(id),
     raise: (room, id, m) => room.raise(id, m.amount),
     allin: (room, id) => room.allin(id),
@@ -126,7 +139,7 @@ function createGameServer(options) {
 
   const clients = new Set(); // { ws, playerId }
   /**
-   * [리뷰 P2-02] 카드 게임(포커·블랙잭·더 마인드·갈팡질팡). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
+   * [리뷰 P2-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
    * 보스 키 전파·포털 상태·정리가 모두 이 표를 돈다. 카드 게임을 하나 더 넣을 때는 여기와
    * CARD_GAME_ACTIONS, web/protocol.js의 CARD_GAME_MESSAGES만 고치면 된다.
    *   label      연결·요청 로그 이름   logLabel   관리 로그 이름   portalLabel 포털 채널 이름
@@ -134,6 +147,7 @@ function createGameServer(options) {
   const CARD_GAMES = {
     poker: { label: '포커', logLabel: '포커', portalLabel: '인디언 포커', create: createPokerRoom, actions: CARD_GAME_ACTIONS.poker, clients: new Set(), room: null },
     blackjack: { label: '블랙잭', logLabel: '블랙잭', portalLabel: '블랙잭 21', create: createBlackjackRoom, actions: CARD_GAME_ACTIONS.blackjack, clients: new Set(), room: null },
+    holdem: { label: '홀덤', logLabel: '홀덤', portalLabel: '텍사스 홀덤', create: createHoldemRoom, actions: CARD_GAME_ACTIONS.holdem, clients: new Set(), room: null },
     mind: { label: '더 마인드', logLabel: '마인드', portalLabel: '더 마인드', create: createMindRoom, actions: CARD_GAME_ACTIONS.mind, clients: new Set(), room: null },
     galpang: { label: '갈팡질팡', logLabel: '갈팡질팡', portalLabel: '갈팡질팡', create: createGalpangRoom, actions: CARD_GAME_ACTIONS.galpang, clients: new Set(), room: null },
   };
