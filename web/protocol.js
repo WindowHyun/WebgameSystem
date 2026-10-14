@@ -16,7 +16,7 @@
 const LIMITS = { nickname: 24, nicknameInput: 64, text: 300, word: 60, id: 64, token: 64, command: 100 };
 
 /**
- * 참가 이름을 방이 쓰는 길이(LIMITS.nickname 글자)로 다듬는다. 모든 방(라이어·포커·블랙잭·더 마인드)이
+ * 참가 이름을 방이 쓰는 길이(LIMITS.nickname 글자)로 다듬는다. 모든 방(라이어·포커·블랙잭·홀덤·더 마인드)이
  * 이것 하나를 쓴다 - 예전에는 같은 자르기가 방마다 숫자 24를 박은 채 복사돼 있었다.
  * 글자는 사람이 보는 한 글자(자소 묶음) 단위로 센다. 코드 포인트(Array.from)로 자르면 가족·국기·
  * 피부색 이모지처럼 여러 코드 포인트로 된 글자가 반으로 갈려 깨진 글자로 남았다.
@@ -49,7 +49,7 @@ const CLIENT_MESSAGES = {
 };
 
 /**
- * [리뷰 P1-02] 카드 게임(포커·블랙잭·더 마인드·갈팡질팡)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
+ * [리뷰 P1-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
  * 검사한다. 예전에는 게임 서버 분기와 각 방 안에 검사가 흩어져 있어서, 새 요청을 추가할 때 빠뜨리기 쉬웠다.
  * 여기서는 형식만 본다. 금액은 숫자(칸을 비우면 브라우저가 보내는 null 포함)인지만 보고, 100원 단위나
  * 보유 칩 같은 규칙은 방이 알맞은 안내와 함께 거절한다.
@@ -76,6 +76,8 @@ const BETTING = {
 const CARD_GAME_MESSAGES = {
   poker: { ...CARD_COMMON, ...BETTING },
   blackjack: { ...CARD_COMMON, ...BETTING, hit: () => null, stand: () => null },
+  // 인디언 포커와 같은 요청이다. 기본 배팅금(baseBet)이 곧 빅 블라인드다.
+  holdem: { ...CARD_COMMON, ...BETTING },
   mind: {
     ...CARD_COMMON,
     focus: (m) => (m.focused === undefined || typeof m.focused === 'boolean' ? null : 'focused'),
@@ -107,7 +109,7 @@ function validateClientMessage(msg) {
   return checkAgainst(CLIENT_MESSAGES, msg);
 }
 
-/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'mind' | 'galpang'. 문제가 없으면 null, 있으면 사유 문자열. */
+/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'holdem' | 'mind' | 'galpang'. 문제가 없으면 null, 있으면 사유 문자열. */
 function validateCardGameMessage(game, msg) {
   if (!Object.hasOwn(CARD_GAME_MESSAGES, game)) return `알 수 없는 게임: ${String(game).slice(0, 32)}`;
   return checkAgainst(CARD_GAME_MESSAGES[game], msg);

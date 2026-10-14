@@ -3,7 +3,7 @@
 /**
  * 카드 게임 요청 형식 검사(web/protocol.js의 validateCardGameMessage).
  *
- *   - 화면(public/poker.js·blackjack.js·mind.js·galpang.js)이 실제로 보내는 요청은 모두 통과한다.
+ *   - 화면(public/poker.js·blackjack.js·holdem.js·mind.js·galpang.js)이 실제로 보내는 요청은 모두 통과한다.
  *     여기서 막히면 그 버튼이 통째로 안 먹는다.
  *   - 형식이 틀린 요청(모르는 type, 문자열 불리언, 객체 ID, 너무 긴 이름 등)은 방에 닿기 전에 거절한다.
  *   - 게임마다 자기 요청만 받는다(포커에 hit, 블랙잭에 starVote 등은 거절).
@@ -56,6 +56,8 @@ const BETTING = [
 const SENT = {
   poker: [...COMMON, ...BETTING],
   blackjack: [...COMMON, ...BETTING, { type: 'hit' }, { type: 'stand' }],
+  // 인디언 포커와 같은 요청이다(기본 배팅금이 곧 빅 블라인드).
+  holdem: [...COMMON, ...BETTING],
   mind: [
     ...COMMON,
     { type: 'focus', focused: true },
@@ -102,6 +104,11 @@ const BAD = [
   ['너무 긴 이름', 'poker', { type: 'join', nickname: 'x'.repeat(65) }],
   ['너무 긴 토큰', 'blackjack', { type: 'join', nickname: '갑', token: 'x'.repeat(65) }],
   ['포커에 블랙잭 요청', 'poker', { type: 'hit' }],
+  ['홀덤에 블랙잭 요청', 'holdem', { type: 'stand' }],
+  ['홀덤에 더 마인드 요청', 'holdem', { type: 'play' }],
+  ['홀덤의 문자열 금액', 'holdem', { type: 'raise', amount: '100' }],
+  ['홀덤의 객체 ID 투표', 'holdem', { type: 'baseBetVote', proposalId: { $ne: null }, agree: true }],
+  ['홀덤에 갈팡질팡 명령', 'holdem', { type: 'command', line: 'next' }],
   ['블랙잭에 더 마인드 요청', 'blackjack', { type: 'starVote', voteId: ID, agree: true }],
   ['더 마인드에 배팅 요청', 'mind', { type: 'raise', amount: 100 }],
   ['갈팡질팡의 준비는 불리언이어야 한다', 'galpang', { type: 'ready', ready: 'true' }],
@@ -140,9 +147,10 @@ for (const game of Object.keys(CARD_GAME_MESSAGES)) {
 {
   const { createPokerRoom } = require('../web/poker-room');
   const { createBlackjackRoom } = require('../web/blackjack-room');
+  const { createHoldemRoom } = require('../web/holdem-room');
   const { createMindRoom } = require('../web/mind-room');
   const { createGalpangRoom } = require('../web/galpang-room');
-  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom]]) {
+  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['holdem', createHoldemRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom]]) {
     const room = create({ onChange() {}, onAction() {} });
     try {
       const joined = room.join({ nickname: '가'.repeat(30) });
