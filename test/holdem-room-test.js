@@ -3,10 +3,10 @@
 /**
  * 텍사스 홀덤 방(web/holdem-room.js).
  *
- *   - 딜러 버튼·블라인드: 스몰/빅 블라인드를 먼저 내고, 버튼은 판마다 한 칸씩 돈다. 둘이서 할 때는 딜러가 스몰 블라인드이고
- *     프리플랍에서 먼저 말한다.
+ *   - 딜러는 없다: 카드는 자동으로 나눠지고 참가자는 모두 플레이어다. 블라인드는 판마다 한 칸씩 돌아가며 낸다(기준 자리인 버튼은
+ *     화면에 내보내지 않는다). 둘이서 할 때는 스몰 블라인드 자리가 프리플랍에서 먼저 말한다.
  *   - 거리: 프리플랍 → 플랍(3장) → 턴 → 리버. 거리마다 배팅이 끝나야 다음으로 넘어가고, 거리마다 말하는 순서가 정해져 있다.
- *   - 쇼다운: 내 카드 2장 + 공용 5장 중 가장 좋은 5장으로 가린다. 비기면 팟을 나누고 남는 몫은 딜러 다음 자리부터 준다.
+ *   - 쇼다운: 내 카드 2장 + 공용 5장 중 가장 좋은 5장으로 가린다. 비기면 팟을 나누고 남는 몫은 버튼 다음 자리부터 준다.
  *   - 카드 공개: 배팅 중에는 내 카드만 보이고, 모두 폴드해서 끝난 판은 이긴 사람도 카드를 보이지 않는다.
  *   - 올인: 사이드 팟이 없다. 올인이 나오면 그 금액이 상한이 되고(넘치는 몫은 돌려준다), 더 배팅하지 않고 공용 카드를 깐다.
  *   - 제한시간: 공짜로 넘어갈 수 있으면 체크, 아니면 폴드. 끊긴 사람은 유예 동안 자리를 지킨다.
@@ -57,14 +57,15 @@ function checkAround(t) {
 }
 
 (async () => {
-  // ── 블라인드와 딜러 버튼 ────────────────────────────────
+  // ── 블라인드와 자리 돌리기(딜러 없이 모두가 플레이어) ──────────
   {
     const t = table(['A', 'B', 'C']);
     check('세 명이 준비하면 시작할 수 있다', t.room.begin(t.id.A) === null);
     const s = t.view();
-    check('딜러는 첫 자리, 스몰 블라인드는 그 다음, 빅 블라인드는 그다음이다', s.dealerId === t.id.A && s.smallBlindId === t.id.B && s.bigBlindId === t.id.C);
+    check('첫 판은 첫 자리가 버튼이라 스몰 블라인드는 둘째, 빅 블라인드는 셋째 자리다', s.smallBlindId === t.id.B && s.bigBlindId === t.id.C);
+    check('상태에 딜러(사람)를 가리키는 값이 없다 - 세 명 모두 플레이어다', !('dealerId' in s) && s.players.length === 3 && s.players.every((p) => p.inRound && p.cards && p.cards.length === 2));
     check('스몰 블라인드는 기본 배팅금의 절반, 빅 블라인드는 기본 배팅금을 낸다', t.me('B').roundBet === 50 && t.me('C').roundBet === 100 && s.pot === 150 && s.smallBlind === 50);
-    check('프리플랍은 빅 블라인드 다음 사람(딜러)부터 말한다', t.turn() === 'A');
+    check('프리플랍은 빅 블라인드 다음 사람부터 말한다', t.turn() === 'A');
     check('블라인드를 낸 만큼 칩이 줄었다', t.me('B').chips === INITIAL_CHIPS - 50 && t.me('C').chips === INITIAL_CHIPS - 100);
     check('프리플랍에는 공용 카드가 없다', s.board.length === 0 && s.street === 'preflop' && s.you.handName === null);
     check('내 카드는 2장 보이고 남의 카드는 뒷면이다', t.me('A').cards.length === 2 && t.me('A').cards.every((c) => c.rank)
@@ -74,12 +75,12 @@ function checkAround(t) {
     const t = table(['A', 'B']);
     t.room.begin(t.id.A);
     const s = t.view();
-    check('둘이서 할 때는 딜러가 스몰 블라인드이고 프리플랍에서 먼저 말한다', s.smallBlindId === t.id.A && s.bigBlindId === t.id.B && t.turn() === 'A');
+    check('둘이서 할 때는 스몰 블라인드 자리가 프리플랍에서 먼저 말한다', s.smallBlindId === t.id.A && s.bigBlindId === t.id.B && t.turn() === 'A');
     t.room.call(t.id.A); // 스몰 블라인드가 50원을 더 내고 맞춘다
     check('빅 블라인드는 체크할 기회(옵션)를 받는다', t.view().phase === 'betting' && t.view().street === 'preflop' && t.turn() === 'B');
     t.room.call(t.id.B);
     check('프리플랍이 끝나면 플랍이 열린다(공용 3장)', t.view().street === 'flop' && t.view().board.length === 3 && t.view().pot === 200);
-    check('둘이서 할 때 플랍부터는 딜러가 마지막이라 상대가 먼저 말한다', t.turn() === 'B');
+    check('둘이서 할 때 플랍부터는 빅 블라인드 자리가 먼저 말한다', t.turn() === 'B');
     checkAround(t);
     check('턴(공용 4장)', t.view().street === 'turn' && t.view().board.length === 4);
     checkAround(t);
@@ -88,28 +89,28 @@ function checkAround(t) {
     check('리버 배팅이 끝나면 판이 끝나고 팟이 나눠진다', t.view().phase === 'result' && t.view().pot === 0 && t.total() === INITIAL_CHIPS * 2);
   }
   {
-    // 둘이서 하다가 다음 판: 버튼이 상대에게 넘어간다.
+    // 둘이서 하다가 다음 판: 블라인드 자리가 상대에게 넘어간다.
     const t = table(['A', 'B']);
     t.room.begin(t.id.A);
-    t.room.fold(t.id.A); // 딜러(스몰 블라인드)가 폴드
+    t.room.fold(t.id.A); // 스몰 블라인드 자리가 폴드
     t.ready();
     t.room.begin(t.id.A);
-    check('다음 판에는 버튼이 한 칸 돈다', t.view().dealerId === t.id.B && t.view().smallBlindId === t.id.B && t.view().bigBlindId === t.id.A);
+    check('다음 판에는 블라인드 자리가 한 칸 돈다', t.view().smallBlindId === t.id.B && t.view().bigBlindId === t.id.A);
     t.room.fold(t.id.B);
     t.ready();
     t.room.begin(t.id.A);
-    check('한 바퀴 돌아 처음으로 돌아온다', t.view().dealerId === t.id.A);
+    check('한 바퀴 돌아 처음으로 돌아온다', t.view().smallBlindId === t.id.A && t.view().bigBlindId === t.id.B);
   }
   {
-    // 딜러가 나가면 그 자리에 앉은 사람이 다음 딜러가 된다(건너뛰지 않는다).
+    // 버튼 자리 사람이 나가면 그 자리에 앉은 사람이 다음 버튼이 된다(건너뛰지 않는다).
     const t = table(['A', 'B', 'C', 'D']);
-    t.room.begin(t.id.A); // 딜러 A
+    t.room.begin(t.id.A); // 버튼 A
     t.room.fold(t.id.D); t.room.fold(t.id.A); t.room.fold(t.id.B); // C(빅)가 이긴다
     t.room.leave(t.id.A);
     t.seats = t.seats.filter((seat) => seat.playerId !== t.id.A);
     ['B', 'C', 'D'].forEach((name) => t.room.setReady(t.id[name], true));
     t.room.begin(t.id.B);
-    check('딜러가 나가면 그 다음 사람이 새 딜러다', t.view('B').dealerId === t.id.B, t.nameOf(t.view('B').dealerId));
+    check('버튼 자리 사람이 나가면 그 다음 사람(B)이 새 버튼이라 스몰 블라인드는 C, 빅 블라인드는 D다', t.view('B').smallBlindId === t.id.C && t.view('B').bigBlindId === t.id.D, `${t.nameOf(t.view('B').smallBlindId)}/${t.nameOf(t.view('B').bigBlindId)}`);
   }
 
   // ── 시작 조건과 차례 ────────────────────────────────────
@@ -168,18 +169,18 @@ function checkAround(t) {
 
   // ── 비김: 팟 나누기 ─────────────────────────────────────
   {
-    // 공용 카드가 로열 플러시: 모두 비긴다. 4명: 딜러 A, 스몰 B(폴드), 빅 C, D. 팟 350 = 100×3 + 죽은 돈 50.
+    // 공용 카드가 로열 플러시: 모두 비긴다. 4명: 버튼 A, 스몰 B(폴드), 빅 C, D. 팟 350 = 100×3 + 죽은 돈 50.
     const t = table(['A', 'B', 'C', 'D'], { makeDeck: stacked('2c 3d  4c 5d  6c 7d  8c 9d  As Ks Qs Js Ts') });
     t.room.begin(t.id.A);
     t.room.call(t.id.D); // UTG가 100 콜
-    t.room.call(t.id.A); // 딜러가 100 콜
+    t.room.call(t.id.A); // 버튼 자리가 100 콜
     t.room.fold(t.id.B); // 스몰 블라인드는 50을 두고 폴드
     t.room.call(t.id.C); // 빅 블라인드 체크
     for (let i = 0; i < 3; i += 1) checkAround(t);
     const s = t.view();
     const got = Object.fromEntries(s.result.winners.map((w) => [t.nameOf(w.id), w.amount]));
     check('비기면 팟을 나눈다(로열 플러시가 공용 카드에 있다)', s.phase === 'result' && s.result.winners.length === 3 && s.result.amount === 350, JSON.stringify(got));
-    check('나누어떨어지지 않는 50원은 딜러 다음 자리에 앉은 이긴 사람이 받는다', got.C === 150 && got.D === 100 && got.A === 100, JSON.stringify(got));
+    check('나누어떨어지지 않는 50원은 버튼 다음 자리에 앉은 이긴 사람이 받는다', got.C === 150 && got.D === 100 && got.A === 100, JSON.stringify(got));
     check('나눈 뒤에도 칩 총합이 그대로다', t.total() === INITIAL_CHIPS * 4);
   }
 
@@ -208,7 +209,7 @@ function checkAround(t) {
     // 칩이 적은 B가 올인하면 상한이 B의 금액이 되고, 더 낸 A는 넘치는 몫을 돌려받는다. 더 배팅하지 않고 공용 카드를 깐다.
     // A: 에이스 한 쌍, B: 7-2 (공용 카드가 도와주지 않으면 진다)
     const t = table(['A', 'B', 'C'], { chips: { B: 800 }, makeDeck: stacked('As Ah  7d 2c  Kc Qd  9s 8h 3d 4c 5s') });
-    t.room.begin(t.id.A); // 딜러 A, 스몰 B, 빅 C
+    t.room.begin(t.id.A); // 버튼 A, 스몰 B, 빅 C
     t.room.raise(t.id.A, 900); // A가 1,000까지 올린다
     check('올리고 나면 배팅액이 1,000이다', t.view().currentBet === 1000);
     check('칩이 모자란 사람은 콜할 수 없다(올인을 쓴다)', t.room.call(t.id.B) === '콜할 칩이 부족합니다. 올인을 선택하세요.');
@@ -260,7 +261,7 @@ function checkAround(t) {
     check('이때 상한이 60으로 정해져 스몰 블라인드를 낸 사람은 차액을 돌려받는다', t.view().allInCap === 60 && t.me('B').roundBet === 50);
     check('다른 사람은 60만 맞추면 된다', t.view().currentBet === 60 && t.turn() === 'A');
     t.room.call(t.id.A);
-    check('딜러가 맞추면 스몰 블라인드가 마저 10을 내야 한다', t.turn() === 'B' && t.view().phase === 'betting');
+    check('첫 사람이 맞추면 스몰 블라인드가 마저 10을 내야 한다', t.turn() === 'B' && t.view().phase === 'betting');
     t.room.call(t.id.B);
     check('모두 맞췄으니 더 배팅하지 않고 겨룬다', t.view().phase === 'result' && t.view().board.length === 5);
     check('칩 총합은 그대로다', t.total() === INITIAL_CHIPS * 2 + 60);
@@ -279,14 +280,14 @@ function checkAround(t) {
     t.room.begin(t.id.A);
     check('제한시간이 흐르는 동안 남은 시간이 상태에 실린다', t.view().turnTotalMs === 40 && t.view().turnRemainingMs > 0 && t.view().turnRemainingMs <= 40);
     await wait(120);
-    // A(딜러/스몰 블라인드)는 50을 더 내야 하므로 시간이 지나면 폴드다.
+    // A(스몰 블라인드)는 50을 더 내야 하므로 시간이 지나면 폴드다.
     check('낼 돈이 있는데 시간이 지나면 폴드된다', t.view().phase === 'result' && t.view().result.winners[0].id === t.id.B);
     t.room.dispose();
   }
   {
     const t = table(['A', 'B'], { actionTimeoutMs: 80 });
     t.room.begin(t.id.A);
-    t.room.call(t.id.A); // 딜러 콜 → 빅 블라인드(B) 차례, 체크하면 공짜
+    t.room.call(t.id.A); // 스몰 블라인드 콜 → 빅 블라인드(B) 차례, 체크하면 공짜
     await wait(200);
     const s = t.view();
     check('낼 돈이 없으면 시간이 지나도 폴드가 아니라 체크다', s.phase === 'betting' && s.street !== 'preflop' && t.me('B').chips === INITIAL_CHIPS - 100, `${s.phase} ${s.street}`);

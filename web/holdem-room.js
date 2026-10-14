@@ -23,8 +23,9 @@ const STREET_NAMES = { preflop: '프리플랍', flop: '플랍', turn: '턴', riv
  * 인디언 포커(web/poker-room.js)와 같은 틀이다 - 준비 → 시작 확인, 기본 배팅금 투표, 칩 보관, 접속이 끊겼을 때의
  * 유예, 제한시간, 보스 키로 멈추는 제한시간. 다른 점만 적는다.
  *
- *   - 딜러 버튼이 판마다 한 칸씩 돈다. 딜러 다음 사람이 스몰 블라인드(기본 배팅금의 절반), 그다음이 빅 블라인드(기본
- *     배팅금)를 먼저 낸다. 둘이서 할 때는 딜러가 스몰 블라인드이고 프리플랍에서 먼저 말한다.
+ *   - 카드는 서버가 자동으로 나눠 준다(사람 딜러가 없다). 참가자는 모두 플레이어다. 다만 블라인드를 누가 내는지는 판마다 돌아야 공평해서,
+ *     기준 자리(버튼)를 판마다 한 칸씩 돌린다. 버튼 다음 사람이 스몰 블라인드(기본 배팅금의 절반), 그다음이 빅 블라인드(기본
+ *     배팅금)를 먼저 낸다. 둘이서 할 때는 버튼 자리가 스몰 블라인드이고 프리플랍에서 먼저 말한다. 화면에는 버튼을 따로 보이지 않고 SB/BB만 보인다.
  *   - 판은 프리플랍 → 플랍(공용 3장) → 턴(1장) → 리버(1장) 순서이고, 거리마다 배팅한다. 마지막까지 남으면 내 카드 2장과
  *     공용 5장 중 가장 좋은 5장으로 겨룬다(web/holdem-eval.js). 비기면 팟을 나눈다.
  *   - 올인은 인디언 포커와 같은 규칙이다: 사이드 팟이 없다. 올인이 나오면 그 금액이 이 판의 배팅 상한이 되고, 더 낸 사람은
@@ -51,8 +52,8 @@ function createHoldemRoom(options) {
   let contenders = []; // 이번 판에 카드를 받은 사람들(자리 순서). 나간 사람의 id도 남겨 자리 순서를 지킨다.
   // 이번 판의 참가자 명단. 폴드한 사람도 이 판의 참가자였으므로 테이블을 계속 볼 수 있어야 한다.
   let dealtIn = [];
-  let dealerId = null;
-  let dealerSeat = 0; // 딜러가 앉은 자리 번호. 딜러가 나갔을 때 그 자리에 이제 앉은 사람부터 다음 딜러를 찾는다.
+  let buttonId = null;
+  let buttonSeat = 0; // 버튼 자리 번호. 그 사람이 나갔을 때 그 자리에 이제 앉은 사람부터 다음 버튼을 찾는다.
   let smallBlindId = null;
   let bigBlindId = null;
   let turn = 0;
@@ -203,7 +204,7 @@ function createHoldemRoom(options) {
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
     players.length = 0; history.length = 0; phase = 'lobby'; street = null; baseBet = 100;
-    pot = 0; deck = []; board = []; contenders = []; dealtIn = []; dealerId = null; dealerSeat = 0;
+    pot = 0; deck = []; board = []; contenders = []; dealtIn = []; buttonId = null; buttonSeat = 0;
     smallBlindId = null; bigBlindId = null; turn = 0; currentBet = 0; minRaise = 100; allInCap = null;
     acted = new Set(); result = null; baseBetProposal = null;
     return true;
@@ -410,10 +411,10 @@ function createHoldemRoom(options) {
     return null;
   }
 
-  /** 다음 딜러. 지난 딜러 다음 자리부터 돌아 처음 만나는 참가자이고, 지난 딜러가 나갔다면 그 자리에 이제 앉은 사람부터 찾는다. */
-  function pickDealer() {
-    const previous = players.findIndex((p) => p.id === dealerId);
-    const start = previous >= 0 ? previous + 1 : dealerSeat;
+  /** 다음 버튼 자리. 지난 버튼 다음 자리부터 돌아 처음 만나는 참가자이고, 지난 버튼 자리 사람이 나갔다면 그 자리에 이제 앉은 사람부터 찾는다. */
+  function pickButton() {
+    const previous = players.findIndex((p) => p.id === buttonId);
+    const start = previous >= 0 ? previous + 1 : buttonSeat;
     for (let step = 0; step < players.length; step += 1) {
       const p = players[(start + step) % players.length];
       if (contenders.includes(p.id)) return p;
@@ -422,12 +423,12 @@ function createHoldemRoom(options) {
   }
 
   function startHand() {
-    const dealer = pickDealer();
-    dealerId = dealer.id; dealerSeat = players.indexOf(dealer);
-    const at = contenders.indexOf(dealerId);
+    const button = pickButton();
+    buttonId = button.id; buttonSeat = players.indexOf(button);
+    const at = contenders.indexOf(buttonId);
     const after = (offset) => playerOf(contenders[(at + offset) % contenders.length]);
     const headsUp = contenders.length === 2;
-    const small = headsUp ? dealer : after(1);
+    const small = headsUp ? button : after(1);
     const big = headsUp ? after(1) : after(2);
     smallBlindId = small.id; bigBlindId = big.id;
     street = 'preflop';
@@ -440,14 +441,14 @@ function createHoldemRoom(options) {
     const shorts = [small, big].filter((p) => p.chips === 0);
     for (const p of shorts) p.isAllIn = true;
     if (shorts.length) capBetting(Math.min(...shorts.map((p) => p.roundBet)));
-    note(`딜러 ${dealer.nickname}님. ${small.nickname}님이 스몰 블라인드 ${money(small.roundBet)}, ${big.nickname}님이 빅 블라인드 ${money(big.roundBet)}을 냈습니다.`);
-    act('진행', `딜러 ${dealer.nickname} · 스몰 블라인드 ${small.nickname} ${money(small.roundBet)} · 빅 블라인드 ${big.nickname} ${money(big.roundBet)}`);
+    note(`카드는 자동으로 나눠집니다. ${small.nickname}님이 스몰 블라인드 ${money(small.roundBet)}, ${big.nickname}님이 빅 블라인드 ${money(big.roundBet)}을 냈습니다.`);
+    act('진행', `버튼 ${button.nickname} · 스몰 블라인드 ${small.nickname} ${money(small.roundBet)} · 빅 블라인드 ${big.nickname} ${money(big.roundBet)}`);
     for (const p of shorts) {
       note(`${p.nickname}님은 칩이 모자라 ${money(p.roundBet)}을 내고 올인했습니다.`);
       act(p.nickname, `블라인드 ${money(p.roundBet)} (칩이 모자라 올인)`);
     }
     phase = 'betting';
-    // 프리플랍은 빅 블라인드 다음 사람부터 말한다(둘이서 할 때는 그게 딜러다).
+    // 프리플랍은 빅 블라인드 다음 사람부터 말한다(둘이서 할 때는 그게 버튼 자리다).
     turnToFirstAfter(bigBlindId);
     skipAllInTurn();
     if (bettingDone()) { finishBetting(); return; }
@@ -551,8 +552,8 @@ function createHoldemRoom(options) {
     currentBet = 0; minRaise = baseBet; acted = new Set();
     note(`${STREET_NAMES[street]}: ${cardsName(cards)}`);
     act('진행', `${STREET_NAMES[street]} ${cardsName(board)} (팟 ${money(pot)})`);
-    // 거리마다 딜러 다음 사람부터 말한다(둘이서 할 때는 딜러가 마지막이라 상대가 먼저).
-    turnToFirstAfter(dealerId);
+    // 거리마다 버튼 다음 사람부터 말한다(둘이서 할 때는 버튼 자리가 마지막이라 상대가 먼저).
+    turnToFirstAfter(buttonId);
     armActionTimer(); changed(); return null;
   }
 
@@ -568,14 +569,14 @@ function createHoldemRoom(options) {
     return showdown();
   }
 
-  /** 남은 사람 모두의 패를 겨룬다. 이긴 사람이 여럿이면 팟을 나눈다(남는 몫은 딜러 다음 자리 순서로 한 칸씩). */
+  /** 남은 사람 모두의 패를 겨룬다. 이긴 사람이 여럿이면 팟을 나눈다(남는 몫은 버튼 다음 자리 순서로 한 칸씩). */
   function showdown() {
     const hands = active().map((p) => ({ player: p, hand: bestHand(p.hole.concat(board)) }));
     let best = hands[0].hand;
     for (const { hand } of hands) if (compareEvaluations(hand, best) > 0) best = hand;
     const winnerHands = hands.filter(({ hand }) => compareEvaluations(hand, best) === 0);
-    // 딜러 다음 자리부터 순서를 매긴다.
-    const at = contenders.indexOf(dealerId);
+    // 버튼 다음 자리부터 순서를 매긴다.
+    const at = contenders.indexOf(buttonId);
     const order = (p) => (contenders.indexOf(p.id) - at - 1 + contenders.length) % contenders.length;
     winnerHands.sort((a, b) => order(a.player) - order(b.player));
     const shares = splitPot(pot, winnerHands.length);
@@ -645,7 +646,7 @@ function createHoldemRoom(options) {
     const visiblePlayers = players.filter((p) => p.connected || (phase !== 'lobby' && contenders.includes(p.id) && !p.isFolded));
     return {
       type: 'holdemState', phase, street, baseBet, smallBlind: baseBet / 2, pot, currentBet, minRaise, allInCap,
-      board: board.slice(), dealerId, smallBlindId, bigBlindId,
+      board: board.slice(), smallBlindId, bigBlindId,
       // 차례는 배팅 중에만 있다. 판이 끝난 뒤에도 마지막 차례를 보내면 화면이 없는 차례를 그린다.
       turnPlayerId: phase === 'betting' && current() ? current().id : null,
       turnTotalMs: actionTimeoutMs > 0 ? actionTimeoutMs : null,

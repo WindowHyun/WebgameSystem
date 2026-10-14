@@ -35,7 +35,7 @@ const HIDDEN = [{ hidden: true }, { hidden: true }];
 function makeState(overrides) {
   const base = {
     type: 'holdemState', phase: 'betting', street: 'flop', baseBet: 100, smallBlind: 50, pot: 600, currentBet: 200, minRaise: 100, allInCap: null,
-    board: [c(13, '♣'), c(3, '♣'), c(7, '♠')], dealerId: 'p1', smallBlindId: 'p2', bigBlindId: 'p3', turnPlayerId: 'p1',
+    board: [c(13, '♣'), c(3, '♣'), c(7, '♠')], smallBlindId: 'p2', bigBlindId: 'p3', turnPlayerId: 'p1',
     turnTotalMs: 30000, turnRemainingMs: 18000, paused: false, result: null, history: [{ text: '시작', timestamp: 0 }],
     you: { id: 'p1', chips: 1000000, ready: false, inRound: true, handName: '하이 카드' },
     baseBetProposal: null, canStart: false, readyCount: 0, minPlayers: 2,

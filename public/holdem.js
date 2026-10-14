@@ -314,7 +314,6 @@
         cards = '<div class="seat-fold">폴드</div>';
       }
       var badges = '';
-      if (player.id === state.dealerId) badges += '<em class="pos dealer" title="딜러 버튼">D</em>';
       if (player.id === state.smallBlindId) badges += '<em class="pos" title="스몰 블라인드">SB</em>';
       if (player.id === state.bigBlindId) badges += '<em class="pos" title="빅 블라인드">BB</em>';
       var pill = '';

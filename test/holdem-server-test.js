@@ -76,7 +76,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
     const secret = (cards) => cards.map((c) => `"rank":${c.rank},"suit":"${c.suit}"`);
     // 상대 카드 두 장의 글자가 내 소켓으로 온 어떤 메시지에도 없어야 한다(공용 카드는 아직 없다).
     check('배팅 중에는 상대 카드의 정보가 소켓으로 오지 않는다', secret(mineB).every((piece) => !wire(a).includes(piece)) && secret(mineA).every((piece) => !wire(b).includes(piece)));
-    check('블라인드와 딜러가 상태에 실린다', a.state.pot === 150 && !!a.state.dealerId && !!a.state.smallBlindId && !!a.state.bigBlindId && a.state.board.length === 0);
+    check('블라인드가 상태에 실리고 딜러(사람)를 가리키는 값은 없다', a.state.pot === 150 && !('dealerId' in a.state) && !!a.state.smallBlindId && !!a.state.bigBlindId && a.state.board.length === 0);
 
     // 화면이 보내는 요청이 방까지 닿는다.
     const first = a.state.turnPlayerId === a.welcome.playerId ? a : b;

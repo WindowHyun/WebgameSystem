@@ -5,7 +5,7 @@
  *
  *   - 포털에 홀덤 채널이 있고, 들어가면 준비 → 시작 확인 창 → 판이 열린다.
  *   - 내 차례 띠는 내 차례에만 노란색이고, 탭 제목에 "(내 차례)"가 붙는다(끌 수 있고, 새로고침해도 설정이 남는다).
- *   - 내 카드만 앞면이고 남의 카드는 뒷면이다. 딜러·블라인드 표시와 블라인드 금액이 보인다.
+ *   - 내 카드만 앞면이고 남의 카드는 뒷면이다. 딜러는 없고(자동으로 나눠 준다) 스몰·빅 블라인드 표시와 블라인드 금액이 보인다.
  *   - 빠른 레이즈 칩과 −/+가 서버가 받아 주는 범위(직전 레이즈 폭 ~ 칩이 남는 만큼)를 벗어나지 않는다.
  *   - 올인은 꾹 눌러야 실행되고(짧게 누르면 아무 일 없음), 폴드는 한 번 더 확인한다.
  *   - 판이 끝나면 이긴 사람·패 이름·공용 카드 5장이 보이고, 다음 판 준비로 돌아간다.
@@ -143,7 +143,9 @@ async function checkDown(pages) {
     })));
     check('내 카드 2장은 앞면, 남의 카드 2장씩은 뒷면이다', seatInfo.length === 3 && seatInfo.filter((s) => s.me)[0].faceUp === 2 && seatInfo.filter((s) => !s.me).every((s) => s.backs === 2 && s.faceUp === 0), JSON.stringify(seatInfo));
     const badges = seatInfo.flatMap((s) => s.badges).sort().join();
-    check('딜러(D)·스몰(SB)·빅(BB) 표시가 한 명씩 있다', badges === 'BB,D,SB', badges);
+    check('스몰(SB)·빅(BB) 표시가 한 명씩 있고 딜러 표시는 없다(모두 플레이어)', badges === 'BB,SB', badges);
+    const bodyText = await first.innerText('body');
+    check('화면 어디에도 "딜러"라는 말이 없고, 카드는 자동으로 나눠진다고 알려 준다', !/딜러/.test(bodyText) && /카드는 자동으로 나눠집니다/.test(bodyText), bodyText.slice(-200));
     check('공용 카드 자리는 5칸이고 아직 비어 있다', await first.$$eval('#board .hcard', (list) => list.length === 5 && list.every((el) => el.classList.contains('empty'))));
     check('참가자 목록에 "보유 · 건 돈"이 보인다', /보유 100만 · 건 돈/.test(await a.textContent('#players')));
 
@@ -220,12 +222,12 @@ async function checkDown(pages) {
     check('탭 제목 표시를 끄면 새로고침해도 꺼진 채로 남는다', !(await a.isChecked('#notify-title')));
     await a.check('#notify-title');
 
-    // ── 다음 판: 버튼(딜러)이 한 칸 돈다 ────────────────────
-    const dealerOf = (page) => page.$$eval('#seats .seat', (seats) => seats.filter((s) => s.querySelector('.pos.dealer')).map((s) => s.querySelector('b').textContent.replace(' (나)', ''))[0]);
-    const dealer1 = await dealerOf(a);
+    // ── 다음 판: 블라인드 자리가 한 칸 돈다 ────────────────────
+    const smallOf = (page) => page.$$eval('#seats .seat', (seats) => seats.filter((s) => [...s.querySelectorAll('.pos')].some((e) => e.textContent === 'SB')).map((s) => s.querySelector('b').textContent.replace(' (나)', ''))[0]);
+    const small1 = await smallOf(a);
     await startHand(pages);
-    const dealer2 = await dealerOf(a);
-    check('다음 판에는 딜러 표시가 다른 사람에게 넘어간다', typeof dealer2 === 'string' && dealer2.length > 0 && dealer2 !== dealer1, `${dealer1} → ${dealer2}`);
+    const small2 = await smallOf(a);
+    check('다음 판에는 스몰 블라인드 자리가 다른 사람에게 넘어간다', typeof small2 === 'string' && small2.length > 0 && small2 !== small1, `${small1} → ${small2}`);
 
     // ── 판 도중에 들어온 사람 ──────────────────────────────
     const late = await enter(browser, '지각'); all.push(late);

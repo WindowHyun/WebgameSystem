@@ -52,7 +52,6 @@
 .seat-name{display:flex;max-width:150px;align-items:center;gap:6px}
 .seat-name b{min-width:0;overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}
 .pos{flex:none;padding:1px 6px;border-radius:9px;background:#ffffff2e;color:#fff;font-size:10px;font-style:normal;font-weight:700;text-shadow:none}
-.pos.dealer{background:#ecb22e;color:#3f2e00}
 .seat-pill{padding:3px 14px;border-radius:12px;background:#ffffff24;font-size:13px;text-shadow:none}
 .seat-pill.win{background:#2eb67d;color:#10331f;font-weight:700}
 .seat-hand{padding:2px 10px;border-radius:10px;background:#fff;color:#4a154b;font-size:12px;font-weight:700;text-shadow:none}
