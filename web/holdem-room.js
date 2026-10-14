@@ -653,7 +653,11 @@ function createHoldemRoom(options) {
       // 차례인 사람이 화면을 가려 제한시간이 멈춰 있는가(web/cover-pause.js)
       paused: pause.pausedAt() !== null,
       result, history: history.slice(-12),
-      you: me ? { id: me.id, chips: me.chips, ready: me.ready, inRound: dealtIn.includes(me.id) } : null,
+      // handName: 지금 내 카드와 공용 카드로 만든 가장 좋은 패(공용 카드가 3장 이상일 때). 초보자가 족보를 외우지 않아도 되게 알려 준다.
+      you: me ? {
+        id: me.id, chips: me.chips, ready: me.ready, inRound: dealtIn.includes(me.id),
+        handName: dealtIn.includes(me.id) && me.hole.length === 2 && board.length >= 3 ? bestHand(me.hole.concat(board)).name : null,
+      } : null,
       baseBetProposal: baseBetProposal ? {
         id: baseBetProposal.id, proposerName: baseBetProposal.proposerName, amount: baseBetProposal.amount,
         agreed: [...baseBetProposal.votes.values()].filter(Boolean).length,

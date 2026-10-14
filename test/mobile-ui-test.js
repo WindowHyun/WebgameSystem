@@ -175,6 +175,12 @@ async function runGame(browser, phone, descriptor, game) {
         }
         shots.push(await inspect(me, phone, game, '4-카드여러장-3명'));
       }
+      if (game === 'holdem') {
+        // 홀덤은 레이즈를 누르면 금액 고르는 창이 펼쳐져 조작부가 가장 커진다 - 그 상태도 본다.
+        const actor = await whoseTurn(pages, '#raise');
+        if (actor) { await actor.tap('#raise'); await wait(300); }
+        shots.push(await inspect(actor || me, phone, game, '4-레이즈창-3명'));
+      }
       if (game === 'mind') {
         // 더 마인드는 시작하면 집중 단계다. 모두 집중하면 카드 내기 버튼이 뜨는 진행 화면이 된다.
         for (const page of pages) { await page.tap('#focus'); await wait(150); }
@@ -196,7 +202,7 @@ async function main() {
   const shots = [];
   try {
     for (const { name, descriptor } of PHONES) {
-      for (const game of ['liar', 'poker', 'blackjack', 'mind']) {
+      for (const game of ['liar', 'poker', 'blackjack', 'holdem', 'mind']) {
         shots.push(...await runGame(browser, name, descriptor, game));
       }
     }

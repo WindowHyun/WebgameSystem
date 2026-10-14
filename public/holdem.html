@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>텍사스 홀덤</title>
+  <link rel="stylesheet" href="poker.css?v=4">
+  <link rel="stylesheet" href="holdem.css?v=1">
+  <link rel="stylesheet" href="responsive-fixes.css?v=7">
+</head>
+<body class="poker-page holdem-page">
+  <div id="app">
+    <header class="topbar">
+      <a href="/" id="leave" class="back" aria-label="게임 선택으로 돌아가기">←</a>
+      <div><h1>텍사스 홀덤</h1><p id="phase">대기 중</p></div>
+      <div class="pot"><small>현재 팟</small><strong id="pot">0원</strong></div>
+    </header>
+
+    <section class="players-panel">
+      <div class="section-title"><b>참가자</b><small>최대 5명 · 대기 중 참가자를 선택해 기부</small></div>
+      <div id="players"></div>
+    </section>
+
+    <main>
+      <!-- 내 차례 띠: 내 차례일 때만 노란색, 남의 차례는 차분하게. 제한시간이 있으면 막대가 줄어든다. -->
+      <section id="turn-strip" class="strip" aria-live="polite">
+        <div class="strip-row">
+          <span id="blind-label" class="strip-chip">블라인드 50 / 100</span>
+          <strong id="strip-title">대기 중</strong>
+          <span id="message" class="strip-sub">참가자들이 준비하면 시작할 수 있습니다.</span>
+          <span id="timer" class="strip-timer"></span>
+        </div>
+        <div id="timer-track" class="strip-track hidden"><div id="timer-bar"></div></div>
+      </section>
+
+      <section id="table">
+        <div id="cards">
+          <div class="pot-pill"><span>팟</span><b id="table-pot">0원</b></div>
+          <div id="board" class="board" aria-label="공용 카드"></div>
+          <div id="seats" class="seats"></div>
+        </div>
+      </section>
+
+      <section id="lobby" class="controls">
+        <div class="bet-setting"><label for="base-bet">빅 블라인드 제안</label><input id="base-bet" type="number" min="100" step="100" value="100"><button id="set-bet" data-help="입력한 빅 블라인드(스몰 블라인드는 그 절반)로 변경할지 참가자 투표를 요청합니다.">투표 요청</button></div>
+        <div class="main-actions"><button id="ready" class="secondary" data-help="게임 참가 준비 상태를 설정하거나 취소합니다.">준비</button><button id="start" data-help="준비를 마친 참가자들과 새 판을 시작합니다.">게임 시작</button></div>
+      </section>
+
+      <!-- 조작줄: 안전한 선택(체크·콜·레이즈)은 왼쪽, 되돌릴 수 없는 선택(올인·폴드)은 오른쪽에 따로 둔다. -->
+      <section id="betting" class="controls hidden">
+        <div class="safe">
+          <button id="call" class="primary" data-help="현재 배팅액에 맞춰 필요한 칩을 냅니다. 더 낼 것이 없으면 체크입니다.">체크</button>
+          <div class="raise-box">
+            <div class="quick" id="quick" role="group" aria-label="레이즈 금액 빠르게 더하기">
+              <button type="button" class="chip" data-add="100">+100</button>
+              <button type="button" class="chip" data-add="500">+500</button>
+              <button type="button" class="chip" data-add="1000">+1,000</button>
+              <button type="button" class="chip" id="quick-pot">팟</button>
+            </div>
+            <div class="stepper">
+              <button type="button" id="raise-minus" class="step" aria-label="100 줄이기">−</button>
+              <input id="raise-amount" type="text" inputmode="numeric" autocomplete="off" value="100" aria-label="레이즈 금액">
+              <button type="button" id="raise-plus" class="step" aria-label="100 늘리기">+</button>
+            </div>
+          </div>
+          <button id="raise" class="secondary" data-help="현재 배팅액을 입력한 금액만큼 올립니다. 올린 만큼 다른 사람도 더 내야 합니다. (폰에서는 한 번 누르면 금액 고르는 창이 열리고, 한 번 더 누르면 올립니다.)">레이즈</button>
+        </div>
+        <div class="danger">
+          <button id="allin" class="warning hold" data-ask="정말 올인할까요?" data-help="보유한 칩 전부를 배팅합니다. 상대가 받을 수 있는 금액까지만 걸리고, 이 판의 배팅 상한이 고정됩니다. 실수로 누르지 않도록 꾹 눌러야 실행됩니다."><span class="label">올인 <small>꾹 누르기</small></span><span id="hold-bar" class="hold-bar"></span></button>
+          <button id="fold" class="text-button" data-ask="정말 폴드할까요?" data-help="이번 판을 포기하며 이미 낸 칩은 팟에 남습니다. 실수를 막으려고 한 번 더 확인합니다."><span class="label">폴드 <small>한 번 더 확인</small></span></button>
+        </div>
+        <p id="controls-note" class="controls-note"></p>
+      </section>
+      <p id="action-help" class="action-help">버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.</p>
+
+      <section class="notify" aria-label="내 차례 알림">
+        <b>내 차례 알림</b>
+        <label><input type="checkbox" id="notify-title" checked> 탭 제목에 표시</label>
+        <label><input type="checkbox" id="notify-sound"> 알림음</label>
+      </section>
+
+      <section id="history" aria-label="게임 기록"></section>
+    </main>
+  </div>
+
+  <div id="proposal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card"><small>빅 블라인드 변경 제안</small><h2 id="proposal-title"></h2><p id="proposal-count"></p><div><button id="proposal-no" class="secondary" data-help="제안된 블라인드 변경에 반대합니다.">거절</button><button id="proposal-yes" data-help="제안된 블라인드 변경에 찬성합니다.">동의</button></div></div>
+  </div>
+  <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary" data-help="시작하지 않고 돌아갑니다.">취소</button><button id="start-go" data-help="준비한 참가자들과 새 판을 시작합니다.">시작하기</button></div></div></div>
+  <div id="donate" class="popover hidden"><b id="donate-name"></b><input id="donate-amount" aria-label="기부 금액" type="number" min="100" step="100" value="100"><button id="donate-send" data-help="입력한 칩을 선택한 참가자에게 무상으로 보냅니다.">기부하기</button></div>
+  <div id="error" role="alert"></div>
+  <script src="game-socket.js?v=2"></script>
+  <script src="holdem.js?v=1"></script>
+  <script src="mobile.js?v=4"></script>
+  <script src="cover.js?v=14"></script>
+</body>
+</html>

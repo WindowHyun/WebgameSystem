@@ -81,7 +81,11 @@ async function runGame(browser, port, game) {
     if (phase === 'result' || phase === 'lobby') break;
     for (const p of pages) {
       if (phase === 'playing' && await p.isVisible('#stand') && await p.isEnabled('#stand')) { await p.click('#stand'); await wait(250); }
-      if (phase === 'betting' && await p.isVisible('#fold') && await p.isEnabled('#fold')) { await p.click('#fold'); await wait(250); }
+      if (phase === 'betting' && await p.isVisible('#fold') && await p.isEnabled('#fold')) {
+        await p.click('#fold');
+        if (game === 'holdem') await p.click('#fold'); // 홀덤은 폴드를 한 번 더 확인한다
+        await wait(250);
+      }
     }
   }
   await wait(400);
@@ -103,7 +107,7 @@ async function runGame(browser, port, game) {
   const browser = await chromium.launch();
   let port = 4560;
   try {
-    for (const game of ['poker', 'blackjack']) {
+    for (const game of ['poker', 'blackjack', 'holdem']) {
       const server = createGameServer({ port: (port += 1), host: '127.0.0.1' });
       await server.start();
       try { await runGame(browser, port, game); } finally { await server.stop(); }

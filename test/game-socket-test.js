@@ -62,7 +62,7 @@ function check(name, ok, detail) {
     await server.start();
     browser = await chromium.launch();
     const pages = {};
-    for (const game of ['poker', 'blackjack', 'mind']) pages[game] = await enter(game, `${game}-갑`);
+    for (const game of ['poker', 'blackjack', 'holdem', 'mind']) pages[game] = await enter(game, `${game}-갑`);
     pages.portal = await enter(null, '포털-을');
 
     for (const [game, page] of Object.entries(pages)) {
@@ -79,12 +79,12 @@ function check(name, ok, detail) {
       for (const p of Object.values(pages)) if (await p.evaluate(() => window.bossCover.isShown())) { await p.keyboard.press('Escape'); await wait(50); }
     }
 
-    for (const game of ['poker', 'blackjack', 'mind']) {
+    for (const game of ['poker', 'blackjack', 'holdem', 'mind']) {
       const token = await pages[game].evaluate((key) => sessionStorage.getItem(key), `${game}-game-token`);
       check(`${game}: 참가 토큰이 게임별 키로 저장된다`, typeof token === 'string' && token.length >= 16, String(token));
     }
 
-    for (const game of ['poker', 'blackjack', 'mind']) {
+    for (const game of ['poker', 'blackjack', 'holdem', 'mind']) {
       const other = await enter(game, `${game}-병`);
       const seen = () => other.evaluate(() => document.querySelectorAll('#players .player').length);
       const countBefore = await seen();

@@ -66,7 +66,7 @@ function checkAround(t) {
     check('스몰 블라인드는 기본 배팅금의 절반, 빅 블라인드는 기본 배팅금을 낸다', t.me('B').roundBet === 50 && t.me('C').roundBet === 100 && s.pot === 150 && s.smallBlind === 50);
     check('프리플랍은 빅 블라인드 다음 사람(딜러)부터 말한다', t.turn() === 'A');
     check('블라인드를 낸 만큼 칩이 줄었다', t.me('B').chips === INITIAL_CHIPS - 50 && t.me('C').chips === INITIAL_CHIPS - 100);
-    check('프리플랍에는 공용 카드가 없다', s.board.length === 0 && s.street === 'preflop');
+    check('프리플랍에는 공용 카드가 없다', s.board.length === 0 && s.street === 'preflop' && s.you.handName === null);
     check('내 카드는 2장 보이고 남의 카드는 뒷면이다', t.me('A').cards.length === 2 && t.me('A').cards.every((c) => c.rank)
       && t.me('B', 'A').cards.length === 2 && t.me('B', 'A').cards.every((c) => c.hidden));
   }
@@ -149,6 +149,7 @@ function checkAround(t) {
     const s = t.view();
     check('쇼다운에서 더 센 패가 이긴다(A 풀하우스 > B 플러시)', s.phase === 'result' && s.result.winners.length === 1 && s.result.winners[0].id === t.id.A && s.result.winners[0].handName === '풀하우스', JSON.stringify(s.result));
     check('이긴 사람이 팟 전부를 가져간다', t.me('A').chips === INITIAL_CHIPS + 100 && t.me('B').chips === INITIAL_CHIPS - 100 && s.pot === 0);
+    check('공용 카드가 깔린 뒤에는 내 패 이름을 알려 준다(상대 것은 알려 주지 않는다)', t.view('A').you.handName === '풀하우스' && t.view('B').you.handName === '플러시');
     check('쇼다운까지 간 판은 겨룬 사람의 카드와 패 이름이 공개된다', s.result.revealed && s.result.hands.length === 2
       && t.me('B', 'A').cards.every((c) => c.rank) && t.me('B', 'A').handName === '플러시');
     check('결과에 공용 카드 5장과 가장 좋은 5장이 담긴다', s.result.board.length === 5 && s.result.hands.every((h) => h.best.length === 5));
@@ -363,6 +364,54 @@ function checkAround(t) {
     check('바뀐 블라인드로 판이 시작된다(200 / 400)', t.me('B').roundBet === 200 && t.me('C').roundBet === 400 && t.view().pot === 600 && t.view().minRaise === 400);
     check('판 도중에는 블라인드를 바꿀 수 없다', t.room.setBaseBet(t.id.A, 100) === '게임 중에는 변경할 수 없습니다.');
     t.room.dispose();
+  }
+
+  {
+    // 같은 이름은 번호를 붙여 구분한다.
+    const t = table(['같은이름', '같은이름', '세번째']);
+    check('겹치는 닉네임에는 번호가 붙는다', t.view('세번째').players.map((p) => p.nickname).join() === '같은이름,같은이름(2),세번째');
+    t.room.dispose();
+  }
+  {
+    // 투표는 시간이 지나면 취소된다.
+    const t = table(['A', 'B', 'C'], { proposalTimeoutMs: 40 });
+    t.room.setBaseBet(t.id.A, 500);
+    check('블라인드 투표가 열려 있는 동안은 시작할 수 없다', t.room.begin(t.id.B) === '블라인드 투표가 끝난 뒤 시작해 주세요.');
+    await wait(120);
+    check('투표 시간이 지나면 취소되고 블라인드는 그대로다', t.view().baseBetProposal === null && t.view().baseBet === 100 && t.room.begin(t.id.B) === null);
+    t.room.dispose();
+  }
+  {
+    // 투표 도중 인원이 바뀌면 취소, 반대가 과반이면 부결.
+    const t = table(['A', 'B', 'C']);
+    t.room.setBaseBet(t.id.A, 300);
+    t.room.disconnect(t.id.C);
+    check('투표 도중 누가 끊기면 투표가 취소된다', t.view('A').baseBetProposal === null);
+    t.room.dispose();
+    const four = table(['A', 'B', 'C', 'D']);
+    four.room.setBaseBet(four.id.A, 300);
+    const proposal = four.view('B').baseBetProposal;
+    four.room.voteBaseBet(four.id.B, proposal.id, false);
+    check('같은 사람이 두 번 투표할 수 없다', four.room.voteBaseBet(four.id.B, proposal.id, true) === '이미 투표했습니다.');
+    check('제안한 사람은 투표 대상이 아니다', four.room.voteBaseBet(four.id.A, proposal.id, true) === '제안자는 투표 대상이 아닙니다.');
+    four.room.voteBaseBet(four.id.C, proposal.id, false);
+    check('반대가 과반이면 부결되어 블라인드는 그대로다', four.view('A').baseBetProposal === null && four.view('A').baseBet === 100);
+    four.room.dispose();
+  }
+  {
+    // 아무도 없으면 새 방이다: 잃은 칩도 처음으로 돌아간다. 칩이 없는 사람은 준비해도 판에 끼지 못한다.
+    const t = table(['A', 'B']);
+    t.room.begin(t.id.A);
+    t.room.fold(t.id.A);
+    check('폴드로 칩이 줄었다', t.me('A').chips === INITIAL_CHIPS - 50);
+    t.room.disconnect(t.id.A);
+    t.room.disconnect(t.id.B);
+    const fresh = t.room.join({ nickname: 'A' });
+    check('모두 나간 방은 새 방이라 칩이 처음으로 돌아간다', t.room.stateFor(fresh.playerId).you.chips === INITIAL_CHIPS && t.room.stateFor(fresh.playerId).players.length === 1);
+    t.room.dispose();
+    const poor = table(['A', 'B', 'C'], { chips: { C: 0 } });
+    check('칩이 없는 사람이 준비해도 시작 인원에 세지 않는다', poor.view().readyCount === 2 && poor.room.begin(poor.id.A) === null && !poor.view().players.find((p) => p.id === poor.id.C).inRound);
+    poor.room.dispose();
   }
 
   // ── 기부 ───────────────────────────────────────────────
