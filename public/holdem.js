@@ -131,14 +131,17 @@
 
   // ── 제한시간 ────────────────────────────────────────────
   // 서버는 상태를 보낼 때의 남은 시간만 알려 준다. 그다음은 이 화면이 센다(서버 시계와 맞출 필요가 없다).
+  // 카드를 나눈 직후의 "카드 확인 시간"(state.peeking)에도 같은 막대와 초 표시를 쓴다.
   var clock = { endsAt: 0, total: 0, frozenMs: null, active: false };
   function syncClock() {
-    var running = state.phase === 'betting' && state.turnRemainingMs !== null && state.turnTotalMs;
-    clock.active = !!running;
-    if (!running) return;
-    clock.total = state.turnTotalMs;
-    clock.endsAt = performance.now() + state.turnRemainingMs;
-    clock.frozenMs = state.paused ? state.turnRemainingMs : null; // 화면이 가려져 멈춘 동안은 그대로 둔다
+    var peeking = state.phase === 'betting' && state.peeking === true && state.peekRemainingMs !== null && !!state.peekTotalMs;
+    var running = state.phase === 'betting' && state.turnRemainingMs !== null && !!state.turnTotalMs;
+    clock.active = peeking || running;
+    if (!clock.active) return;
+    var remaining = peeking ? state.peekRemainingMs : state.turnRemainingMs;
+    clock.total = peeking ? state.peekTotalMs : state.turnTotalMs;
+    clock.endsAt = performance.now() + remaining;
+    clock.frozenMs = !peeking && state.paused ? remaining : null; // 화면이 가려져 멈춘 동안은 그대로 둔다
   }
   function renderClock() {
     var track = $('timer-track');
@@ -146,9 +149,9 @@
     if (!clock.active) { $('timer').textContent = ''; return; }
     var left = clock.frozenMs !== null ? clock.frozenMs : Math.max(0, clock.endsAt - performance.now());
     var seconds = Math.ceil(left / 1000);
-    $('timer').textContent = state.paused ? '멈춤' : seconds + '초';
+    $('timer').textContent = state.paused && !state.peeking ? '멈춤' : seconds + '초';
     $('timer-bar').style.width = Math.max(0, Math.min(100, (left / clock.total) * 100)) + '%';
-    track.classList.toggle('urgent', !state.paused && seconds <= 5);
+    track.classList.toggle('urgent', !state.paused && !state.peeking && seconds <= 5);
   }
   setInterval(renderClock, 200);
 
@@ -285,7 +288,6 @@
   var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
   var lastPhase = null;
   var lastBoardCount = 0;
-  var lastHandKey = '';
 
   function renderSeats() {
     var inHand = state.players.filter(function (player) { return player.inRound; });
@@ -293,10 +295,6 @@
     if (state.phase === 'result' && state.result && state.result.winners) {
       state.result.winners.forEach(function (w) { winners[w.id] = w; });
     }
-    var handKey = state.phase + ':' + state.players.map(function (p) { return p.id + (p.cards ? p.cards.length : 0); }).join(',');
-    // 새로 나눠 준 카드에만 등장 효과를 준다(상태가 올 때마다 모든 카드가 다시 움직이면 어지럽다).
-    var freshHand = state.phase === 'betting' && state.street === 'preflop' && lastHandKey.indexOf('betting:') !== 0;
-    lastHandKey = handKey;
     if (!inHand.length) {
       $('seats').innerHTML = '<p class="seats-empty">준비가 끝나면 카드가 여기에 놓입니다</p>';
       return;
@@ -305,11 +303,14 @@
       var me = player.id === state.you.id;
       var turn = player.id === state.turnPlayerId;
       var win = !!winners[player.id];
-      var cls = 'seat' + (me ? ' me' : '') + (player.isFolded ? ' folded' : '') + (turn ? ' turn' : '') + (win ? ' winner' : '');
-      var tag = win ? '승리' : turn ? (me ? '내 차례' : '차례') : '';
+      // 카드를 나눈 직후(카드 확인 시간)에는 내 카드를 보라고 알린다.
+      var peek = me && state.peeking === true && !player.isFolded;
+      var cls = 'seat' + (me ? ' me' : '') + (player.isFolded ? ' folded' : '') + (turn ? ' turn' : '') + (win ? ' winner' : '') + (peek ? ' peek' : '');
+      var tag = win ? '승리' : turn ? (me ? '내 차례' : '차례') : peek ? '내 카드 확인' : '';
       var cards;
       if (player.cards && player.cards.length) {
-        cards = player.cards.map(function (card) { return cardHtml(card, freshHand ? 'new' : ''); }).join('');
+        // 내 카드·남의 뒷면은 등장 효과 없이 바로 보인다(효과 동안 안 보이는 시간이 있으면 카드를 못 본 채 시작하게 된다).
+        cards = player.cards.map(function (card) { return cardHtml(card, ''); }).join('');
       } else {
         cards = '<div class="seat-fold">폴드</div>';
       }
@@ -383,6 +384,7 @@
     var note = '';
     if (!inRound) note = '이번 판은 관전 중입니다. 다음 판부터 참여할 수 있습니다.';
     else if (you.isFolded) note = '폴드했습니다. 남은 판을 관전하고 있습니다.';
+    else if (state.peeking) note = '카드를 확인하는 중입니다. 곧 배팅이 시작됩니다.';
     else if (!myTurn) note = (state.turnPlayerId ? playerName(state.turnPlayerId) + '님' : '다른 참가자') + ' 차례라 지금은 누를 수 없습니다.';
     else if (cannotCall) note = '칩이 모자라 콜할 수 없습니다. 가진 칩을 모두 거는 올인이나 폴드 중에서 고르세요.';
     else if (state.allInCap !== null) note = '올인으로 이 판의 배팅 상한이 정해져 레이즈할 수 없습니다.';
@@ -425,6 +427,7 @@
     // 내 차례 띠. 내 차례만 노란색으로 눈에 띄게 하고, 남의 차례는 차분하게 둔다.
     var strip = $('turn-strip');
     strip.classList.toggle('mine', myTurn);
+    strip.classList.toggle('peek', state.phase === 'betting' && state.peeking === true && inRound);
     var title = '대기 중';
     var message = '참가자들이 준비하면 시작할 수 있습니다.';
     if (lobby) {
@@ -437,6 +440,7 @@
       var toCall = Math.max(0, state.currentBet - you.roundBet);
       if (!inRound) { title = '관전 중'; message = '진행 중인 판을 관전하고 있습니다. 다음 판부터 참여할 수 있습니다.'; }
       else if (you.isFolded) { title = '폴드했습니다'; message = '남은 판을 관전하고 있습니다.'; }
+      else if (state.peeking) { title = '카드를 확인하세요'; message = '카드를 나눴습니다. 내 카드를 확인하세요. 곧 배팅이 시작됩니다.'; }
       else if (myTurn) {
         title = '내 차례입니다';
         message = (toCall ? money(toCall) + '을 콜하거나 레이즈·폴드를 선택하세요.' : '체크하거나 레이즈를 선택하세요.')

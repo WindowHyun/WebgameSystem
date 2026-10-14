@@ -4,6 +4,11 @@
 .strip{margin:16px 20px 0;padding:12px 16px;border:1px solid #e4e4e6;border-radius:8px;background:#f8f8f8;color:#1d1c1d}
 .strip.mine{border-color:#ecb22e;background:#ecb22e;color:#3f2e00}
 .strip-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+/* 카드 확인 시간: 내 차례의 진한 노랑과 구분되게 옅은 노랑으로 "지금은 카드를 볼 때"를 알린다. */
+.strip.peek{border-color:#ecb22e;background:#fff3cd;color:#3f2e00}
+.strip.peek .strip-sub,.strip.peek .strip-timer{color:#3f2e00}
+.strip.peek .strip-track{background:#3f2e0026}
+.strip.peek #timer-bar{background:#ecb22e}
 .strip-chip{padding:3px 8px;border-radius:4px;background:#e8f5fa;color:#1264a3;font-size:12px;font-weight:700}
 .strip.mine .strip-chip{background:#fff3cd;color:#3f2e00}
 .strip-row strong{font-size:18px}
@@ -36,7 +41,9 @@
 
 .seat{display:flex;min-width:0;flex-direction:column;align-items:center;gap:8px;color:#fff;font-size:13px;text-shadow:0 1px 1px #0005}
 .seat-tag{height:24px;display:flex;align-items:center}
-.seat.turn .seat-tag,.seat.winner .seat-tag{padding:0 12px;border-radius:12px;font-size:12px;font-weight:700;text-shadow:none}
+.seat.turn .seat-tag,.seat.winner .seat-tag,.seat.peek .seat-tag{padding:0 12px;border-radius:12px;font-size:12px;font-weight:700;text-shadow:none}
+.seat.peek .seat-tag{background:#fff3cd;color:#3f2e00}
+.seat.peek .seat-cards{background:#fff3cd}
 .seat.turn .seat-tag{background:#ecb22e;color:#3f2e00}
 .seat.winner .seat-tag{background:#2eb67d;color:#10331f}
 .seat-cards{display:flex;gap:8px;padding:6px;border-radius:16px}
@@ -118,7 +125,7 @@
   .seat-name b{font-size:13px}
   .seat-pill{padding:2px 10px;font-size:11.5px}
   .seat-tag{height:20px}
-  .seat.turn .seat-tag,.seat.winner .seat-tag{padding:0 10px;font-size:11px}
+  .seat.turn .seat-tag,.seat.winner .seat-tag,.seat.peek .seat-tag{padding:0 10px;font-size:11px}
 
   /* 조작: [체크·콜][레이즈] → [올인][폴드]. 금액 고르는 창(빠른 금액·−/+)은 레이즈를 누르면 열린다 -
      모두 펼쳐 두면 조작부가 화면의 3분의 1을 덮어서 작은 폰에서는 내 카드가 가려진다. */

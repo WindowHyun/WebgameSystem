@@ -108,7 +108,8 @@ async function runGame(browser, port, game) {
   let port = 4560;
   try {
     for (const game of ['poker', 'blackjack', 'holdem']) {
-      const server = createGameServer({ port: (port += 1), host: '127.0.0.1' });
+      // holdemPeekMs: 0 - 홀덤은 카드를 나눈 뒤 몇 초 동안 배팅을 막는데, 이 시험은 곧바로 폴드해서 판을 끝낸다.
+      const server = createGameServer({ port: (port += 1), host: '127.0.0.1', holdemPeekMs: 0 });
       await server.start();
       try { await runGame(browser, port, game); } finally { await server.stop(); }
     }

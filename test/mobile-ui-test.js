@@ -196,7 +196,8 @@ async function runGame(browser, phone, descriptor, game) {
 
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
-  const server = createGameServer({ port: PORT, host: '127.0.0.1' });
+  // holdemPeekMs: 0 - 홀덤의 "레이즈 창이 열린 조작부"를 보려면 곧바로 내 차례가 되어야 한다.
+  const server = createGameServer({ port: PORT, host: '127.0.0.1', holdemPeekMs: 0 });
   await server.start();
   const browser = await chromium.launch();
   const shots = [];
