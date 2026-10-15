@@ -37,7 +37,8 @@ function table(names, options) {
   const { chips, ...roomOptions } = options || {};
   // chips: { B: 300 }처럼 이름별 시작 칩. 적은 칩이 있는 판을 만들 때 쓴다.
   const initialChips = chips ? (index) => (chips[names[index]] === undefined ? INITIAL_CHIPS : chips[names[index]]) : undefined;
-  const room = createHoldemRoom({ onChange() {}, actionTimeoutMs: 0, initialChips, ...roomOptions });
+  // peekMs: 0 - 이 시험의 대부분은 카드를 나눈 즉시 배팅이 시작되는 것을 전제로 한다("카드 확인 시간"은 아래에서 따로 본다).
+  const room = createHoldemRoom({ onChange() {}, actionTimeoutMs: 0, peekMs: 0, initialChips, ...roomOptions });
   const seats = names.map((nickname) => room.join({ nickname }));
   const id = Object.fromEntries(names.map((name, i) => [name, seats[i].playerId]));
   const ready = () => seats.forEach((seat) => room.setReady(seat.playerId, true));
@@ -115,7 +116,7 @@ function checkAround(t) {
 
   // ── 시작 조건과 차례 ────────────────────────────────────
   {
-    const room = createHoldemRoom({ onChange() {}, actionTimeoutMs: 0 });
+    const room = createHoldemRoom({ onChange() {}, actionTimeoutMs: 0, peekMs: 0 });
     const a = room.join({ nickname: 'A' });
     const b = room.join({ nickname: 'B' });
     check('혼자서는 시작할 수 없다', room.begin(a.playerId) === '준비한 참가자가 2명 이상이어야 합니다.');
@@ -131,7 +132,7 @@ function checkAround(t) {
     room.dispose();
   }
   {
-    const room = createHoldemRoom({ onChange() {} });
+    const room = createHoldemRoom({ onChange() {}, peekMs: 0 });
     const seats = ['A', 'B', 'C', 'D', 'E', 'F'].map((nickname) => room.join({ nickname }));
     check('방은 최대 5명이다', seats.slice(0, 5).every((s) => !s.error) && seats[5].error === '방이 가득 찼습니다. (최대 5명)');
     room.dispose();
@@ -413,6 +414,79 @@ function checkAround(t) {
     const poor = table(['A', 'B', 'C'], { chips: { C: 0 } });
     check('칩이 없는 사람이 준비해도 시작 인원에 세지 않는다', poor.view().readyCount === 2 && poor.room.begin(poor.id.A) === null && !poor.view().players.find((p) => p.id === poor.id.C).inRound);
     poor.room.dispose();
+  }
+
+  // ── 카드 확인 시간: 나눈 직후에는 카드만 보이고, 몇 초 뒤에야 첫 차례가 시작된다 ──
+  {
+    const t = table(['A', 'B', 'C'], { peekMs: 120, actionTimeoutMs: 60 });
+    t.room.begin(t.id.A);
+    const s = t.view();
+    check('카드를 나눈 직후에는 확인 시간이다(첫 차례도 제한시간도 아직 시작하지 않았다)', s.peeking === true && s.turnPlayerId === null && s.turnRemainingMs === null && s.peekTotalMs === 120 && s.peekRemainingMs > 0 && s.peekRemainingMs <= 120, JSON.stringify([s.peeking, s.turnPlayerId, s.turnRemainingMs, s.peekRemainingMs]));
+    check('확인 시간에도 내 카드는 바로 보이고 남의 카드는 뒷면이다', t.me('A').cards.every((c) => c.rank) && t.me('B', 'A').cards.every((c) => c.hidden));
+    check('블라인드는 이미 냈다', s.pot === 150 && s.phase === 'betting');
+    const early = [t.room.call(t.id.A), t.room.raise(t.id.A, 100), t.room.allin(t.id.A), t.room.fold(t.id.A)];
+    check('확인 시간에는 누구도 배팅할 수 없고 이유를 알려 준다', early.every((reason) => reason === '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.'), early.join(' | '));
+    await wait(90);
+    check('제한시간(60ms)보다 오래 지나도 확인 시간 동안에는 자동 폴드되지 않는다', t.view().phase === 'betting' && t.view().peeking === true && t.view().pot === 150);
+    await wait(80);
+    const after = t.view();
+    check('확인 시간이 끝나면 첫 차례가 시작되고 제한시간이 흐른다', after.peeking === false && after.peekRemainingMs === null && t.turn() === 'A' && after.turnRemainingMs > 0, JSON.stringify([after.peeking, after.turnPlayerId, after.turnRemainingMs]));
+    check('끝난 뒤에는 배팅할 수 있다', t.room.call(t.id.A) === null);
+    await wait(180);
+    check('그 뒤로는 제한시간이 평소처럼 지나 자동으로 폴드·체크가 나온다', t.view().street !== 'preflop' || t.view().players.some((p) => p.isFolded), `${t.view().phase}/${t.view().street}`);
+    t.room.dispose();
+  }
+  {
+    // 확인 시간 중에 누가 나가거나 판이 끝나도 타이머가 남지 않는다.
+    const t = table(['A', 'B'], { peekMs: 150 });
+    t.room.begin(t.id.A);
+    t.room.leave(t.id.B);
+    const s = t.view('A');
+    check('확인 시간 중에 상대가 나가면 남은 사람이 바로 이기고 확인 시간도 끝난다', s.phase === 'result' && s.peeking === false && s.peekRemainingMs === null && s.result.winners[0].id === t.id.A);
+    await wait(220);
+    check('끝난 판에는 늦게 울리는 타이머가 아무것도 바꾸지 않는다', t.view('A').phase === 'result' && t.view('A').turnPlayerId === null);
+    t.room.dispose();
+    const d = createHoldemRoom({ onChange() {}, actionTimeoutMs: 0 });
+    const a = d.join({ nickname: 'A' });
+    const b = d.join({ nickname: 'B' });
+    d.setReady(a.playerId, true); d.setReady(b.playerId, true);
+    d.begin(a.playerId);
+    check('확인 시간의 기본값은 4초다', d.stateFor(a.playerId).peekTotalMs === 4000 && d.stateFor(a.playerId).peeking === true);
+    d.dispose();
+  }
+  {
+    // 확인 시간 중에 누가 나가 판이 이어져도(차례를 다시 정할 때) 제한시간은 확인이 끝난 뒤에야 흐른다.
+    const t = table(['A', 'B', 'C'], { peekMs: 220, actionTimeoutMs: 60 });
+    t.room.begin(t.id.A);
+    t.room.leave(t.id.C);
+    check('확인 시간 중에 한 명이 나가도 판은 이어지고 아직 확인 시간이며 제한시간은 시작하지 않았다', t.view('A').phase === 'betting' && t.view('A').peeking === true && t.view('A').players.length === 2 && t.view('A').turnRemainingMs === null, String(t.view('A').turnRemainingMs));
+    await wait(120);
+    check('나간 뒤에도 확인 시간 동안에는 제한시간이 시작하지 않아(남은 시간 표시가 없고) 아무도 자동 폴드되지 않는다', t.view('A').phase === 'betting' && t.view('A').turnRemainingMs === null && !t.view('A').players.some((p) => p.isFolded), JSON.stringify([t.view('A').turnRemainingMs, t.view('A').players.map((p) => [p.nickname, p.isFolded])]));
+    t.room.dispose();
+  }
+  {
+    // 화면을 가려도 확인 시간 때문에 제한시간이 어긋나지 않는다: 확인이 끝난 뒤 첫 사람의 제한시간이 온전히 흐른다.
+    const t = table(['A', 'B', 'C'], { peekMs: 80, actionTimeoutMs: 400 });
+    t.room.begin(t.id.A);
+    t.room.setCovered(t.id.A, true); // A가 첫 차례가 될 사람인데 화면을 가렸다
+    check('확인 시간에는 멈출 제한시간이 없어서 화면을 가려도 "멈춤"이 아니다', t.view().paused === false);
+    await wait(130);
+    check('확인이 끝난 뒤 가린 사람의 차례면 제한시간이 멈춘 채 시작한다', t.view().peeking === false && t.view().paused === true && t.turn() === 'A');
+    t.room.dispose();
+  }
+
+  // ── 관리 로그: 카드를 나눌 때 각자 받은 패가 남는다(화면 기록에는 남지 않는다) ──
+  {
+    const lines = [];
+    const t = table(['김하늘', '박서준', '최민아'], { makeDeck: stacked('As Ah  Kc Qd  9s 8h  2d 7c 3s 4h 5d'), onAction: (who, what) => lines.push(`${who} > ${what}`) });
+    t.room.begin(t.id['김하늘']);
+    check('카드를 나눌 때 각자 받은 패가 로그에 남는다', lines.includes('김하늘 > 받은 패 A♠ A♥') && lines.includes('박서준 > 받은 패 K♣ Q♦') && lines.includes('최민아 > 받은 패 9♠ 8♥'), lines.filter((l) => l.includes('받은 패')).join(' / '));
+    const dealtAt = lines.findIndex((l) => l.includes('받은 패'));
+    const blindsAt = lines.findIndex((l) => l.startsWith('진행 > 버튼'));
+    check('패는 로그의 한 줄에 한 사람씩, 블라인드 안내보다 먼저 남는다', lines.filter((l) => l.includes('받은 패')).length === 3 && dealtAt >= 0 && dealtAt < blindsAt);
+    const screenText = t.view().history.map((h) => h.text).join('\n');
+    check('게임 화면의 기록에는 패가 남지 않는다', !/받은 패/.test(screenText) && !/A♠|K♣|9♠/.test(screenText), screenText);
+    t.room.dispose();
   }
 
   // ── 기부 ───────────────────────────────────────────────

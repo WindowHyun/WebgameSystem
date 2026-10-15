@@ -7,6 +7,7 @@
  *   - 화면이 보내는 요청(콜·레이즈·폴드·올인)이 방까지 닿는다. 형식이 틀린 요청은 방에 닿기 전에 거절된다.
  *   - 한 판이 끝나면 쇼다운에 간 사람의 카드와 패 이름이 모두에게 간다.
  *   - 포털이 홀덤의 인원·상태를 알려 준다. 홀덤에서 누른 보스 키가 다른 사람의 화면도 가린다.
+ *   - 서버 관리 로그에 카드를 나눌 때 각자 받은 패가 남는다. 카드를 나눈 직후에는 "카드 확인 시간"이라 배팅이 막혀 있다.
  *
  * 실행: node test/holdem-server-test.js
  */
@@ -15,6 +16,7 @@ const WebSocket = require('ws');
 const { createGameServer } = require('../web/game-server');
 
 const PORT = 4711;
+const PEEK_PORT = 4715;
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -50,8 +52,16 @@ async function until(condition, label) {
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
 
+const RANK_LABELS = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+const cardText = (cards) => cards.map((c) => (RANK_LABELS[c.rank] || c.rank) + c.suit).join(' ');
+
 (async () => {
-  const server = createGameServer({ port: PORT });
+  // 서버 관리 로그(console.error로 나간다)를 모아 둔다.
+  const captured = [];
+  const originalError = console.error;
+  console.error = (line) => { captured.push(String(line)); };
+  // holdemPeekMs: 0 - 이 시험의 앞부분은 카드를 나눈 즉시 배팅이 시작되는 것을 전제로 한다(확인 시간은 아래에서 따로 본다).
+  const server = createGameServer({ port: PORT, holdemPeekMs: 0 });
   await server.start();
   try {
     const portal = await connect('portal');
@@ -76,6 +86,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
     const secret = (cards) => cards.map((c) => `"rank":${c.rank},"suit":"${c.suit}"`);
     // 상대 카드 두 장의 글자가 내 소켓으로 온 어떤 메시지에도 없어야 한다(공용 카드는 아직 없다).
     check('배팅 중에는 상대 카드의 정보가 소켓으로 오지 않는다', secret(mineB).every((piece) => !wire(a).includes(piece)) && secret(mineA).every((piece) => !wire(b).includes(piece)));
+    check('서버 관리 로그에 각자 받은 패가 "[홀덤] 닉네임 > 받은 패 ..."로 남는다', captured.some((l) => l.includes(`[홀덤] 김하늘 > 받은 패 ${cardText(mineA)}`)) && captured.some((l) => l.includes(`[홀덤] 박서준 > 받은 패 ${cardText(mineB)}`)),
+      captured.filter((l) => l.includes('받은 패')).join(' / '));
     check('블라인드가 상태에 실리고 딜러(사람)를 가리키는 값은 없다', a.state.pot === 150 && !('dealerId' in a.state) && !!a.state.smallBlindId && !!a.state.bigBlindId && a.state.board.length === 0);
 
     // 화면이 보내는 요청이 방까지 닿는다.
@@ -133,6 +145,37 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 80));
     [portal, a, b, stranger].forEach((c) => c.ws.close());
   } finally {
     await server.stop();
+  }
+
+  // ── 카드 확인 시간: 기본 동작(배팅 시작을 미룬다)을 실제 소켓으로 ──
+  const slow = createGameServer({ port: PEEK_PORT, holdemPeekMs: 400 });
+  await slow.start();
+  try {
+    const url = (game) => `ws://127.0.0.1:${PEEK_PORT}/api/ws?game=${game}`;
+    const open = (game) => new Promise((resolve, reject) => {
+      const ws = new WebSocket(url(game));
+      const c = { ws, state: null, welcome: null, errors: [] };
+      ws.on('message', (raw) => { const d = JSON.parse(String(raw)); if (d.type === 'holdemState') c.state = d; if (d.type === 'welcome') c.welcome = d; if (d.type === 'error') c.errors.push(d.message); });
+      ws.on('open', () => resolve(c)); ws.on('error', reject);
+    });
+    const x = await open('holdem'); const y = await open('holdem');
+    send(x, { type: 'join', nickname: '갑' }); send(y, { type: 'join', nickname: '을' });
+    await until(() => x.welcome && y.welcome && x.state && x.state.players.length === 2, '두 명 입장');
+    send(x, { type: 'ready', ready: true }); send(y, { type: 'ready', ready: true });
+    await until(() => x.state.canStart, '시작 가능');
+    send(x, { type: 'start' });
+    await until(() => x.state.phase === 'betting' && y.state.phase === 'betting', '판 시작');
+    const mine = x.state.players.find((p) => p.id === x.welcome.playerId).cards;
+    check('카드를 나눈 직후에는 확인 시간이라 내 카드가 보이고 첫 차례는 아직 없다', x.state.peeking === true && x.state.turnPlayerId === null && mine.every((c) => c.rank) && x.state.peekTotalMs === 400);
+    send(x, { type: 'call' }); send(y, { type: 'call' });
+    await until(() => x.errors.length >= 1 && y.errors.length >= 1, '확인 시간의 배팅 거절');
+    check('확인 시간에 보낸 배팅은 이유와 함께 거절된다', x.errors[0] === '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.' && y.errors[0] === x.errors[0], x.errors[0]);
+    await until(() => x.state.peeking === false && x.state.turnPlayerId !== null, '확인 시간 끝', 100);
+    check('시간이 지나면 첫 차례가 시작되고 제한시간 정보가 실린다', x.state.turnRemainingMs > 0 && y.state.turnPlayerId === x.state.turnPlayerId);
+    x.ws.close(); y.ws.close();
+  } finally {
+    await slow.stop();
+    console.error = originalError;
   }
   console.log(`\n홀덤 서버: ${pass}개 통과, ${fail}개 실패`);
   process.exit(fail ? 1 : 0);

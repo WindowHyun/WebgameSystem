@@ -35,7 +35,8 @@ const STREET_NAMES = { preflop: '프리플랍', flop: '플랍', turn: '턴', riv
 function createHoldemRoom(options) {
   const notify = options.onChange || (() => {});
   // [관리 로그] 누가 무엇을 했는지 알린다. 서버가 "[홀덤] 닉네임 > 행동"으로 남긴다.
-  // 판이 끝나기 전에는 남의 카드를 적지 않는다(로그를 보는 사람이 게임에 끼면 미리 알게 된다). 공용 카드는 모두가 보는 것이라 적는다.
+  // 운영자가 판을 되짚을 수 있도록 카드를 나눌 때 각자 받은 패를 남긴다(운영 요청). 그래서 게임 도중 이 로그를 보는 사람은 남의 패를
+  // 알 수 있다 - 로그는 운영자만 본다. 참가자끼리 보는 게임 화면의 기록(note)에는 패를 남기지 않는다. 공용 카드는 모두가 보는 것이라 적는다.
   const onAction = options.onAction || (() => {});
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const money = (value) => `${Number(value || 0).toLocaleString()}원`;
@@ -65,10 +66,16 @@ function createHoldemRoom(options) {
   let result = null;
   let baseBetProposal = null;
   let proposalTimer = null;
+  // 카드 확인 시간(peekMs)이 흐르는 동안의 타이머와 끝나는 시각. 흐르는 동안은 아무도 배팅할 수 없다.
+  let peekTimer = null;
+  let peekEndsAt = null;
   const dropTimers = new Map();
   // 자리를 잃은 사람의 칩을 토큰에 묶어 둔다(web/poker-room.js의 chipBank 참고).
   const chipBank = new Map(); // token -> chips
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
+  // 카드를 나눈 직후 모두가 자기 카드를 볼 시간. 이 시간이 지나야 첫 차례가 시작되고 제한시간이 흐른다(0이면 곧바로 시작).
+  // 예전에는 나눈 즉시 첫 사람의 차례가 되어, 폰이 카드를 그리기도 전에 배팅 시간이 흘렀다.
+  const peekMs = Number.isFinite(options.peekMs) ? options.peekMs : 4000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
 
@@ -83,7 +90,7 @@ function createHoldemRoom(options) {
   // [보스 키] 차례인 사람이 화면을 가리고 있으면 그 사람의 제한시간을 멈춘다(web/cover-pause.js).
   const pause = createCoverPause({
     setTimer: safeTimeout, clearTimer: clearTimeout, unref: true, maxPauseMs: options.maxCoverPauseMs,
-    isWaitingOn: (pid) => phase === 'betting' && !!current() && current().id === pid,
+    isWaitingOn: (pid) => phase === 'betting' && peekTimer === null && !!current() && current().id === pid,
     onExpire: () => changed(),
   });
   const actionClock = pause.timer;
@@ -95,13 +102,14 @@ function createHoldemRoom(options) {
     notify();
   }
   const clearActionTimer = () => actionClock.clear();
+  const clearPeek = () => { if (peekTimer) clearTimeout(peekTimer); peekTimer = null; peekEndsAt = null; };
   const clearProposalTimer = () => { if (proposalTimer) clearTimeout(proposalTimer); proposalTimer = null; };
   const cancelDrop = (pid) => { const timer = dropTimers.get(pid); if (timer) clearTimeout(timer); dropTimers.delete(pid); };
 
   /** 차례인 사람의 제한시간. 시간이 지나면 낼 돈이 없을 때는 체크, 있을 때는 폴드한다. */
   function armActionTimer() {
     clearActionTimer();
-    if (phase !== 'betting' || actionTimeoutMs <= 0) return;
+    if (phase !== 'betting' || actionTimeoutMs <= 0 || peekTimer !== null) return;
     const player = current();
     if (!player) return;
     actionClock.start(() => {
@@ -199,7 +207,7 @@ function createHoldemRoom(options) {
 
   function resetEmptyRoom() {
     if (players.some((p) => p.connected)) return false;
-    clearActionTimer(); clearProposalTimer(); pause.reset();
+    clearActionTimer(); clearProposalTimer(); clearPeek(); pause.reset();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
     chipBank.clear(); // 아무도 없는 방은 새 방이다. 칩도 처음부터 다시 시작한다.
@@ -434,6 +442,7 @@ function createHoldemRoom(options) {
     street = 'preflop';
     currentBet = 0; minRaise = baseBet; allInCap = null; acted = new Set();
     for (const p of active()) p.hole = deal(2);
+    for (const p of active()) act(p.nickname, `받은 패 ${cardsName(p.hole)}`);
 
     pay(small, Math.min(baseBet / 2, small.chips));
     pay(big, Math.min(baseBet, big.chips));
@@ -452,10 +461,25 @@ function createHoldemRoom(options) {
     turnToFirstAfter(bigBlindId);
     skipAllInTurn();
     if (bettingDone()) { finishBetting(); return; }
-    armActionTimer();
+    beginPeek();
+  }
+
+  /** 카드를 나눈 직후, 첫 차례를 peekMs 뒤로 미룬다. 그동안 화면은 "카드를 확인하세요"를 보여 주고 배팅은 막힌다. */
+  function beginPeek() {
+    if (peekMs <= 0) { armActionTimer(); return; }
+    peekEndsAt = Date.now() + peekMs;
+    peekTimer = safeTimeout(() => {
+      peekTimer = null; peekEndsAt = null;
+      armActionTimer();
+      changed();
+    }, peekMs);
+    note('카드를 나눴습니다. 카드를 확인하세요. 곧 배팅이 시작됩니다.');
+    act('진행', `카드 확인 시간 ${Math.round(peekMs / 1000)}초`);
   }
 
   function call(pid, timedOut) {
+    // 확인 시간에는 차례와 상관없이 같은 이유를 알려 준다(누구의 차례도 아직 아니다).
+    if (phase === 'betting' && peekTimer !== null) return '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.';
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
     const p = current();
     const need = Math.max(0, currentBet - p.roundBet);
@@ -479,6 +503,8 @@ function createHoldemRoom(options) {
   }
 
   function raise(pid, amount) {
+    // 확인 시간에는 차례와 상관없이 같은 이유를 알려 준다(누구의 차례도 아직 아니다).
+    if (phase === 'betting' && peekTimer !== null) return '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.';
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
     if (allInCap !== null) return '올인 이후에는 레이즈할 수 없습니다.';
     const value = Number(amount);
@@ -502,6 +528,8 @@ function createHoldemRoom(options) {
    * 그보다 적은 칩으로 올인할 수 있고, 그러면 상한이 그 금액으로 내려간다.
    */
   function allin(pid) {
+    // 확인 시간에는 차례와 상관없이 같은 이유를 알려 준다(누구의 차례도 아직 아니다).
+    if (phase === 'betting' && peekTimer !== null) return '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.';
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
     const p = current();
     if (p.chips <= 0) return '올인할 칩이 없습니다.';
@@ -524,6 +552,8 @@ function createHoldemRoom(options) {
   }
 
   function fold(pid, timedOut) {
+    // 확인 시간에는 차례와 상관없이 같은 이유를 알려 준다(누구의 차례도 아직 아니다).
+    if (phase === 'betting' && peekTimer !== null) return '카드를 확인하는 중입니다. 잠시 뒤 배팅이 시작됩니다.';
     if (phase !== 'betting' || !current() || current().id !== pid) return '지금은 본인 차례가 아닙니다.';
     const p = current();
     p.isFolded = true; p.lastAction = 'fold'; acted.add(pid);
@@ -604,6 +634,7 @@ function createHoldemRoom(options) {
 
   function finishHand(winners, { revealed, hands }) {
     clearActionTimer();
+    clearPeek();
     const total = pot;
     for (const w of winners) playerOf(w.id).chips += w.amount;
     pot = 0; phase = 'result';
@@ -648,7 +679,11 @@ function createHoldemRoom(options) {
       type: 'holdemState', phase, street, baseBet, smallBlind: baseBet / 2, pot, currentBet, minRaise, allInCap,
       board: board.slice(), smallBlindId, bigBlindId,
       // 차례는 배팅 중에만 있다. 판이 끝난 뒤에도 마지막 차례를 보내면 화면이 없는 차례를 그린다.
-      turnPlayerId: phase === 'betting' && current() ? current().id : null,
+      turnPlayerId: phase === 'betting' && peekTimer === null && current() ? current().id : null,
+      // 카드 확인 시간 동안 true. 화면은 "카드를 확인하세요"와 남은 시간을 보여 주고 조작을 막는다.
+      peeking: peekTimer !== null,
+      peekTotalMs: peekTimer !== null ? peekMs : null,
+      peekRemainingMs: peekTimer !== null ? Math.max(0, peekEndsAt - Date.now()) : null,
       turnTotalMs: actionTimeoutMs > 0 ? actionTimeoutMs : null,
       turnRemainingMs: turnRemainingMs(),
       // 차례인 사람이 화면을 가려 제한시간이 멈춰 있는가(web/cover-pause.js)
@@ -690,6 +725,7 @@ function createHoldemRoom(options) {
   function dispose() {
     clearActionTimer();
     clearProposalTimer();
+    clearPeek();
     pause.dispose();
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();

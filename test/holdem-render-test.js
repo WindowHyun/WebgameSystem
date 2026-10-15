@@ -8,6 +8,7 @@
  *   - 낼 돈이 가진 칩보다 많으면 콜을 막고 이유를 말해 준다. 딱 맞으면 콜(= 올인)할 수 있다.
  *   - 레이즈 범위는 직전 레이즈 폭 ~ 칩이 남는 만큼이다. 상한이 정해지면 레이즈를 막는다.
  *   - 가려져서 멈춘 제한시간은 흐르지 않는다.
+ *   - 카드를 나눈 직후(카드 확인 시간)에는 "카드를 확인하세요" 띠와 남은 시간이 보이고, 내 카드는 바로 보이며, 조작은 막혀 있다.
  *   - 비기면 모두의 몫이, 승자가 없으면 이유가 보인다.
  *   - 닉네임에 HTML이 있어도 태그로 해석되지 않는다.
  *   - 연결이 끊겨 요청을 못 보내면 알려 준다.
@@ -36,7 +37,7 @@ function makeState(overrides) {
   const base = {
     type: 'holdemState', phase: 'betting', street: 'flop', baseBet: 100, smallBlind: 50, pot: 600, currentBet: 200, minRaise: 100, allInCap: null,
     board: [c(13, '♣'), c(3, '♣'), c(7, '♠')], smallBlindId: 'p2', bigBlindId: 'p3', turnPlayerId: 'p1',
-    turnTotalMs: 30000, turnRemainingMs: 18000, paused: false, result: null, history: [{ text: '시작', timestamp: 0 }],
+    turnTotalMs: 30000, turnRemainingMs: 18000, peeking: false, peekTotalMs: null, peekRemainingMs: null, paused: false, result: null, history: [{ text: '시작', timestamp: 0 }],
     you: { id: 'p1', chips: 1000000, ready: false, inRound: true, handName: '하이 카드' },
     baseBetProposal: null, canStart: false, readyCount: 0, minPlayers: 2,
     players: [
@@ -126,6 +127,22 @@ const text = (page, selector) => page.textContent(selector);
     check('화면이 가려져 제한시간이 멈추면 "멈춤"으로 보이고 막대가 줄지 않는다', (await text(page, '#timer')) === '멈춤' && (await page.$eval('#timer-bar', (el) => el.style.width)) === frozen && /제한시간이 멈췄습니다/.test(await text(page, '#message')));
     await page.feed(makeState({ turnTotalMs: null, turnRemainingMs: null }));
     check('제한시간이 없는 방은 막대를 숨긴다', await page.$eval('#timer-track', (el) => el.classList.contains('hidden')) && (await text(page, '#timer')) === '');
+
+    // ── 카드 확인 시간 ────────────────────────────────────
+    const peekBase = { peeking: true, peekTotalMs: 4000, peekRemainingMs: 3000, turnPlayerId: null, turnRemainingMs: null, board: [], street: 'preflop' };
+    await page.feed(makeState(peekBase));
+    check('카드를 나눈 직후에는 "카드를 확인하세요" 띠가 보이고 내 차례 색(노랑)은 아니다', (await text(page, '#strip-title')) === '카드를 확인하세요'
+      && await page.$eval('#turn-strip', (el) => el.classList.contains('peek') && !el.classList.contains('mine')) && /곧 배팅이 시작됩니다/.test(await text(page, '#message')));
+    check('남은 확인 시간이 초와 막대로 보인다', /^[34]초$/.test(await text(page, '#timer')) && await page.$eval('#timer-bar', (el) => parseFloat(el.style.width) > 60 && parseFloat(el.style.width) <= 76) && !(await page.$eval('#timer-track', (el) => el.classList.contains('urgent'))), `${await text(page, '#timer')} ${await page.$eval('#timer-bar', (el) => el.style.width)}`);
+    check('확인 시간에는 모든 조작이 막히고 이유가 보인다', !(await page.isEnabled('#call')) && !(await page.isEnabled('#raise')) && !(await page.isEnabled('#allin')) && !(await page.isEnabled('#fold'))
+      && /카드를 확인하는 중입니다/.test(await text(page, '#controls-note')));
+    check('내 카드는 확인 시간에도 바로 앞면으로 보이고(등장 효과 없이) "내 카드 확인" 표시가 붙는다', await page.$$eval('#seats .seat.me .hcard:not(.back)', (list) => list.length === 2 && list.every((el) => !el.classList.contains('new')))
+      && (await text(page, '#seats .seat.me .seat-tag')) === '내 카드 확인');
+    check('확인 시간에는 탭 제목에 "(내 차례)"가 붙지 않는다', (await page.title()) === '텍사스 홀덤');
+    await page.feed(withYou({ inRound: false }, makeState(peekBase)));
+    check('이번 판에 끼지 않은 사람에게는 확인 띠 대신 관전 안내가 보인다', (await text(page, '#strip-title')) === '관전 중' && !(await page.$eval('#turn-strip', (el) => el.classList.contains('peek'))));
+    await page.feed(makeState({ turnPlayerId: 'p1' }));
+    check('확인 시간이 끝나 내 차례가 되면 노란 띠로 바뀐다', await page.$eval('#turn-strip', (el) => el.classList.contains('mine') && !el.classList.contains('peek')) && (await page.title()) === '(내 차례) 텍사스 홀덤');
 
     // ── 결과 ──────────────────────────────────────────────
     const result = { phase: 'result', street: 'river', pot: 0, turnPlayerId: null, board: [c(1, '♦'), c(13, '♦'), c(2, '♠'), c(7, '♠'), c(3, '♣')],

@@ -20,6 +20,7 @@ const { createGameServer } = require('../web/game-server');
 
 const PORT = 4712;
 const PHONE_PORT = 4713;
+const PEEK_PORT = 4716;
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -94,7 +95,8 @@ async function checkDown(pages) {
 }
 
 (async () => {
-  const server = createGameServer({ port: PORT, host: '127.0.0.1' });
+  // holdemPeekMs: 0 - 이 시험의 대부분은 카드를 나눈 즉시 첫 차례가 되는 것을 전제로 한다("카드 확인 시간"은 아래에서 따로 본다).
+  const server = createGameServer({ port: PORT, host: '127.0.0.1', holdemPeekMs: 0 });
   await server.start();
   const browser = await chromium.launch();
   const all = [];
@@ -264,9 +266,44 @@ async function checkDown(pages) {
     await server.stop();
   }
 
+  // ── 카드 확인 시간: 나눈 직후 카드만 보이고 몇 초 뒤에야 첫 차례가 시작된다 ──
+  {
+    const server3 = createGameServer({ port: PEEK_PORT, host: '127.0.0.1', holdemPeekMs: 2500 });
+    await server3.start();
+    const browser3 = await chromium.launch();
+    const peekers = [];
+    try {
+      for (const name of ['갑', '을', '병']) peekers.push(await enter(browser3, name, DESKTOP, PEEK_PORT));
+      for (const page of peekers) await tap(page, '#ready');
+      await until(async () => !(await peekers[0].isDisabled('#start')), '시작 가능');
+      await tap(peekers[0], '#start');
+      await tap(peekers[0], '#start-go');
+      await until(async () => (await phase(peekers[0])) === '프리플랍', '판 시작');
+      const faces = await Promise.all(peekers.map((p) => p.$$eval('#seats .seat.me .hcard:not(.back)', (list) => list.length)));
+      check('카드를 나누자마자 세 사람 모두 자기 카드 2장이 바로 앞면으로 보인다', faces.every((n) => n === 2), faces.join());
+      const strips = await Promise.all(peekers.map(async (p) => ({ title: await title(p), peek: await p.$eval('#turn-strip', (el) => el.classList.contains('peek')), mine: await p.$eval('#turn-strip', (el) => el.classList.contains('mine')) })));
+      check('모두에게 "카드를 확인하세요" 띠가 뜨고 누구도 내 차례가 아니다', strips.every((s) => s.title === '카드를 확인하세요' && s.peek && !s.mine), JSON.stringify(strips));
+      const locked = await Promise.all(peekers.map(async (p) => !(await p.isEnabled('#call')) && !(await p.isEnabled('#raise')) && !(await p.isEnabled('#allin')) && !(await p.isEnabled('#fold'))));
+      check('확인 시간에는 배팅 버튼이 모두 막혀 있다', locked.every(Boolean));
+      check('확인 시간에는 남은 시간이 초로 보이고 탭 제목은 평소다', /^[12]초$|^3초$/.test(await peekers[0].textContent('#timer')) && (await Promise.all(peekers.map((p) => p.title()))).every((t) => t === '텍사스 홀덤'));
+      await wait(800);
+      const stillPeeking = (await title(peekers[0])) === '카드를 확인하세요';
+      check('확인 시간이 아직 남은 동안(0.8초 뒤)에는 첫 차례가 시작되지 않는다', stillPeeking);
+      await until(async () => !!(await mover(peekers)), '첫 차례 시작', 120);
+      const first = await mover(peekers);
+      check('확인 시간이 끝나면 첫 사람에게 "내 차례"가 되고 탭 제목과 제한시간이 시작한다', (await first.title()) === '(내 차례) 텍사스 홀덤' && /^\d+초$/.test(await first.textContent('#timer')) && await first.isEnabled('#call'));
+      check('확인 시간이 끝나면 확인 표시가 사라진다', await first.$$eval('#seats .seat.peek', (list) => list.length === 0));
+      check('확인 시간 시험에도 브라우저 오류가 없다', peekers.every((p) => p.errors.length === 0), peekers.map((p) => p.errors.join('|')).filter(Boolean).join(' / '));
+    } finally {
+      for (const page of peekers) await page.context().close().catch(() => {});
+      await browser3.close().catch(() => {});
+      await server3.stop();
+    }
+  }
+
   // ── 폰 ──────────────────────────────────────────────────
   // 앞 판에서 칩을 잃은 사람이 없는 새 방에서 보려고 서버를 새로 띄운다.
-  const server2 = createGameServer({ port: PHONE_PORT, host: '127.0.0.1' });
+  const server2 = createGameServer({ port: PHONE_PORT, host: '127.0.0.1', holdemPeekMs: 0 });
   await server2.start();
   const browser2 = await chromium.launch();
   const phones = [];
