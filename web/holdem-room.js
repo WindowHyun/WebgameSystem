@@ -75,7 +75,7 @@ function createHoldemRoom(options) {
   const actionTimeoutMs = Number.isFinite(options.actionTimeoutMs) ? options.actionTimeoutMs : 30000;
   // 카드를 나눈 직후 모두가 자기 카드를 볼 시간. 이 시간이 지나야 첫 차례가 시작되고 제한시간이 흐른다(0이면 곧바로 시작).
   // 예전에는 나눈 즉시 첫 사람의 차례가 되어, 폰이 카드를 그리기도 전에 배팅 시간이 흘렀다.
-  const peekMs = Number.isFinite(options.peekMs) ? options.peekMs : 4000;
+  const peekMs = Number.isFinite(options.peekMs) ? options.peekMs : 2000;
   const proposalTimeoutMs = Number.isFinite(options.proposalTimeoutMs) ? options.proposalTimeoutMs : 30000;
   const disconnectGraceMs = Number.isFinite(options.disconnectGraceMs) ? options.disconnectGraceMs : 10000;
 

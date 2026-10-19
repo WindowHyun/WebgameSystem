@@ -129,11 +129,11 @@ const text = (page, selector) => page.textContent(selector);
     check('제한시간이 없는 방은 막대를 숨긴다', await page.$eval('#timer-track', (el) => el.classList.contains('hidden')) && (await text(page, '#timer')) === '');
 
     // ── 카드 확인 시간 ────────────────────────────────────
-    const peekBase = { peeking: true, peekTotalMs: 4000, peekRemainingMs: 3000, turnPlayerId: null, turnRemainingMs: null, board: [], street: 'preflop' };
+    const peekBase = { peeking: true, peekTotalMs: 2000, peekRemainingMs: 1500, turnPlayerId: null, turnRemainingMs: null, board: [], street: 'preflop' };
     await page.feed(makeState(peekBase));
     check('카드를 나눈 직후에는 "카드를 확인하세요" 띠가 보이고 내 차례 색(노랑)은 아니다', (await text(page, '#strip-title')) === '카드를 확인하세요'
       && await page.$eval('#turn-strip', (el) => el.classList.contains('peek') && !el.classList.contains('mine')) && /곧 배팅이 시작됩니다/.test(await text(page, '#message')));
-    check('남은 확인 시간이 초와 막대로 보인다', /^[34]초$/.test(await text(page, '#timer')) && await page.$eval('#timer-bar', (el) => parseFloat(el.style.width) > 60 && parseFloat(el.style.width) <= 76) && !(await page.$eval('#timer-track', (el) => el.classList.contains('urgent'))), `${await text(page, '#timer')} ${await page.$eval('#timer-bar', (el) => el.style.width)}`);
+    check('남은 확인 시간이 초와 막대로 보인다', /^[12]초$/.test(await text(page, '#timer')) && await page.$eval('#timer-bar', (el) => parseFloat(el.style.width) > 60 && parseFloat(el.style.width) <= 76) && !(await page.$eval('#timer-track', (el) => el.classList.contains('urgent'))), `${await text(page, '#timer')} ${await page.$eval('#timer-bar', (el) => el.style.width)}`);
     check('확인 시간에는 모든 조작이 막히고 이유가 보인다', !(await page.isEnabled('#call')) && !(await page.isEnabled('#raise')) && !(await page.isEnabled('#allin')) && !(await page.isEnabled('#fold'))
       && /카드를 확인하는 중입니다/.test(await text(page, '#controls-note')));
     check('내 카드는 확인 시간에도 바로 앞면으로 보이고(등장 효과 없이) "내 카드 확인" 표시가 붙는다', await page.$$eval('#seats .seat.me .hcard:not(.back)', (list) => list.length === 2 && list.every((el) => !el.classList.contains('new')))
