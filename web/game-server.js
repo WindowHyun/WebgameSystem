@@ -633,7 +633,7 @@ function createGameServer(options) {
         if (key === 'galpang' && opts.galpangSeed !== undefined) roomOptions.seed = opts.galpangSeed;
         // 테스트에서만: 끊긴 참가자를 투표 인원으로 기다리는 시간(기본 30초)을 줄인다.
         if (key === 'galpang' && opts.galpangVoteGraceMs !== undefined) roomOptions.voteGraceMs = opts.galpangVoteGraceMs;
-        // 테스트에서만: 홀덤에서 카드를 나눈 뒤 첫 차례를 미루는 "카드 확인 시간"(기본 4초)을 바꾼다. 0이면 곧바로 시작한다.
+        // 테스트에서만: 홀덤에서 카드를 나눈 뒤 첫 차례를 미루는 "카드 확인 시간"(기본 2초)을 바꾼다. 0이면 곧바로 시작한다.
         if (key === 'holdem' && opts.holdemPeekMs !== undefined) roomOptions.peekMs = opts.holdemPeekMs;
         game.room = game.create(roomOptions);
       }

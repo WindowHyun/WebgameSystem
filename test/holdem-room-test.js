@@ -451,7 +451,7 @@ function checkAround(t) {
     const b = d.join({ nickname: 'B' });
     d.setReady(a.playerId, true); d.setReady(b.playerId, true);
     d.begin(a.playerId);
-    check('확인 시간의 기본값은 4초다', d.stateFor(a.playerId).peekTotalMs === 4000 && d.stateFor(a.playerId).peeking === true);
+    check('확인 시간의 기본값은 2초다', d.stateFor(a.playerId).peekTotalMs === 2000 && d.stateFor(a.playerId).peeking === true);
     d.dispose();
   }
   {
