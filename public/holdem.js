@@ -452,6 +452,7 @@
       }
     }
     if (state.result) { title = '라운드 종료'; message = resultText(); }
+    if (state.phase === 'result') message += ' 지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.'; // 결과 글 뒤에 붙인다(위에서 덮어쓰이지 않게)
     // [보스 키] 차례인 사람이 화면을 가려 두는 동안에는 그 사람의 제한시간이 멈춘다(web/cover-pause.js).
     if (state.paused && !state.result) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     $('strip-title').textContent = title;

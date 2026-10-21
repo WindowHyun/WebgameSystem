@@ -126,7 +126,8 @@ function createMindRoom(options) {
     phase = 'result';
     pauseReason = null;
     result = { won, ended: !!ended, level, levels, message };
-    for (const p of players) { p.ready = false; p.focused = false; }
+    // 이번 판을 뛴 사람은 다음 판도 자동으로 준비된다. 빠지려면 준비를 취소한다.
+    for (const p of players) { p.ready = roster.includes(p.id); p.focused = false; }
     note(message);
     act('결과', message);
   }
@@ -262,6 +263,11 @@ function createMindRoom(options) {
   }
 
   // ───────────────────────────── 조작 ─────────────────────────────
+
+  /** 접속자 목록(/order). 비밀 정보 없이 닉네임·접속·준비·이번 판 참여만 낸다. */
+  function rosterList() {
+    return players.map((p) => ({ id: p.id, nickname: p.nickname, connected: p.connected, chips: null, ready: !!p.ready, inRound: inGame(p.id) }));
+  }
 
   function setReady(id, ready) {
     if (phase !== 'lobby' && phase !== 'result') return '게임이 끝난 뒤에 준비할 수 있습니다.';
@@ -488,7 +494,7 @@ function createMindRoom(options) {
   }
 
   return {
-    join, disconnect, leave, setReady, begin, focus, pause, play, proposeStar, voteStar, setCovered,
+    join, disconnect, leave, setReady, rosterList, begin, focus, pause, play, proposeStar, voteStar, setCovered,
     stateFor, dispose,
     // 테스트에서 손패를 정하고 들여다보기 위한 것. 서버는 쓰지 않는다.
     _debug: () => ({ players, roster, phase, level, levels, lives, stars, setLevel: (value) => { level = value; } }),

@@ -148,7 +148,7 @@
           : '준비한 참가자가 ' + s.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. (현재 ' + s.readyCount + '명)';
     }
     if (s.phase === 'result') {
-      return endMessage(s) + (s.alone ? ' 다시 하려면 게임 시작을 눌러 주세요.' : ' 다시 하려면 준비를 눌러 주세요.');
+      return endMessage(s) + (s.alone ? ' 다시 하려면 게임 시작을 눌러 주세요.' : ' 지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.');
     }
     if (!s.you.inGame) return '진행 중인 게임을 구경하고 있습니다. 다음 게임부터 참여할 수 있습니다.' + (s.proposal ? ' · ' + voteMessage(s.proposal) : '');
     if (s.proposal) return voteMessage(s.proposal);

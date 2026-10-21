@@ -1163,6 +1163,8 @@ function createRoom(options) {
     setMode, requestKick: moderation.request, voteKick: moderation.vote,
     join, disconnect, leave, setCovered, start, say, callVote, respondProposal, vote, guess, stateFor,
     playerIds: () => [...players.keys()],
+    /** 접속자 목록(/order). 라이어 게임에는 칩이 없다. */
+    rosterList: () => [...players.values()].map((p) => ({ id: p.id, nickname: p.nickname, connected: p.connected, chips: null, ready: false, inRound: inRound(p.id), spectator: !!p.spectator })),
     // 테스트에서 들여다보기 위한 것. 서버는 쓰지 않는다.
     _debug: () => ({ phase, round, result }),
     MIN_PLAYERS, MAX_PLAYERS, TURN_ROUNDS, PROPOSAL_MS, VOTE_MS, GUESS_MS, DROP_MS,

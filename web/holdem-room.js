@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { createCoverPause } = require('./cover-pause');
 const { cleanNickname } = require('./protocol');
-const { createSafeTimeout, uniqueName } = require('./room-helpers');
+const { createSafeTimeout, uniqueName, grantProblem } = require('./room-helpers');
 const { bestHand, compareEvaluations } = require('./holdem-eval');
 
 const INITIAL_CHIPS = 1000000;
@@ -632,6 +632,11 @@ function createHoldemRoom(options) {
     return null;
   }
 
+  /** 이번 판에 카드를 받은 사람은 다음 판도 자동으로 준비된다(칩이 남아 있을 때). 빠지려면 준비를 취소하고, 새로 온 사람은 직접 준비한다. */
+  function autoReadyNext() {
+    for (const p of players) p.ready = dealtIn.includes(p.id) && p.chips > 0;
+  }
+
   function finishHand(winners, { revealed, hands }) {
     clearActionTimer();
     clearPeek();
@@ -645,8 +650,30 @@ function createHoldemRoom(options) {
         : `${w.nickname}님이 팟 ${money(w.amount)}을 획득했습니다${w.handName ? ` (${w.handName})` : ''}.`);
       act(w.nickname, `팟 ${money(w.amount)} 획득${revealed ? ` (${w.handName})` : ' (나머지가 폴드)'} → 칩 ${money(playerOf(w.id).chips)}`);
     }
-    for (const p of players) { p.ready = false; p.isAllIn = false; p.roundBet = 0; p.roundContribution = 0; }
+    for (const p of players) { p.isAllIn = false; p.roundBet = 0; p.roundContribution = 0; }
+    autoReadyNext();
     changed();
+  }
+
+  /**
+   * 운영자 입금(/order). 기부와 달리 다른 참가자에게서 옮겨 오지 않고 칩을 새로 넣어 준다.
+   * 진행 중인 판에도 넣을 수 있다 - 이미 건 돈(roundBet 등)은 그대로고, 넣은 칩부터 쓸 수 있다.
+   */
+  function grant(playerId, amount) {
+    const p = playerOf(playerId);
+    if (!p) return '참가자를 찾을 수 없습니다.';
+    const problem = grantProblem(Number(amount));
+    if (problem) return problem;
+    p.chips += Number(amount);
+    note(`운영자가 ${p.nickname}님에게 ${money(amount)}을 입금했습니다.`);
+    act('운영자', `입금 → ${p.nickname} ${money(amount)} (칩 ${money(p.chips)})`);
+    changed();
+    return null;
+  }
+
+  /** 접속자 목록(/order). 비밀 정보 없이 닉네임·접속·칩·준비·이번 판 참여만 낸다. */
+  function rosterList() {
+    return players.map((p) => ({ id: p.id, nickname: p.nickname, connected: p.connected, chips: p.chips, ready: !!p.ready, inRound: dealtIn.includes(p.id) }));
   }
 
   function donate(fromId, toId, amount) {
@@ -731,7 +758,7 @@ function createHoldemRoom(options) {
     dropTimers.clear();
   }
 
-  return { join, disconnect, leave, setCovered, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  return { join, disconnect, leave, setCovered, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, grant, rosterList, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createHoldemRoom, INITIAL_CHIPS };

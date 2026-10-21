@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { error: logError } = require('../logger');
 const { createCoverPause } = require('./cover-pause');
 const { cleanNickname } = require('./protocol');
+const { grantProblem } = require('./room-helpers');
 
 const INITIAL_CHIPS = 1000000;
 const MIN_PLAYERS = 2;
@@ -592,6 +593,11 @@ function createPokerRoom(options) {
     return settle(winners[0], true);
   }
 
+  /** 이번 판에 카드를 받은 사람은 다음 판도 자동으로 준비된다(칩이 남아 있을 때). 빠지려면 준비를 취소하고, 새로 온 사람은 직접 준비한다. */
+  function autoReadyNext() {
+    for (const p of players) p.ready = dealtIn.includes(p.id) && p.chips > 0;
+  }
+
   function settle(winner, revealed) {
     if (!winner) return null;
     clearActionTimer();
@@ -599,15 +605,38 @@ function createPokerRoom(options) {
     result = { winnerId: winner.id, nickname: winner.nickname, amount: won, revealed };
     note(`${winner.nickname}님이 팟 ${won.toLocaleString()}원을 획득했습니다.`);
     act(winner.nickname, `팟 ${won.toLocaleString()}원 획득${revealed ? '' : ' (나머지가 폴드)'} → 칩 ${winner.chips.toLocaleString()}원`);
-    for (const p of players) { p.ready = false; p.isAllIn = false; p.roundBet = 0; p.roundContribution = 0; }
+    for (const p of players) { p.isAllIn = false; p.roundBet = 0; p.roundContribution = 0; }
+    autoReadyNext();
     changed(); return null;
   }
 
   function refundAndFinish(message) {
     clearActionTimer();
-    for (const player of players) { player.chips += player.roundContribution || 0; player.roundContribution = 0; player.roundBet = 0; player.ready = false; player.isAllIn = false; }
+    for (const player of players) { player.chips += player.roundContribution || 0; player.roundContribution = 0; player.roundBet = 0; player.isAllIn = false; }
     returnDepartedStakes();
+    autoReadyNext();
     pot = 0; phase = 'result'; result = { noWinner: true, message }; note(message); act('진행', `환불 - ${message}`); changed(); return null;
+  }
+
+  /**
+   * 운영자 입금(/order). 기부와 달리 다른 참가자에게서 옮겨 오지 않고 칩을 새로 넣어 준다.
+   * 진행 중인 판에도 넣을 수 있다 - 이미 건 돈(roundBet 등)은 그대로고, 넣은 칩부터 쓸 수 있다.
+   */
+  function grant(playerId, amount) {
+    const p = players.find((x) => x.id === playerId);
+    if (!p) return '참가자를 찾을 수 없습니다.';
+    const problem = grantProblem(Number(amount));
+    if (problem) return problem;
+    p.chips += Number(amount);
+    note(`운영자가 ${p.nickname}님에게 ${money(amount)}을 입금했습니다.`);
+    act('운영자', `입금 → ${p.nickname} ${money(amount)} (칩 ${money(p.chips)})`);
+    changed();
+    return null;
+  }
+
+  /** 접속자 목록(/order). 비밀 정보 없이 닉네임·접속·칩·준비·이번 판 참여만 낸다. */
+  function rosterList() {
+    return players.map((p) => ({ id: p.id, nickname: p.nickname, connected: p.connected, chips: p.chips, ready: !!p.ready, inRound: dealtIn.includes(p.id) }));
   }
 
   function donate(fromId, toId, amount) {
@@ -672,7 +701,7 @@ function createPokerRoom(options) {
     dropTimers.clear();
   }
 
-  return { join, disconnect, leave, setCovered, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
+  return { join, disconnect, leave, setCovered, setReady, setBaseBet, voteBaseBet, begin, call, raise, allin, fold, donate, grant, rosterList, stateFor, dispose, status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }) };
 }
 
 module.exports = { createPokerRoom, INITIAL_CHIPS };

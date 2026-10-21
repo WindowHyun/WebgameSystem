@@ -138,11 +138,11 @@ function createGalpangRoom(options) {
     act('투표', `제안 취소 - ${logText(gone.cmd)} (${why})`);
   }
 
-  /** 판이 끝났다(이김·짐·포기). 준비는 다시 받는다. */
+  /** 판이 끝났다(이김·짐·포기). 이번 판을 뛴 사람은 다음 판도 자동으로 준비되고, 구경한 사람은 직접 준비한다. */
   function endGame(by) {
     clearProposal();
     phase = 'result';
-    for (const p of players) p.pendingQuit = false;
+    for (const p of players) { p.pendingQuit = false; p.ready = roster.includes(p.id); }
     const engine = session.engine;
     if (engine.status === STATUS.WON) act(by, `정답 (${engine.round}라운드)`);
     else if (engine.status === STATUS.LOST) {
@@ -319,6 +319,11 @@ function createGalpangRoom(options) {
 
   // ───────────────────────────── 조작 ─────────────────────────────
 
+  /** 접속자 목록(/order). 비밀 정보 없이 닉네임·접속·준비·이번 판 참여만 낸다. */
+  function rosterList() {
+    return players.map((p) => ({ id: p.id, nickname: p.nickname, connected: p.connected, chips: null, ready: !!p.ready, inRound: inGame(p.id) }));
+  }
+
   function setReady(id, ready) {
     if (live() && !abandoned()) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
@@ -488,7 +493,7 @@ function createGalpangRoom(options) {
   }
 
   return {
-    join, disconnect, leave, setReady, begin, command, vote, setCovered, stateFor, dispose,
+    join, disconnect, leave, setReady, rosterList, begin, command, vote, setCovered, stateFor, dispose,
     // 테스트용. 서버는 쓰지 않는다.
     _debug: () => ({ players, roster, phase, session, proposal }),
     // 참가자가 모두 떠난 판은 포털에도 "진행중"으로 보이지 않게 끝난 판처럼 알린다.
