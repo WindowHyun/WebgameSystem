@@ -22,6 +22,7 @@ const { createMindRoom } = require('./mind-room');
 const { createGalpangRoom } = require('./galpang-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage, validateCardGameMessage } = require('./protocol');
+const { grantProblem } = require('./room-helpers');
 const { log, warn, error } = require('../logger');
 
 /**
@@ -253,14 +254,104 @@ function createGameServer(options) {
     for (const client of portalClients) sendTo(client.ws, payload);
   }
 
+  // ───────────────────────────── /order (운영자 화면) ─────────────────────────────
+  // 접속자·진행 중인 게임·보유 칩을 보고, 지정한 참가자에게 칩을 넣어 준다(기부가 아니라 새로 넣는 돈이다).
+  // 칩을 만들어 내는 기능이라 열쇠가 있어야 한다. 환경변수 ORDER_KEY로 정하고, 없으면 켤 때마다 무작위로 만들어
+  // web/server.js가 콘솔에 한 번 찍어 준다. 열쇠는 X-Order-Key 헤더로만 받는다 - 다른 사이트의 폼이나 이미지가
+  // 대신 보낼 수 없는 헤더라서 CSRF도 막힌다.
+  const orderKey = String(opts.orderKey || process.env.ORDER_KEY || crypto.randomBytes(9).toString('base64url'));
+  const orderKeyGenerated = !(opts.orderKey || process.env.ORDER_KEY);
+  const orderKeyDigest = crypto.createHash('sha256').update(orderKey).digest();
+  // 틀린 열쇠는 IP와 상관없이 1분에 20번까지만 받는다(IP 헤더는 위조할 수 있어서 IP별로는 막을 수 없다).
+  const ORDER_FAIL_MAX = 20;
+  const ORDER_FAIL_WINDOW_MS = 60000;
+  let orderFails = { start: 0, count: 0 };
+  const ORDER_BODY_MAX = 2048;
+
+  function sendJson(req, res, status, body) {
+    res.writeHead(status, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
+    res.end(JSON.stringify(body));
+  }
+
+  /** 열쇠가 맞으면 true. 아니면 응답까지 보내고 false. */
+  function orderAuthorized(req, res) {
+    const now = Date.now();
+    if (now - orderFails.start > ORDER_FAIL_WINDOW_MS) orderFails = { start: now, count: 0 };
+    if (orderFails.count >= ORDER_FAIL_MAX) {
+      sendJson(req, res, 429, { error: '열쇠를 너무 많이 틀렸습니다. 잠시 뒤 다시 시도해 주세요.' });
+      return false;
+    }
+    const given = crypto.createHash('sha256').update(String(req.headers['x-order-key'] || '')).digest();
+    if (!crypto.timingSafeEqual(given, orderKeyDigest)) {
+      orderFails.count += 1;
+      warn(`[관리 거절] ${remoteIp(req)} 열쇠 불일치`);
+      sendJson(req, res, 401, { error: '열쇠가 맞지 않습니다.' });
+      return false;
+    }
+    return true;
+  }
+
+  /** 지금 방 전체의 접속자·진행 상황·칩. 카드나 정답 같은 게임 정보는 넣지 않는다. */
+  function orderSnapshot() {
+    const running = (phase) => phase !== 'lobby' && phase !== 'result';
+    const games = [{
+      key: 'liar', label: '라이어 게임', phase: room._debug().phase, chips: false,
+      running: running(room._debug().phase), players: room.rosterList(),
+    }];
+    for (const [key, game] of Object.entries(CARD_GAMES)) {
+      const info = game.room.status();
+      games.push({ key, label: game.portalLabel, phase: info.phase, chips: typeof game.room.grant === 'function', running: running(info.phase), players: game.room.rosterList() });
+    }
+    return { games, portal: portalClients.size, serverTime: Date.now() };
+  }
+
+  function handleOrderApi(req, res, requested) {
+    if (!room) { sendJson(req, res, 503, { error: '서버가 아직 준비되지 않았습니다.' }); return; }
+    if (requested === '/order/api/state' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!orderAuthorized(req, res)) return;
+      sendJson(req, res, 200, orderSnapshot());
+      return;
+    }
+    if (requested === '/order/api/deposit' && req.method === 'POST') {
+      if (!orderAuthorized(req, res)) return;
+      let size = 0;
+      const chunks = [];
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > ORDER_BODY_MAX) { tooBig = true; req.destroy(); return; }
+        chunks.push(chunk);
+      });
+      req.on('error', () => {});
+      req.on('end', () => {
+        if (tooBig) return;
+        let body;
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { body = null; }
+        const game = body && typeof body.game === 'string' && Object.prototype.hasOwnProperty.call(CARD_GAMES, body.game) ? CARD_GAMES[body.game] : null;
+        if (!game || typeof game.room.grant !== 'function') { sendJson(req, res, 400, { error: '칩을 쓰는 게임을 골라 주세요.' }); return; }
+        if (typeof body.playerId !== 'string') { sendJson(req, res, 400, { error: '입금할 참가자를 골라 주세요.' }); return; }
+        const amount = body.amount;
+        const problem = typeof amount === 'number' ? grantProblem(amount) : '입금액은 숫자여야 합니다.';
+        if (problem) { sendJson(req, res, 400, { error: problem }); return; }
+        const failure = game.room.grant(body.playerId, amount);
+        if (failure) { sendJson(req, res, 400, { error: failure }); return; }
+        log(`[관리] ${game.logLabel} 입금 ${amount.toLocaleString()}원 → ${cleanLogText(nicknameOf(game.room, body.playerId))} (요청 ${remoteIp(req)})`);
+        sendJson(req, res, 200, { ok: true, state: orderSnapshot() });
+      });
+      return;
+    }
+    sendJson(req, res, 404, { error: '없는 주소입니다.' });
+  }
+
   function handleHttp(req, res) {
     const requested = (req.url || '/').split('?')[0];
+    if (requested.startsWith('/order/api/')) { handleOrderApi(req, res, requested); return; }
     if (requested === '/healthz') {
       res.writeHead(200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
       res.end('{"ok":true}');
       return;
     }
-    const name = requested === '/' ? 'index.html' : path.basename(requested);
+    const name = requested === '/' ? 'index.html' : (requested === '/order' || requested === '/order/') ? 'order.html' : path.basename(requested);
     const asset = STATIC_FILES.get(name);
     if (!asset) {
       res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
@@ -795,6 +886,8 @@ function createGameServer(options) {
       return server;
     },
     port,
+    orderKey,
+    orderKeyGenerated,
     isRunning: () => server !== null,
     playerCount: () => [...clients].filter((c) => c.playerId).length,
   };

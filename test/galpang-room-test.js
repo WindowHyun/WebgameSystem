@@ -457,13 +457,14 @@ function setup(extra) {
       check('동의하면 제출되고 틀리면 그 자리에서 끝난다: 정답·낸 답·해설(2개)이 모두에게 간다', ended.phase === 'result' && ended.status === 'LOST' && ended.summary.how === 'wrong' && ended.summary.guessed.id === wrong
         && ended.summary.answer.id === t.answer().id && ended.summary.explanations.length === 2 && same(t.st(b).summary, ended.summary), JSON.stringify(ended.summary && ended.summary.how));
       check('끝난 상태에도 후보의 특징·seed·계획은 없다', hasNoInternals(ended) && findSecret({ ...ended, summary: null }) === null);
-      check('끝나면 준비가 풀리고 다시 준비해야 한다(목록·시작 가능 여부)', ended.players.every((x) => x.ready === false) && ended.canStart === false && ended.alone === false);
+      check('끝나면 이번 판 참가자는 자동으로 준비된다(목록·시작 가능 여부)', ended.players.every((x) => x.ready === true) && ended.readyCount === 2 && ended.canStart === true && ended.alone === false);
       check('끝난 뒤의 조작 명령은 종료 안내만 받고 판은 그대로다', t.cmd(a, 'remove 1') === null && t.st(a).reply.lines[0] === '게임이 종료되었습니다.' && t.st(a).status === 'LOST' && t.st(a).round === 2);
       check('끝난 뒤 도움말·목록·기록은 볼 수 있다', t.cmd(a, 'history') === null && t.st(a).reply.lines[0] === '[힌트 기록]' && t.cmd(a, 'list all') === null && t.st(a).reply.lines[0] === '[전체 후보]');
       check('오답으로 끝난 로그에는(시작 줄을 빼면) 정답 이름이 남지 않는다', t.logs.some((l) => l.includes('오답으로 종료 (2라운드)')) && t.namelessOutsideStart(t.answer().name), t.logs.slice(-4).join(' | '));
 
       // 다시 시작: 준비 → 시작
-      check('준비한 사람이 없으면 다시 시작할 수 없다', typeof t.room.begin(a.playerId) === 'string');
+      t.room.setReady(a.playerId, false); t.room.setReady(b.playerId, false);
+      check('준비를 모두 취소하면 다시 시작할 수 없다', typeof t.room.begin(a.playerId) === 'string');
       t.ready(a, b);
       check('둘 다 준비하고 restart 명령으로 새 판을 시작한다(두 번째 판은 `seed#1`)', t.cmd(b, 'restart') === null && t.st(a).status === 'PLAYING' && t.st(a).phase === 'playing' && t.st(a).summary === null && t.st(a).remaining === 16 && t.st(a).round === 1
         && t.st(a).candidates.every((x) => !x.wrong) && t.answer().id === answerOf(`${SEED}#1`).id);
@@ -762,6 +763,9 @@ function setup(extra) {
     check('앞의 연결은 replaced로 밀려난다', !!a.last('replaced'));
 
     // 다시 시작: 모두 다시 준비
+    second.send({ type: 'ready', ready: false });
+    b.send({ type: 'ready', ready: false });
+    await wait(120);
     second.send({ type: 'start' });
     await wait(150);
     check('끝난 뒤에는 준비 없이 시작할 수 없다(여럿이 있을 때)', second.last('error') && typeof second.last('error').message === 'string' && second.last('galpangState').phase === 'result');

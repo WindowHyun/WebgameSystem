@@ -457,7 +457,7 @@
 
     var message;
     if (state.result) {
-      message = state.result.message + ' 다시 하려면 준비를 눌러 주세요.';
+      message = state.result.message + ' 지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요. (준비 ' + state.readyCount + '명)';
     } else if (lobby) {
       message = state.canStart
         ? '준비한 ' + state.readyCount + '명으로 새 게임을 시작할 수 있습니다.'

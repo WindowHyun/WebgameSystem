@@ -93,10 +93,14 @@ async function runGame(browser, port, game) {
   check(`${game}: 판이 끝난 뒤에는 지난 판의 폴드·스탠드가 아니라 준비 여부가 보인다`,
     after.every((s) => /=(준비|대기)$/.test(s)) && after.length === 3, after.join(', '));
 
+  // 지난 판에 참여한 세 사람은 판이 끝나면 자동으로 준비된다(을이 눌러서 준비한 게 아니다).
+  check(`${game}: 지난 판에 참여한 사람은 다음 판이 자동으로 준비된다`, after.every((s) => /=준비$/.test(s)), after.join(', '));
+  check(`${game}: 자동 준비 안내가 보인다`, /자동으로 준비됩니다/.test(await a.textContent('#message')));
+
   await b.click('#ready');
   await wait(400);
   const readied = await statuses(a);
-  check(`${game}: 다음 판에 준비한 사람은 "준비"로 바뀐다`, readied.includes('을=준비'), readied.join(', '));
+  check(`${game}: 자동 준비된 사람이 준비를 취소하면 "대기"로 바뀐다`, readied.includes('을=대기') && readied.includes('갑=준비'), readied.join(', '));
 
   const errors = pages.flatMap((p) => p.errors);
   check(`${game}: 브라우저 오류 없음`, errors.length === 0, errors.join(' | '));

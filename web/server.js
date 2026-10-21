@@ -45,6 +45,13 @@ server.start().then(() => {
     console.log(`  다른 참가자에게  : http://${ip}:${PORT}`);
   }
   console.log('');
+  console.log(`  운영자 화면      : http://localhost:${PORT}/order`);
+  if (server.orderKeyGenerated) {
+    console.log(`  /order 열쇠      : ${server.orderKey}  (켤 때마다 바뀝니다. 고정하려면 ORDER_KEY 환경변수를 정하세요)`);
+  } else {
+    console.log('  /order 열쇠      : ORDER_KEY 환경변수 값');
+  }
+  console.log('');
   console.log(`  최소 인원 ${MIN_PLAYERS}명. 문제가 생기면 로그를 확인하세요: ${LOG_PATH}`);
   console.log('');
 }).catch((err) => {

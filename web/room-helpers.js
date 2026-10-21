@@ -35,4 +35,14 @@ function uniqueName(used, value, makeId) {
   return `${head(18)}-${makeId().slice(0, 4)}`;
 }
 
-module.exports = { createSafeTimeout, uniqueName };
+/** 운영자 입금(/order) 한 번에 넣을 수 있는 최대 금액. 칩이 안전한 정수 범위를 넘지 않게 막는다. */
+const MAX_GRANT = 1000000000;
+
+/** 입금액이 올바르면 null, 아니면 이유를 돌려준다. */
+function grantProblem(amount) {
+  if (!Number.isSafeInteger(amount) || amount < 1) return '입금액은 1 이상의 정수여야 합니다.';
+  if (amount > MAX_GRANT) return `한 번에 ${MAX_GRANT.toLocaleString()}원까지만 입금할 수 있습니다.`;
+  return null;
+}
+
+module.exports = { createSafeTimeout, uniqueName, MAX_GRANT, grantProblem };

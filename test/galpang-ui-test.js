@@ -450,12 +450,12 @@ function check(name, ok, detail) {
       for (const [who, page_] of [['김하늘', A], ['박서준', B], ['구경꾼', C]]) {
         check(`동의하면 정답이 공개되고 모두의 화면이 끝난다(${who}): 정답입니다·정답 이름`, (await snapshot(page_)).status === 'WON' && /정답입니다!/.test(await text(page_, '#result')) && (await text(page_, '#result')).includes(`정답: ${answer.name}`));
       }
-      check('끝나면 대기실 버튼이 나오고 모두 "대기"로 돌아간다(다시 준비해야 한다)', await A.isVisible('#lobby') && !(await A.isVisible('#live-controls')) && (await text(A, '#start')) === '다시 시작' && await A.isDisabled('#start')
-        && (await players(A)).every((x) => x.endsWith('|대기')), JSON.stringify(await players(A)));
+      check('끝나면 대기실 버튼이 나오고, 판을 뛴 두 사람은 자동으로 "준비"가 되고 구경꾼은 "대기"다', await A.isVisible('#lobby') && !(await A.isVisible('#live-controls')) && (await text(A, '#start')) === '다시 시작' && !(await A.isDisabled('#start'))
+        && JSON.stringify((await players(A)).map((x) => x.split('|')[1])) === JSON.stringify(['준비', '준비', '대기']), JSON.stringify(await players(A)));
       check('끝난 뒤 안내가 "다시 하려면 준비를 눌러 주세요"다', /정답을 맞혔습니다/.test(await text(A, '#message')) && /준비를 눌러 주세요/.test(await text(A, '#message')));
 
       // ── 다시 준비해서 시작: 구경꾼도 준비하면 함께 한다 ──
-      await A.click('#ready'); await B.click('#ready'); await C.click('#ready');
+      await C.click('#ready'); // 김하늘·박서준은 자동으로 준비돼 있다(누르면 취소된다)
       await wait(300);
       await A.click('#start');
       await wait(250);
@@ -492,7 +492,7 @@ function check(name, ok, detail) {
       // 나가면 목록에서 빠진다
       await leaveAndClose(C);
       await wait(300);
-      check('한 명이 나가면 남은 사람 화면의 참가자 목록에서 빠진다', JSON.stringify(await players(A)) === JSON.stringify(['김하늘 (나)|대기', '박서준|대기']), JSON.stringify(await players(A)));
+      check('한 명이 나가면 남은 사람 화면의 참가자 목록에서 빠진다', JSON.stringify(await players(A)) === JSON.stringify(['김하늘 (나)|준비', '박서준|준비']), JSON.stringify(await players(A)));
       await leaveAndClose(B);
       await wait(300);
       check('혼자 남으면 준비 없이 바로 다시 시작할 수 있다(준비 버튼은 숨는다)', !(await A.isVisible('#ready')) && !(await A.isDisabled('#start')) && /다시 하려면 게임 시작을 눌러 주세요/.test(await text(A, '#message')), await text(A, '#message'));
