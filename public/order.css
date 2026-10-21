@@ -2,14 +2,9 @@
 *{box-sizing:border-box}body{margin:0;min-height:100svh}button,input{font:inherit}.hidden{display:none!important}
 .top{display:flex;align-items:center;gap:12px;padding:0 16px;height:48px;background:#350d36;color:#fff}.stamp{margin-left:auto;font-size:12px;color:#d8c9d9}
 main{max-width:980px;margin:0 auto;padding:16px}
-.card{max-width:420px;margin:48px auto;padding:28px;border:1px solid #ddd;border-top:5px solid #4a154b;border-radius:8px;background:#fff}
-.card h1{margin:0 0 8px;font-size:22px}.muted{margin:0 0 16px;color:#616061;font-size:13px;line-height:1.5}
-form{display:flex;flex-direction:column;gap:8px}label{font-size:13px;font-weight:700}
 input{height:44px;min-width:0;padding:0 12px;border:1px solid #8d8d8f;border-radius:4px;background:#fff;color:inherit;font-size:16px}input:focus{outline:2px solid #1264a3;outline-offset:0}
 button{min-height:44px;padding:0 16px;border:0;border-radius:4px;background:#007a5a;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:default}
-button.ghost{background:#fff;color:#1d1c1d;border:1px solid #c9c9cb}
-.error{min-height:1.2em;margin:8px 0 0;color:#b3261e;font-size:13px}
-.summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.summary>div{flex:1 1 140px;padding:12px 14px;border:1px solid #ddd;border-radius:8px;background:#fff}.summary small{display:block;color:#616061;font-size:12px}.summary b{font-size:26px}.summary .ghost{flex:0 0 auto}
+.summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.summary>div{flex:1 1 140px;padding:12px 14px;border:1px solid #ddd;border-radius:8px;background:#fff}.summary small{display:block;color:#616061;font-size:12px}.summary b{font-size:26px}
 .notice{min-height:1.4em;margin:10px 2px;font-size:13px;color:#0b6b4a}.notice.bad{color:#b3261e}
 .game{margin-top:12px;border:1px solid #ddd;border-radius:8px;background:#fff;overflow:hidden}
 .game>header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#faf7fa;border-bottom:1px solid #eee}.game h2{margin:0;font-size:16px}

@@ -256,39 +256,14 @@ function createGameServer(options) {
 
   // ───────────────────────────── /order (운영자 화면) ─────────────────────────────
   // 접속자·진행 중인 게임·보유 칩을 보고, 지정한 참가자에게 칩을 넣어 준다(기부가 아니라 새로 넣는 돈이다).
-  // 칩을 만들어 내는 기능이라 열쇠가 있어야 한다. 환경변수 ORDER_KEY로 정하고, 없으면 켤 때마다 무작위로 만들어
-  // web/server.js가 콘솔에 한 번 찍어 준다. 열쇠는 X-Order-Key 헤더로만 받는다 - 다른 사이트의 폼이나 이미지가
-  // 대신 보낼 수 없는 헤더라서 CSRF도 막힌다.
-  const orderKey = String(opts.orderKey || process.env.ORDER_KEY || crypto.randomBytes(9).toString('base64url'));
-  const orderKeyGenerated = !(opts.orderKey || process.env.ORDER_KEY);
-  const orderKeyDigest = crypto.createHash('sha256').update(orderKey).digest();
-  // 틀린 열쇠는 IP와 상관없이 1분에 20번까지만 받는다(IP 헤더는 위조할 수 있어서 IP별로는 막을 수 없다).
-  const ORDER_FAIL_MAX = 20;
-  const ORDER_FAIL_WINDOW_MS = 60000;
-  let orderFails = { start: 0, count: 0 };
+  // 열쇠나 로그인은 없다: 주소(/order)를 아는 사람은 누구나 보고 입금할 수 있다. 다만 입금(POST)은 JSON(Content-Type:
+  // application/json)만 받는다. 다른 사이트의 폼은 그 형식을 보낼 수 없어서(브라우저가 미리 확인을 요구하고 이 서버는
+  // 허락하지 않는다) 방문자 몰래 대신 입금시킬 수 없다.
   const ORDER_BODY_MAX = 2048;
 
   function sendJson(req, res, status, body) {
     res.writeHead(status, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));
     res.end(JSON.stringify(body));
-  }
-
-  /** 열쇠가 맞으면 true. 아니면 응답까지 보내고 false. */
-  function orderAuthorized(req, res) {
-    const now = Date.now();
-    if (now - orderFails.start > ORDER_FAIL_WINDOW_MS) orderFails = { start: now, count: 0 };
-    if (orderFails.count >= ORDER_FAIL_MAX) {
-      sendJson(req, res, 429, { error: '열쇠를 너무 많이 틀렸습니다. 잠시 뒤 다시 시도해 주세요.' });
-      return false;
-    }
-    const given = crypto.createHash('sha256').update(String(req.headers['x-order-key'] || '')).digest();
-    if (!crypto.timingSafeEqual(given, orderKeyDigest)) {
-      orderFails.count += 1;
-      warn(`[관리 거절] ${remoteIp(req)} 열쇠 불일치`);
-      sendJson(req, res, 401, { error: '열쇠가 맞지 않습니다.' });
-      return false;
-    }
-    return true;
   }
 
   /** 지금 방 전체의 접속자·진행 상황·칩. 카드나 정답 같은 게임 정보는 넣지 않는다. */
@@ -308,12 +283,11 @@ function createGameServer(options) {
   function handleOrderApi(req, res, requested) {
     if (!room) { sendJson(req, res, 503, { error: '서버가 아직 준비되지 않았습니다.' }); return; }
     if (requested === '/order/api/state' && (req.method === 'GET' || req.method === 'HEAD')) {
-      if (!orderAuthorized(req, res)) return;
       sendJson(req, res, 200, orderSnapshot());
       return;
     }
     if (requested === '/order/api/deposit' && req.method === 'POST') {
-      if (!orderAuthorized(req, res)) return;
+      if (!/^application\/json\b/i.test(String(req.headers['content-type'] || ''))) { sendJson(req, res, 415, { error: 'JSON으로 보내 주세요.' }); return; }
       let size = 0;
       const chunks = [];
       let tooBig = false;
@@ -886,8 +860,6 @@ function createGameServer(options) {
       return server;
     },
     port,
-    orderKey,
-    orderKeyGenerated,
     isRunning: () => server !== null,
     playerCount: () => [...clients].filter((c) => c.playerId).length,
   };
