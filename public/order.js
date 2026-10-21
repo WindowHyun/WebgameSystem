@@ -1,10 +1,6 @@
 (function () {
   'use strict';
-  var KEY_STORE = 'order-key';
   var REFRESH_MS = 3000;
-  var key = '';
-  try { key = sessionStorage.getItem(KEY_STORE) || ''; } catch (e) { key = ''; }
-  var timer = null;
   var busy = false;
   var typing = false; // 금액을 입력하는 중이면 화면을 다시 그려 입력을 날리지 않는다
 
@@ -19,7 +15,6 @@
 
   function api(path, options) {
     var init = options || {};
-    init.headers = Object.assign({ 'X-Order-Key': key }, init.headers || {});
     init.cache = 'no-store';
     return fetch(path, init).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (body) {
@@ -27,13 +22,6 @@
         return body;
       });
     });
-  }
-
-  function showLogin(message) {
-    clearInterval(timer); timer = null;
-    $('login').classList.remove('hidden');
-    $('panel').classList.add('hidden');
-    $('login-error').textContent = message || '';
   }
 
   function notice(text, bad) {
@@ -116,36 +104,10 @@
     if (busy || typing) return Promise.resolve();
     busy = true;
     return api('/order/api/state').then(function (data) {
-      $('login').classList.add('hidden');
-      $('panel').classList.remove('hidden');
       render(data);
-    }).catch(function (err) {
-      if (err.status === 401 || err.status === 429) {
-        try { sessionStorage.removeItem(KEY_STORE); } catch (e) { /* 저장 못 해도 화면은 동작한다 */ }
-        key = '';
-        showLogin(err.message);
-      } else notice(err.message, true);
-    }).then(function () { busy = false; });
+    }).catch(function (err) { notice(err.message, true); }).then(function () { busy = false; });
   }
 
-  function enter() {
-    refresh().then(function () {
-      if (key && !timer && !$('panel').classList.contains('hidden')) timer = setInterval(refresh, REFRESH_MS);
-    });
-  }
-
-  $('login-form').addEventListener('submit', function (event) {
-    event.preventDefault();
-    key = $('key').value;
-    $('key').value = '';
-    try { sessionStorage.setItem(KEY_STORE, key); } catch (e) { /* 저장 못 해도 화면은 동작한다 */ }
-    enter();
-  });
-  $('logout').addEventListener('click', function () {
-    try { sessionStorage.removeItem(KEY_STORE); } catch (e) { /* 무시 */ }
-    key = '';
-    showLogin('');
-  });
-
-  if (key) enter(); else showLogin('');
+  refresh();
+  setInterval(refresh, REFRESH_MS);
 })();

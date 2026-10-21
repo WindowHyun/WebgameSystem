@@ -3,7 +3,7 @@
 /**
  * 운영자 화면 /order를 실제 브라우저로 본다(web/game-server.js, public/order.*).
  *
- *   - 틀린 열쇠는 안내와 함께 거절되고, 맞는 열쇠로 들어가면 접속자·칩이 보인다.
+ *   - 열쇠 없이 들어가면 바로 접속자·칩이 보인다.
  *   - 닉네임은 글자 그대로 나온다(태그가 해석되지 않는다).
  *   - 입금하면 확인 창 뒤에 그 사람의 칩이 늘어나고 안내가 뜬다. 좁은 폰 화면에서도 가로로 넘치지 않는다.
  *   - 화면 스크립트가 CSP에 막히거나 오류를 내지 않는다.
@@ -25,7 +25,7 @@ function check(name, ok, detail) {
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 (async () => {
-  const server = createGameServer({ port: PORT, host: '127.0.0.1', orderKey: 'ui-key' });
+  const server = createGameServer({ port: PORT, host: '127.0.0.1' });
   await server.start();
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/api/ws?game=holdem`);
   await new Promise((resolve) => ws.on('open', resolve));
@@ -41,16 +41,8 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     page.on('dialog', (dialog) => dialog.accept());
 
     await page.goto(`http://127.0.0.1:${PORT}/order`);
-    check('처음에는 열쇠 입력만 보인다', await page.isVisible('#login') && !(await page.isVisible('#panel')));
-    await page.fill('#key', 'wrong');
-    await page.click('#login-form button');
-    await page.waitForFunction(() => document.getElementById('login-error').textContent.length > 0);
-    check('틀린 열쇠는 안내와 함께 거절되고 목록은 안 보인다', /열쇠가 맞지 않습니다/.test(await page.textContent('#login-error')) && !(await page.isVisible('#panel')));
-
-    await page.fill('#key', 'ui-key');
-    await page.click('#login-form button');
-    await page.waitForSelector('#panel:not(.hidden)');
-    check('맞는 열쇠로 들어가면 접속자 수와 게임별 목록이 보인다', (await page.textContent('#sum-online')) === '1' && (await page.locator('.game').count()) === 6);
+    await page.waitForSelector('.game');
+    check('열쇠 없이 바로 접속자 수와 게임별 목록이 보인다', (await page.textContent('#sum-online')) === '1' && (await page.locator('.game').count()) === 6);
     check('닉네임은 태그가 해석되지 않고 글자 그대로 나온다', (await page.locator('.name').first().textContent()) === '<b>홍길동</b>' && (await page.locator('.name b').count()) === 0);
     check('칩을 쓰는 게임의 참가자에게만 입금칸이 있다', (await page.locator('.deposit').count()) === 1 && /1,000,000원/.test(await page.locator('.row').first().innerText()));
 
@@ -66,11 +58,6 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     check('좁은 폰 화면에서도 가로로 넘치지 않는다', overflow <= 0, String(overflow));
 
-    await page.reload();
-    await page.waitForSelector('#panel:not(.hidden)');
-    check('새로고침해도(같은 탭) 열쇠를 다시 묻지 않는다', await page.isVisible('#panel'));
-    await page.click('#logout');
-    check('나가기를 누르면 다시 열쇠를 묻는다', await page.isVisible('#login') && !(await page.isVisible('#panel')));
     check('브라우저 오류·CSP 위반 없음', errors.length === 0, errors.join(' | '));
   } finally {
     await browser.close();

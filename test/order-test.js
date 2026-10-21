@@ -3,8 +3,8 @@
 /**
  * 운영자 화면 /order (web/game-server.js).
  *
- *   - 열쇠(X-Order-Key)가 없거나 틀리면 접속자·칩 목록도 입금도 안 된다. 많이 틀리면 잠시 막힌다.
- *   - 열쇠가 맞으면 게임별 접속자·진행 상태·보유 칩을 본다(카드나 정답은 내려오지 않는다).
+ *   - 열쇠 없이 게임별 접속자·진행 상태·보유 칩을 본다(카드나 정답은 내려오지 않는다).
+ *   - 입금은 JSON으로만 받는다(다른 사이트의 폼이 대신 보낼 수 없게).
  *   - 입금은 기부가 아니라 칩을 새로 넣는 것이다: 받은 사람 칩만 늘고 다른 사람 칩은 그대로다.
  *   - 칩이 없는 게임(라이어·마인드·갈팡질팡)이나 잘못된 금액·참가자는 거절된다.
  *
@@ -16,7 +16,6 @@ const WebSocket = require('ws');
 const { createGameServer } = require('../web/game-server');
 
 const PORT = 4731;
-const KEY = 'test-order-key';
 let pass = 0;
 let fail = 0;
 function check(name, ok, detail) {
@@ -25,12 +24,11 @@ function check(name, ok, detail) {
 }
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function request(method, path, { key, body, raw } = {}) {
+function request(method, path, { body, raw, type } = {}) {
   return new Promise((resolve, reject) => {
     const headers = {};
-    if (key !== undefined) headers['X-Order-Key'] = key;
     const data = raw !== undefined ? raw : (body === undefined ? null : JSON.stringify(body));
-    if (data !== null) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
+    if (data !== null) { headers['Content-Type'] = type || 'application/json'; headers['Content-Length'] = Buffer.byteLength(data); }
     const req = http.request({ hostname: '127.0.0.1', port: PORT, path, method, headers }, (res) => {
       const chunks = [];
       res.on('data', (chunk) => chunks.push(chunk));
@@ -68,17 +66,15 @@ function join(game, nickname) {
 }
 
 (async () => {
-  const server = createGameServer({ port: PORT, orderKey: KEY });
+  const server = createGameServer({ port: PORT });
   await server.start();
   const sockets = [];
   try {
-    console.log('\n=== 화면과 열쇠 ===');
+    console.log('\n=== 화면 ===');
     const page = await request('GET', '/order');
     check('/order는 운영자 화면(html)을 준다', page.status === 200 && /text\/html/.test(page.headers['content-type']) && page.text.includes('order.js'));
     const script = await request('GET', '/order.js');
     check('화면 스크립트·스타일도 같은 서버가 준다', script.status === 200 && (await request('GET', '/order.css')).status === 200);
-    check('열쇠가 없으면 목록을 주지 않는다', (await request('GET', '/order/api/state')).status === 401);
-    check('틀린 열쇠도 거절한다', (await request('GET', '/order/api/state', { key: 'nope' })).status === 401);
 
     const poker = await join('poker', '가나다');
     const poker2 = await join('poker', '라마바');
@@ -88,10 +84,10 @@ function join(game, nickname) {
     await wait(150);
 
     console.log('\n=== 접속자·칩 목록 ===');
-    const snap = await request('GET', '/order/api/state', { key: KEY });
+    const snap = await request('GET', '/order/api/state');
     const games = snap.json && snap.json.games;
     const byKey = (key) => games.find((g) => g.key === key);
-    check('열쇠가 맞으면 목록이 온다', snap.status === 200 && Array.isArray(games) && games.length === 6, snap.text.slice(0, 120));
+    check('열쇠 없이 목록이 온다', snap.status === 200 && Array.isArray(games) && games.length === 6, snap.text.slice(0, 120));
     check('게임별 접속자와 보유 칩이 나온다', byKey('poker').players.length === 2 && byKey('poker').players.every((p) => p.connected && p.chips === 1000000 && p.chips !== null) && byKey('poker').chips === true);
     check('칩이 없는 게임은 입금 대상이 아니라고 알려 준다', byKey('liar').chips === false && byKey('mind').chips === false && byKey('galpang').chips === false && byKey('liar').players.length === 1);
     check('아직 시작 전이라 진행 중인 게임은 없다', games.every((g) => g.running === false));
@@ -102,14 +98,14 @@ function join(game, nickname) {
     await wait(100);
     poker.ws.send(JSON.stringify({ type: 'start' }));
     await wait(200);
-    const running = await request('GET', '/order/api/state', { key: KEY });
+    const running = await request('GET', '/order/api/state');
     check('포커를 시작하면 진행중으로 나오고 참여자가 표시된다', running.json.games.find((g) => g.key === 'poker').running === true && running.json.games.find((g) => g.key === 'poker').players.every((p) => p.inRound));
 
     console.log('\n=== 입금 ===');
     const target = byKey('poker').players.find((p) => p.nickname === '가나다');
     const other = byKey('poker').players.find((p) => p.nickname === '라마바');
-    const deposit = (body, key) => request('POST', '/order/api/deposit', { key: key === undefined ? KEY : key, body });
-    const before = (await request('GET', '/order/api/state', { key: KEY })).json.games.find((g) => g.key === 'poker').players;
+    const deposit = (body) => request('POST', '/order/api/deposit', { body });
+    const before = (await request('GET', '/order/api/state')).json.games.find((g) => g.key === 'poker').players;
     const done = await deposit({ game: 'poker', playerId: target.id, amount: 500000 });
     const afterGame = done.json && done.json.state.games.find((g) => g.key === 'poker');
     const chipsOf = (list, id) => list.find((p) => p.id === id).chips;
@@ -124,11 +120,9 @@ function join(game, nickname) {
     check('블랙잭에도 입금할 수 있다', bj.status === 200 && bj.json.state.games.find((g) => g.key === 'blackjack').players[0].chips === 1000000 + 1234);
 
     console.log('\n=== 거절 ===');
-    const chipsNow = () => request('GET', '/order/api/state', { key: KEY }).then((r) => r.json.games.find((g) => g.key === 'poker').players.map((p) => p.chips).join());
+    const chipsNow = () => request('GET', '/order/api/state').then((r) => r.json.games.find((g) => g.key === 'poker').players.map((p) => p.chips).join());
     const snapshotBefore = await chipsNow();
     const bad = {
-      '열쇠 없이': await deposit({ game: 'poker', playerId: target.id, amount: 100 }, ''),
-      '틀린 열쇠로': await deposit({ game: 'poker', playerId: target.id, amount: 100 }, 'x'),
       '0원': await deposit({ game: 'poker', playerId: target.id, amount: 0 }),
       '음수': await deposit({ game: 'poker', playerId: target.id, amount: -500 }),
       '소수': await deposit({ game: 'poker', playerId: target.id, amount: 1.5 }),
@@ -142,18 +136,18 @@ function join(game, nickname) {
       '참가자가 문자열이 아님': await deposit({ game: 'poker', playerId: { a: 1 }, amount: 100 }),
     };
     for (const [name, res] of Object.entries(bad)) check(`${name} 입금은 거절된다`, res.status >= 400 && res.status < 500, `${res.status} ${res.text.slice(0, 80)}`);
-    const broken = await request('POST', '/order/api/deposit', { key: KEY, raw: '{not json' });
+    const broken = await request('POST', '/order/api/deposit', { raw: '{not json' });
     check('깨진 JSON은 거절된다', broken.status === 400);
-    const huge = await request('POST', '/order/api/deposit', { key: KEY, raw: JSON.stringify({ game: 'poker', pad: 'x'.repeat(5000) }) }).then((r) => r.status, () => 'closed');
+    const huge = await request('POST', '/order/api/deposit', { raw: JSON.stringify({ game: 'poker', pad: 'x'.repeat(5000) }) }).then((r) => r.status, () => 'closed');
     check('너무 큰 요청은 받지 않는다', huge === 'closed' || huge >= 400, String(huge));
     check('거절된 요청으로는 칩이 하나도 바뀌지 않았다', (await chipsNow()) === snapshotBefore);
-    check('GET으로는 입금할 수 없다', (await request('GET', '/order/api/deposit', { key: KEY })).status === 404);
+    check('GET으로는 입금할 수 없다', (await request('GET', '/order/api/deposit')).status === 404);
 
-    console.log('\n=== 열쇠 추측 제한 ===');
-    let limited = false;
-    for (let i = 0; i < 30 && !limited; i += 1) limited = (await request('GET', '/order/api/state', { key: `guess-${i}` })).status === 429;
-    check('열쇠를 많이 틀리면 잠시 막힌다', limited);
-    check('막혀 있는 동안은 맞는 열쇠도 받지 않는다(추측 속도를 못 높인다)', (await request('GET', '/order/api/state', { key: KEY })).status === 429);
+    console.log('\n=== 다른 사이트의 폼 ===');
+    const forged = await request('POST', '/order/api/deposit', { raw: JSON.stringify({ game: 'poker', playerId: target.id, amount: 777 }), type: 'text/plain' });
+    check('JSON이 아닌 형식(다른 사이트의 폼이 보낼 수 있는 text/plain)은 받지 않고 칩도 안 바뀐다', forged.status === 415 && (await chipsNow()) === snapshotBefore, `${forged.status}`);
+    const urlencoded = await request('POST', '/order/api/deposit', { raw: 'game=poker&amount=777', type: 'application/x-www-form-urlencoded' });
+    check('폼 인코딩도 받지 않는다', urlencoded.status === 415);
   } finally {
     for (const c of sockets) { try { c.ws.close(); } catch { /* 이미 닫힘 */ } }
     await server.stop();

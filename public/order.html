@@ -11,23 +11,11 @@
 <body>
   <header class="top"><b>운영자 화면</b><span id="stamp" class="stamp"></span></header>
   <main>
-    <section id="login" class="card">
-      <h1>열쇠를 입력하세요</h1>
-      <p class="muted">서버를 켠 사람이 콘솔에서 확인하거나, 서버에 정해 둔 ORDER_KEY 값입니다.</p>
-      <form id="login-form">
-        <label for="key">열쇠</label>
-        <input id="key" type="password" autocomplete="off" required>
-        <button>들어가기</button>
-      </form>
-      <p id="login-error" class="error" role="alert"></p>
-    </section>
-
-    <section id="panel" class="hidden">
+    <section id="panel">
       <div class="summary">
         <div><small>접속 중인 참가자</small><b id="sum-online">0</b></div>
         <div><small>진행 중인 게임</small><b id="sum-running">0</b></div>
         <div><small>포털 대기</small><b id="sum-portal">0</b></div>
-        <button id="logout" class="ghost">나가기</button>
       </div>
       <p id="notice" class="notice" role="status"></p>
       <div id="games"></div>
