@@ -49,7 +49,7 @@ const CLIENT_MESSAGES = {
 };
 
 /**
- * [리뷰 P1-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
+ * [리뷰 P1-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡·야추다이스)도 라이어처럼 들어오는 요청의 형식을 여기서 한 번에
  * 검사한다. 예전에는 게임 서버 분기와 각 방 안에 검사가 흩어져 있어서, 새 요청을 추가할 때 빠뜨리기 쉬웠다.
  * 여기서는 형식만 본다. 금액은 숫자(칸을 비우면 브라우저가 보내는 null 포함)인지만 보고, 100원 단위나
  * 보유 칩 같은 규칙은 방이 알맞은 안내와 함께 거절한다.
@@ -93,6 +93,13 @@ const CARD_GAME_MESSAGES = {
     vote: (m) => (str(m.proposalId, LIMITS.id) && typeof m.agree === 'boolean' ? null : 'proposalId/agree'),
     command: (m) => (typeof m.line === 'string' && m.line.length <= LIMITS.command ? null : 'line'),
   },
+  // 야추다이스: 굴리기·고정할 주사위(5개 각각 true/false)·점수를 기록할 칸. 칸 이름이 맞는지는 방이 본다.
+  yacht: {
+    ...CARD_COMMON,
+    roll: () => null,
+    hold: (m) => (Array.isArray(m.held) && m.held.length === 5 && m.held.every((v) => typeof v === 'boolean') ? null : 'held'),
+    score: (m) => (str(m.category, LIMITS.id) ? null : 'category'),
+  },
 };
 
 function checkAgainst(table, msg) {
@@ -109,7 +116,7 @@ function validateClientMessage(msg) {
   return checkAgainst(CLIENT_MESSAGES, msg);
 }
 
-/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'holdem' | 'mind' | 'galpang'. 문제가 없으면 null, 있으면 사유 문자열. */
+/** 카드 게임 요청. game은 'poker' | 'blackjack' | 'holdem' | 'mind' | 'galpang' | 'yacht'. 문제가 없으면 null, 있으면 사유 문자열. */
 function validateCardGameMessage(game, msg) {
   if (!Object.hasOwn(CARD_GAME_MESSAGES, game)) return `알 수 없는 게임: ${String(game).slice(0, 32)}`;
   return checkAgainst(CARD_GAME_MESSAGES[game], msg);

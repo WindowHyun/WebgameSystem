@@ -3,7 +3,7 @@
 /**
  * 카드 게임 요청 형식 검사(web/protocol.js의 validateCardGameMessage).
  *
- *   - 화면(public/poker.js·blackjack.js·holdem.js·mind.js·galpang.js)이 실제로 보내는 요청은 모두 통과한다.
+ *   - 화면(public/poker.js·blackjack.js·holdem.js·mind.js·galpang.js·yacht.js)이 실제로 보내는 요청은 모두 통과한다.
  *     여기서 막히면 그 버튼이 통째로 안 먹는다.
  *   - 형식이 틀린 요청(모르는 type, 문자열 불리언, 객체 ID, 너무 긴 이름 등)은 방에 닿기 전에 거절한다.
  *   - 게임마다 자기 요청만 받는다(포커에 hit, 블랙잭에 starVote 등은 거절).
@@ -79,6 +79,15 @@ const SENT = {
     { type: 'command', line: '' },
     { type: 'command', line: '가'.repeat(100) },
   ],
+  // 주사위 게임: 굴리기·고정할 주사위(5개 각각 true/false)·기록할 칸.
+  yacht: [
+    ...COMMON,
+    { type: 'roll' },
+    { type: 'hold', held: [true, false, false, true, false] },
+    { type: 'hold', held: [false, false, false, false, false] },
+    { type: 'score', category: 'yacht' },
+    { type: 'score', category: 'littleStraight' },
+  ],
 };
 
 for (const [game, messages] of Object.entries(SENT)) {
@@ -117,6 +126,17 @@ const BAD = [
   ['갈팡질팡 투표의 찬반이 문자열', 'galpang', { type: 'vote', proposalId: ID, agree: 'true' }],
   ['갈팡질팡에 수리검 투표 요청', 'galpang', { type: 'starVote', voteId: ID, agree: true }],
   ['갈팡질팡에 더 마인드 요청', 'galpang', { type: 'play' }],
+  ['야추다이스에 배팅 요청', 'yacht', { type: 'raise', amount: 100 }],
+  ['야추다이스 고정이 4개뿐', 'yacht', { type: 'hold', held: [true, false, true, false] }],
+  ['야추다이스 고정이 6개', 'yacht', { type: 'hold', held: [true, false, true, false, true, false] }],
+  ['야추다이스 고정이 불리언이 아님', 'yacht', { type: 'hold', held: [1, 0, 1, 0, 1] }],
+  ['야추다이스 고정이 배열이 아님', 'yacht', { type: 'hold', held: 'ttttt' }],
+  ['야추다이스 고정 없음', 'yacht', { type: 'hold' }],
+  ['야추다이스 칸 이름 없음', 'yacht', { type: 'score' }],
+  ['야추다이스 칸 이름이 객체', 'yacht', { type: 'score', category: { $ne: null } }],
+  ['야추다이스 칸 이름이 빈 문자열', 'yacht', { type: 'score', category: '' }],
+  ['야추다이스 칸 이름이 너무 김', 'yacht', { type: 'score', category: 'x'.repeat(65) }],
+  ['포커에 야추다이스 요청', 'poker', { type: 'roll' }],
   ['줄이 없는 명령', 'galpang', { type: 'command' }],
   ['숫자 명령', 'galpang', { type: 'command', line: 5 }],
   ['객체 명령', 'galpang', { type: 'command', line: { $gt: '' } }],
@@ -150,7 +170,8 @@ for (const game of Object.keys(CARD_GAME_MESSAGES)) {
   const { createHoldemRoom } = require('../web/holdem-room');
   const { createMindRoom } = require('../web/mind-room');
   const { createGalpangRoom } = require('../web/galpang-room');
-  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['holdem', createHoldemRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom]]) {
+  const { createYachtRoom } = require('../web/yacht-room');
+  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['holdem', createHoldemRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom], ['yacht', createYachtRoom]]) {
     const room = create({ onChange() {}, onAction() {} });
     try {
       const joined = room.join({ nickname: '가'.repeat(30) });

@@ -87,9 +87,9 @@ function join(game, nickname) {
     const snap = await request('GET', '/order/api/state');
     const games = snap.json && snap.json.games;
     const byKey = (key) => games.find((g) => g.key === key);
-    check('열쇠 없이 목록이 온다', snap.status === 200 && Array.isArray(games) && games.length === 6, snap.text.slice(0, 120));
+    check('열쇠 없이 목록이 온다', snap.status === 200 && Array.isArray(games) && games.length === 7, snap.text.slice(0, 120));
     check('게임별 접속자와 보유 칩이 나온다', byKey('poker').players.length === 2 && byKey('poker').players.every((p) => p.connected && p.chips === 1000000 && p.chips !== null) && byKey('poker').chips === true);
-    check('칩이 없는 게임은 입금 대상이 아니라고 알려 준다', byKey('liar').chips === false && byKey('mind').chips === false && byKey('galpang').chips === false && byKey('liar').players.length === 1);
+    check('칩이 없는 게임은 입금 대상이 아니라고 알려 준다', byKey('liar').chips === false && byKey('mind').chips === false && byKey('galpang').chips === false && byKey('yacht').chips === false && byKey('liar').players.length === 1);
     check('아직 시작 전이라 진행 중인 게임은 없다', games.every((g) => g.running === false));
     check('목록에는 카드·정답·토큰 같은 정보가 없다', !/token|hole|"hand"|answer|"card"/.test(snap.text), snap.text.slice(0, 200));
 
@@ -131,6 +131,7 @@ function join(game, nickname) {
       '없는 참가자': await deposit({ game: 'poker', playerId: 'nobody', amount: 100 }),
       '칩이 없는 게임(라이어)': await deposit({ game: 'liar', playerId: liar.welcome.playerId, amount: 100 }),
       '칩이 없는 게임(마인드)': await deposit({ game: 'mind', playerId: 'x', amount: 100 }),
+      '칩이 없는 게임(야추다이스)': await deposit({ game: 'yacht', playerId: 'x', amount: 100 }),
       '없는 게임': await deposit({ game: 'nothing', playerId: 'x', amount: 100 }),
       '프로토타입 이름(constructor)': await deposit({ game: 'constructor', playerId: 'x', amount: 100 }),
       '참가자가 문자열이 아님': await deposit({ game: 'poker', playerId: { a: 1 }, amount: 100 }),

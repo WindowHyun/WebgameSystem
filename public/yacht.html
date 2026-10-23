@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>야추다이스</title>
+  <link rel="stylesheet" href="poker.css?v=4">
+  <link rel="stylesheet" href="responsive-fixes.css?v=7">
+  <link rel="stylesheet" href="yacht.css?v=1">
+</head>
+<body class="poker-page yacht-page">
+  <div id="app">
+    <header class="topbar">
+      <a href="/" id="leave" class="back" aria-label="게임 선택으로 돌아가기">←</a>
+      <div><h1>야추다이스</h1><p id="phase">대기 중</p></div>
+      <div class="pot"><small>라운드</small><strong id="round">-</strong></div>
+    </header>
+
+    <section class="players-panel">
+      <div class="section-title"><b>참가자</b><small>1~6명 · 주사위 5개로 점수판 채우기</small></div>
+      <div id="players"></div>
+    </section>
+
+    <main>
+      <section id="table">
+        <div class="round-info"><span id="status-chip">1~6명</span><span id="message">참가자들이 준비하면 시작할 수 있습니다.</span></div>
+        <div id="board">
+          <div id="rules" class="rules">
+            <b>야추다이스 규칙</b>
+            <p>주사위 5개를 한 차례에 <strong>최대 3번</strong> 굴립니다. 처음에는 모두 굴리고, 그다음부터는 <strong>고정</strong>하지 않은 주사위만 다시 굴립니다.</p>
+            <p>매 차례 아직 안 채운 칸 하나에 점수를 기록해야 하고, 족보가 안 맞으면 0점입니다. 12칸을 모두 채우면 끝나고 총점이 가장 높은 사람이 이깁니다.</p>
+            <ul>
+              <li><b>1 ~ 6</b> 그 눈이 나온 주사위의 합</li>
+              <li><b>초이스</b> 주사위 5개의 합</li>
+              <li><b>포 카인드</b> 같은 눈 4개 이상이면 그 4개의 합</li>
+              <li><b>풀 하우스</b> 3개 + 2개이면 5개의 합</li>
+              <li><b>리틀 스트레이트</b> 1-2-3-4-5이면 30점</li>
+              <li><b>빅 스트레이트</b> 2-3-4-5-6이면 30점</li>
+              <li><b>야추</b> 5개가 모두 같으면 50점</li>
+            </ul>
+          </div>
+          <div id="game-view" class="hidden">
+            <div id="result" class="result hidden"></div>
+            <div id="dice-area" class="dice-area">
+              <div id="dice" class="dice" role="group" aria-label="주사위"></div>
+              <div id="dice-note" class="dice-note"></div>
+            </div>
+            <div id="sheet-wrap" class="sheet-wrap"><table id="sheet" class="sheet"></table></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="lobby" class="controls">
+        <div class="main-actions"><button id="ready" class="secondary" data-help="게임 참가 준비 상태를 설정하거나 취소합니다.">준비</button><button id="start" data-help="준비를 마친 참가자들과 새 게임을 시작합니다.">게임 시작</button></div>
+      </section>
+
+      <section id="turn-controls" class="controls hidden">
+        <div class="main-actions">
+          <button id="roll" data-help="고정하지 않은 주사위를 굴립니다. 한 차례에 최대 3번까지 굴릴 수 있습니다.">주사위 굴리기</button>
+          <button id="score" class="secondary" data-help="점수판에서 칸을 고른 뒤 누르면 지금 주사위로 그 칸에 점수를 기록하고 차례를 넘깁니다.">기록할 칸을 고르세요</button>
+        </div>
+      </section>
+      <p id="action-help" class="action-help">버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.</p>
+
+      <section id="history" aria-label="게임 기록"></section>
+    </main>
+  </div>
+
+  <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary" data-help="시작하지 않고 돌아갑니다.">취소</button><button id="start-go" data-help="준비한 참가자들과 새 게임을 시작합니다.">시작하기</button></div></div></div>
+  <div id="error" role="alert"></div>
+  <script src="game-socket.js?v=2"></script>
+  <script src="yacht.js?v=1"></script>
+  <script src="mobile.js?v=4"></script>
+  <script src="cover.js?v=14"></script>
+</body>
+</html>

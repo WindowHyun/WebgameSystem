@@ -20,6 +20,7 @@ const { createBlackjackRoom } = require('./blackjack-room');
 const { createHoldemRoom } = require('./holdem-room');
 const { createMindRoom } = require('./mind-room');
 const { createGalpangRoom } = require('./galpang-room');
+const { createYachtRoom } = require('./yacht-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage, validateCardGameMessage } = require('./protocol');
 const { grantProblem } = require('./room-helpers');
@@ -83,6 +84,14 @@ const CARD_GAME_ACTIONS = {
     vote: (room, id, m) => room.vote(id, m.proposalId, m.agree === true),
     command: (room, id, m) => room.command(id, m.line),
   },
+  // 칩이 없는 주사위 게임. 주사위는 서버가 굴리고, 고정할 주사위와 기록할 칸만 받는다.
+  yacht: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    start: (room, id) => room.begin(id),
+    roll: (room, id) => room.roll(id),
+    hold: (room, id, m) => room.hold(id, m.held),
+    score: (room, id, m) => room.score(id, m.category),
+  },
 };
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -140,7 +149,7 @@ function createGameServer(options) {
 
   const clients = new Set(); // { ws, playerId }
   /**
-   * [리뷰 P2-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
+   * [리뷰 P2-02] 카드 게임(포커·블랙잭·홀덤·더 마인드·갈팡질팡·야추다이스). 게임마다 다른 것은 이 표에 모았다 - 방송·하트비트·
    * 보스 키 전파·포털 상태·정리가 모두 이 표를 돈다. 카드 게임을 하나 더 넣을 때는 여기와
    * CARD_GAME_ACTIONS, web/protocol.js의 CARD_GAME_MESSAGES만 고치면 된다.
    *   label      연결·요청 로그 이름   logLabel   관리 로그 이름   portalLabel 포털 채널 이름
@@ -151,6 +160,7 @@ function createGameServer(options) {
     holdem: { label: '홀덤', logLabel: '홀덤', portalLabel: '텍사스 홀덤', create: createHoldemRoom, actions: CARD_GAME_ACTIONS.holdem, clients: new Set(), room: null },
     mind: { label: '더 마인드', logLabel: '마인드', portalLabel: '더 마인드', create: createMindRoom, actions: CARD_GAME_ACTIONS.mind, clients: new Set(), room: null },
     galpang: { label: '갈팡질팡', logLabel: '갈팡질팡', portalLabel: '갈팡질팡', create: createGalpangRoom, actions: CARD_GAME_ACTIONS.galpang, clients: new Set(), room: null },
+    yacht: { label: '야추다이스', logLabel: '야추다이스', portalLabel: '야추다이스', create: createYachtRoom, actions: CARD_GAME_ACTIONS.yacht, clients: new Set(), room: null },
   };
   const cardGames = () => Object.values(CARD_GAMES);
   const portalClients = new Set();
