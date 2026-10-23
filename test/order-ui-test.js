@@ -42,7 +42,7 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
     await page.goto(`http://127.0.0.1:${PORT}/order`);
     await page.waitForSelector('.game');
-    check('열쇠 없이 바로 접속자 수와 게임별 목록이 보인다', (await page.textContent('#sum-online')) === '1' && (await page.locator('.game').count()) === 6);
+    check('열쇠 없이 바로 접속자 수와 게임별 목록이 보인다', (await page.textContent('#sum-online')) === '1' && (await page.locator('.game').count()) === 7);
     check('닉네임은 태그가 해석되지 않고 글자 그대로 나온다', (await page.locator('.name').first().textContent()) === '<b>홍길동</b>' && (await page.locator('.name b').count()) === 0);
     check('칩을 쓰는 게임의 참가자에게만 입금칸이 있다', (await page.locator('.deposit').count()) === 1 && /1,000,000원/.test(await page.locator('.row').first().innerText()));
 

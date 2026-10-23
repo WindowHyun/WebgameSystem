@@ -1,0 +1,75 @@
+/* 야추다이스 - 포커 화면(poker.css, responsive-fixes.css)의 틀 위에 주사위와 점수판만 얹는다. */
+
+/* 제한시간은 상태 칸(#status-chip)에 직접 보여 준다. 포커의 "30초 내 선택" 표시는 지운다. */
+.yacht-page .round-info:after{content:none}
+
+#board{min-height:330px;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:flex-start;gap:14px;padding:18px 14px;border:1px solid #350d36;border-radius:8px;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a;color:#fff}
+.rules{max-width:620px;margin:auto;text-align:left;font-size:13px;line-height:1.65}
+.rules b{display:block;margin-bottom:6px;color:#fff;font-size:15px}
+.rules p{margin:0 0 8px}
+.rules strong{color:#ecb22e}
+.rules ul{margin:0;padding:0 0 0 18px}
+.rules li b{display:inline;margin:0 6px 0 0;font-size:13px;color:#ecb22e}
+#game-view{display:flex;width:100%;flex-direction:column;align-items:center;gap:14px}
+#game-view.hidden{display:none}
+
+/* 결과 */
+.result{width:100%;max-width:560px;padding:12px 14px;border-radius:8px;background:#fff8e6;color:#3f2e00;font-size:14px;line-height:1.6}
+.result.hidden{display:none}
+.result b{display:block;margin-bottom:4px;font-size:16px}
+.result ol{margin:6px 0 0;padding:0;list-style:none}
+.result li{display:flex;gap:8px;padding:2px 0;font-variant-numeric:tabular-nums}
+.result li i{flex:0 0 28px;font-style:normal;font-weight:700}
+.result li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.result li.first{font-weight:700}
+
+/* 주사위 */
+.dice-area{display:flex;flex-direction:column;align-items:center;gap:8px}
+.dice{display:flex;justify-content:center;gap:10px;padding:6px 0 10px}
+.die{position:relative;width:60px;height:60px;display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);gap:2px;padding:9px;border:1px solid #d8d8da;border-radius:10px;background:#fff;box-shadow:0 5px 12px #0004;cursor:default;transition:transform .15s ease,box-shadow .15s ease}
+.die i{width:100%;height:100%;border-radius:50%}
+.die i.on{background:#1d1c1d}
+.die[data-v="1"] i.on{background:#d72c0d}
+.die.empty{background:#ffffff26;border:2px dashed #ffffff55;box-shadow:none}
+.die.empty:after{content:"?";grid-area:2/2;place-self:center;color:#ffffff88;font-size:22px;font-weight:700}
+/* 남의 차례에는 눌러 볼 수 없는 버튼이지만 흐리게 보이지 않는다(눈이 또렷해야 같이 구경한다). */
+.die:disabled{opacity:1;cursor:default}
+.die.pick{cursor:pointer}
+.die.pick:hover{transform:translateY(-3px)}
+.die.held{transform:translateY(-10px);border-color:#ecb22e;box-shadow:0 0 0 3px #ecb22e,0 10px 16px #0005}
+.die.held:before{content:"고정";position:absolute;left:50%;bottom:-24px;transform:translateX(-50%);padding:1px 7px;border-radius:9px;background:#ecb22e;color:#3f2e00;font-size:11px;font-weight:700;white-space:nowrap}
+.die.rolled{animation:yacht-roll .45s ease}
+@keyframes yacht-roll{0%{transform:rotate(-200deg) scale(.6);opacity:.2}60%{transform:rotate(15deg) scale(1.08);opacity:1}100%{transform:none}}
+.dice-note{min-height:1.4em;color:#f4e8f5;font-size:13px;font-weight:700;text-align:center}
+
+/* 점수판 */
+.sheet-wrap{width:100%;max-width:640px;overflow-x:auto;border-radius:8px;background:#fff;color:#1d1c1d;-webkit-overflow-scrolling:touch}
+.sheet{width:100%;border-collapse:separate;border-spacing:0;font-size:13px;font-variant-numeric:tabular-nums}
+.sheet th,.sheet td{padding:7px 8px;border-bottom:1px solid #eee;text-align:center;white-space:nowrap}
+.sheet thead th{position:sticky;top:0;background:#f4eef5;color:#4a154b;font-size:12px}
+.sheet th.cat,.sheet td.cat{position:sticky;left:0;z-index:1;min-width:104px;max-width:128px;overflow:hidden;text-overflow:ellipsis;background:#fff;text-align:left;font-weight:700;box-shadow:1px 0 0 #eee}
+.sheet thead th.cat{z-index:2;background:#f4eef5}
+.sheet th.name{max-width:92px;overflow:hidden;text-overflow:ellipsis}
+.sheet th.turn{background:#ecb22e;color:#3f2e00}
+.sheet th.gone{color:#8d8d8f;text-decoration:line-through}
+.sheet td.mine{background:#faf7fb}
+.sheet td.empty{color:#b8b8bb}
+.sheet td.pick{cursor:pointer;color:#4a154b;font-weight:700;background:#fff8e6;box-shadow:inset 0 0 0 1px #ecb22e55}
+.sheet td.pick:hover{background:#ffefbf}
+.sheet td.pick.picked{background:#ecb22e;color:#3f2e00;box-shadow:inset 0 0 0 2px #3f2e00}
+.sheet td.zero{color:#a52323}
+.sheet tfoot td,.sheet tfoot th{border-bottom:0;background:#f4eef5;color:#4a154b;font-weight:700;font-size:14px}
+.sheet tfoot th.cat{background:#f4eef5}
+.hint{display:block;color:#8d8d8f;font-size:10px;font-weight:400;overflow:hidden;text-overflow:ellipsis}
+
+#status-chip.low{background:#fcebeb;color:#a52323}
+#turn-controls .main-actions{width:100%}
+#turn-controls button{flex:1}
+@media(max-width:760px){
+  #board{padding:14px 8px}
+  .die{width:52px;height:52px;padding:8px}
+  .dice{gap:7px}
+  .sheet th,.sheet td{padding:6px 6px}
+  .sheet th.cat,.sheet td.cat{min-width:92px}
+}
+@media(prefers-reduced-motion:reduce){.die,.die.rolled{animation:none;transition:none}}
