@@ -17,6 +17,9 @@
   function $(id) { return document.getElementById(id); }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
 
+  // 게임이 시작되면 대기 화면의 규칙 박스는 숨는다. 폰에는 마우스를 올려 보는 설명이 없으니 같은 내용을 접어 둔다.
+  $('rules-copy').innerHTML = $('rules').innerHTML;
+
   var socket = null;
   function send(type, extra) { if (socket) socket.send(type, extra); }
 
@@ -102,16 +105,19 @@
       var pips = '';
       var on = PIPS[value] || [];
       for (var cell = 1; cell <= 9; cell += 1) pips += '<i' + (on.indexOf(cell) >= 0 ? ' class="on"' : '') + '></i>';
-      var aria = empty ? '아직 굴리지 않은 주사위' : value + (state.held[i] ? ' (고정)' : '');
+      var aria = empty ? '아직 굴리지 않은 주사위' : '주사위 ' + value + (state.held[i] ? ' (고정)' : '');
       return '<button type="button" class="' + cls + '" data-i="' + i + '" data-v="' + value + '" aria-label="' + aria + '"' + (canHold ? ' aria-pressed="' + (state.held[i] ? 'true' : 'false') + '"' : ' disabled') + '>' + pips + '</button>';
     }).join('');
   }
 
   function sheetHtml() {
     var you = state.you;
-    var board = state.board;
+    // 내 열을 "칸" 바로 옆에 둔다. 6명이면 가로로 밀어야 보이는 열이 생기는데, 내가 누르는 열이 밀려나지 않게 한다.
+    var board = state.board.slice().sort(function (a, b) { return (b.id === you.id) - (a.id === you.id); });
     var options = you.options || {};
     var live = state.phase === 'playing';
+    var best = 0;
+    Object.keys(options).forEach(function (key) { if (options[key] > best) best = options[key]; });
     var head = '<thead><tr><th class="cat">칸</th>' + board.map(function (b) {
       var cls = 'name' + (live && b.id === state.turnId ? ' turn' : '') + (b.left ? ' gone' : '');
       return '<th class="' + cls + '" title="' + escapeHtml(b.nickname) + '">' + escapeHtml(b.nickname) + (b.id === you.id ? ' (나)' : '') + '</th>';
@@ -122,7 +128,10 @@
         var mine = b.id === you.id;
         if (value !== null && value !== undefined) return '<td class="' + (mine ? 'mine' : '') + (value === 0 ? ' zero' : '') + '">' + Number(value) + '</td>';
         if (mine && options[c.key] !== undefined && you.canScore) {
-          return '<td class="mine pick' + (picked === c.key ? ' picked' : '') + '" data-key="' + c.key + '" role="button" tabindex="0" aria-label="' + escapeHtml(c.label) + ' ' + Number(options[c.key]) + '점 기록 칸 고르기">' + Number(options[c.key]) + '</td>';
+          // 0점 칸은 흐리게(버리는 칸), 이번 주사위로 가장 높은 칸은 진하게 보여 한눈에 고르게 한다.
+          var points = Number(options[c.key]);
+          var tone = points === 0 ? ' low' : points === best ? ' best' : '';
+          return '<td class="mine pick' + tone + (picked === c.key ? ' picked' : '') + '" data-key="' + c.key + '" role="button" tabindex="0" aria-label="' + escapeHtml(c.label) + ' ' + points + '점 기록 칸 고르기">' + points + '</td>';
         }
         return '<td class="empty' + (mine ? ' mine' : '') + '">-</td>';
       }).join('');
@@ -163,15 +172,19 @@
     $('start').disabled = !state.canStart;
 
     var turnName = '';
-    state.board.forEach(function (b) { if (b.id === state.turnId) turnName = b.nickname; });
+    var turnAway = false;
+    state.board.forEach(function (b) { if (b.id === state.turnId) { turnName = b.nickname; turnAway = b.connected === false; } });
+    // 다 고정하면 굴릴 주사위가 없다. 버튼만 꺼지면 고장처럼 보이므로 이유를 알려 준다.
+    var allHeld = state.rolled && state.rollsLeft > 0 && state.held.every(Boolean);
     var message;
     if (playing) {
       if (!you.inGame) message = '진행 중인 게임을 구경하고 있습니다. 다음 게임부터 참여할 수 있습니다.';
       else if (you.myTurn) {
         message = !state.rolled ? '내 차례입니다. 주사위를 굴려 주세요.'
+          : allHeld ? '주사위를 모두 고정해서 다시 굴릴 수 없습니다. 고정을 풀거나 점수판에서 칸을 골라 기록하세요.'
           : state.rollsLeft > 0 ? '다시 굴릴 거면 남길 주사위를 눌러 고정하세요. 마치려면 점수판에서 칸을 골라 기록하세요. (남은 굴림 ' + state.rollsLeft + '번)'
             : '굴림을 모두 썼습니다. 점수판에서 칸을 골라 기록하세요.';
-      } else message = turnName + '님의 차례입니다.';
+      } else message = turnName + '님의 차례입니다.' + (turnAway ? ' 연결이 끊겨 있어 잠시 기다립니다. 곧 돌아오지 않으면 게임에서 빠집니다.' : '');
       if (state.paused) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     } else {
       message = state.canStart
@@ -179,7 +192,7 @@
         : state.readyCount > state.maxPlayers
           ? '야추다이스는 ' + state.maxPlayers + '명까지 할 수 있습니다. 준비한 사람을 ' + state.maxPlayers + '명 이하로 맞춰 주세요. (현재 ' + state.readyCount + '명)'
           : '준비한 참가자가 ' + state.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. 혼자서도 할 수 있어요. (현재 ' + state.readyCount + '명)';
-      if (state.result) message = state.result.message + ' 지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.' + (state.canStart ? '' : ' (준비 ' + state.readyCount + '명)');
+      if (state.result) message = '지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.' + (state.canStart ? '' : ' (준비 ' + state.readyCount + '명)');
     }
     $('message').textContent = message;
     renderTimer();
@@ -208,18 +221,24 @@
         var fresh = drawn.rollKey !== undefined && drawn.rollKey !== rollKey && state.rolled;
         drawn.rollKey = rollKey;
         setHtml('dice', diceHtml(fresh));
-        $('dice-note').textContent = state.rolled ? '굴림 ' + (state.rolls - state.rollsLeft) + '/' + state.rolls + (state.rollsLeft > 0 ? ' · ' + turnName + '님 차례' : ' · 점수를 기록하세요') : turnName + '님이 아직 굴리지 않았습니다.';
+        $('dice-note').textContent = state.rolled ? '굴림 ' + (state.rolls - state.rollsLeft) + '/' + state.rolls + (state.rollsLeft > 0 ? ' · ' + (you.myTurn ? '내 차례' : turnName + '님 차례') : ' · ' + (you.myTurn ? '점수를 기록하세요' : turnName + '님이 기록할 차례')) : turnName + '님이 아직 굴리지 않았습니다.';
       }
       setHtml('sheet', sheetHtml());
     }
 
     // 굴리기 / 기록 버튼
+    // 남의 차례에는 남의 굴림 상태가 내 버튼에 적히지 않게, 누구를 기다리는지 보여 준다.
     var canRoll = you.canRoll;
-    $('roll').disabled = !canRoll;
-    $('roll').textContent = !state.rolled ? '주사위 굴리기' : state.rollsLeft > 0 ? '다시 굴리기 (' + state.rollsLeft + '번 남음)' : '굴림을 모두 썼습니다';
+    $('roll').disabled = !canRoll || allHeld; // 고정은 화면에 먼저 반영되므로 서버 응답을 기다리지 않고 같은 기준으로 끈다
+    $('roll').textContent = !you.myTurn ? turnName + '님이 하는 중'
+      : !state.rolled ? '주사위 굴리기'
+        : allHeld ? '고정을 풀어야 굴릴 수 있어요'
+          : state.rollsLeft > 0 ? '다시 굴리기 (' + state.rollsLeft + '번 남음)' : '굴림을 모두 썼습니다';
     var points = picked && you.options ? you.options[picked] : null;
     $('score').disabled = picked === null || !you.canScore;
-    $('score').textContent = picked !== null && points !== null && points !== undefined ? labelOf(picked) + '에 ' + points + '점 기록' : (you.canScore ? '기록할 칸을 고르세요' : '먼저 굴려 주세요');
+    $('score').textContent = !you.myTurn ? '내 차례를 기다리는 중'
+      : picked !== null && points !== null && points !== undefined ? labelOf(picked) + '에 ' + points + '점 기록'
+        : (you.canScore ? '기록할 칸을 고르세요' : '먼저 굴려 주세요');
 
     setHtml('history', state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join(''));
     renderStartConfirm();

@@ -3,6 +3,7 @@
   var REFRESH_MS = 3000;
   var busy = false;
   var typing = false; // 금액을 입력하는 중이면 화면을 다시 그려 입력을 날리지 않는다
+  var stampText = ''; // 마지막으로 그린 시각. 갱신이 멈춘 동안에도 "얼마 전 화면인지" 보여 준다
 
   function $(id) { return document.getElementById(id); }
   function money(n) { return Number(n || 0).toLocaleString() + '원'; }
@@ -73,7 +74,8 @@
     $('sum-online').textContent = online;
     $('sum-running').textContent = running;
     $('sum-portal').textContent = data.portal;
-    $('stamp').textContent = new Date(data.serverTime).toLocaleTimeString() + ' 기준';
+    stampText = new Date(data.serverTime).toLocaleTimeString() + ' 기준';
+    $('stamp').textContent = stampText;
   }
 
   function depositForm(game, p) {
@@ -101,7 +103,12 @@
   }
 
   function refresh() {
-    if (busy || typing) return Promise.resolve();
+    if (typing) {
+      // 입력칸을 누른 채 두면 목록이 낡은 채로 멈춘다. 멈춘 것을 알려 준다(입력칸에서 벗어나면 다시 갱신).
+      if (stampText) $('stamp').textContent = stampText + ' · 입력 중이라 갱신 멈춤';
+      return Promise.resolve();
+    }
+    if (busy) return Promise.resolve();
     busy = true;
     return api('/order/api/state').then(function (data) {
       render(data);
