@@ -35,12 +35,21 @@
 /* 남의 차례에는 눌러 볼 수 없는 버튼이지만 흐리게 보이지 않는다(눈이 또렷해야 같이 구경한다). */
 .die:disabled{opacity:1;cursor:default}
 .die.pick{cursor:pointer}
+/* poker.css의 공통 버튼 hover(초록 배경)가 .die의 흰 배경을 덮어 눈이 안 보이던 것을 막는다. */
+.die:hover:not(:disabled),.die:active:not(:disabled),.die:focus:not(:disabled){background:#fff;color:inherit}
 .die.pick:hover{transform:translateY(-3px)}
 .die.held{transform:translateY(-10px);border-color:#ecb22e;box-shadow:0 0 0 3px #ecb22e,0 10px 16px #0005}
 .die.held:before{content:"고정";position:absolute;left:50%;bottom:-24px;transform:translateX(-50%);padding:1px 7px;border-radius:9px;background:#ecb22e;color:#3f2e00;font-size:11px;font-weight:700;white-space:nowrap}
 .die.rolled{animation:yacht-roll .45s ease}
 @keyframes yacht-roll{0%{transform:rotate(-200deg) scale(.6);opacity:.2}60%{transform:rotate(15deg) scale(1.08);opacity:1}100%{transform:none}}
 .dice-note{min-height:1.4em;color:#f4e8f5;font-size:13px;font-weight:700;text-align:center}
+
+/* 규칙 다시 보기(게임 중에도) */
+.rules-fold{width:100%;max-width:640px;color:#fff;font-size:13px}
+.rules-fold summary{display:inline-block;padding:6px 12px;border:1px solid #ffffff55;border-radius:14px;color:#f4e8f5;font-weight:700;cursor:pointer;list-style:none}
+.rules-fold summary::-webkit-details-marker{display:none}
+.rules-fold[open] summary{background:#ffffff1f}
+.rules-fold .rules{margin:10px 0 0;padding:12px 14px;border-radius:8px;background:#ffffff14}
 
 /* 점수판 */
 .sheet-wrap{width:100%;max-width:640px;overflow-x:auto;border-radius:8px;background:#fff;color:#1d1c1d;-webkit-overflow-scrolling:touch}
@@ -56,7 +65,9 @@
 .sheet td.empty{color:#b8b8bb}
 .sheet td.pick{cursor:pointer;color:#4a154b;font-weight:700;background:#fff8e6;box-shadow:inset 0 0 0 1px #ecb22e55}
 .sheet td.pick:hover{background:#ffefbf}
-.sheet td.pick.picked{background:#ecb22e;color:#3f2e00;box-shadow:inset 0 0 0 2px #3f2e00}
+.sheet td.pick.low{color:#9a8f9c;font-weight:400;background:#fff;box-shadow:inset 0 0 0 1px #ecb22e33}
+.sheet td.pick.best{background:#ffe08a;box-shadow:inset 0 0 0 1px #ecb22e}
+.sheet td.pick.picked,.sheet td.pick.low.picked,.sheet td.pick.best.picked{background:#ecb22e;color:#3f2e00;font-weight:700;box-shadow:inset 0 0 0 2px #3f2e00}
 .sheet td.zero{color:#a52323}
 .sheet tfoot td,.sheet tfoot th{border-bottom:0;background:#f4eef5;color:#4a154b;font-weight:700;font-size:14px}
 .sheet tfoot th.cat{background:#f4eef5}

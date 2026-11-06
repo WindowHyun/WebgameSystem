@@ -90,7 +90,18 @@ const stateOf = (page) => page.evaluate(() => ({
     sa = await stateOf(a); sb = await stateOf(b);
     check('굴리면 두 사람 화면에 같은 주사위(1~6)가 보이고 굴림이 2번 남는다', sa.dice.every((v) => v >= 1 && v <= 6) && JSON.stringify(sa.dice) === JSON.stringify(sb.dice) && /2번 남음/.test(sa.rollLabel), JSON.stringify(sa));
     check('내 점수판에는 칸마다 예상 점수가 뜨고 상대 화면에는 뜨지 않는다', sa.pickable.length === 12 && sb.pickable.length === 0);
+    check('남의 차례에는 내 버튼에 남의 굴림 횟수 대신 누가 하는 중인지 적힌다', sb.rollLabel === '김하늘님이 하는 중' && sb.scoreLabel === '내 차례를 기다리는 중' && !/남음|먼저 굴려/.test(sb.rollLabel + sb.scoreLabel), sb.rollLabel + ' / ' + sb.scoreLabel);
+    const heads = (page) => page.locator('#sheet thead th.name').allTextContents();
+    check('점수판에서 내 열이 "칸" 바로 옆(맨 앞)에 온다', /\(나\)/.test((await heads(a))[0]) && /\(나\)/.test((await heads(b))[0]), JSON.stringify([await heads(a), await heads(b)]));
+    const tones = await a.evaluate(() => [...document.querySelectorAll('#sheet td.pick')].map((d) => ({ n: Number(d.textContent), low: d.classList.contains('low'), best: d.classList.contains('best') })));
+    const topScore = Math.max(...tones.map((t) => t.n));
+    check('0점 칸은 흐리게, 가장 높은 칸은 진하게 표시된다', tones.every((t) => t.low === (t.n === 0)) && tones.every((t) => t.best === (topScore > 0 && t.n === topScore)), JSON.stringify(tones));
+    await a.click('#rules-fold summary');
+    check('게임 중에도 "규칙 보기"로 규칙을 다시 볼 수 있다', await a.isVisible('#rules-copy') && /최대 3번/.test(await text(a, '#rules-copy')) && /포 카인드/.test(await text(a, '#rules-copy')));
+    await a.click('#rules-fold summary');
 
+    await a.hover('#dice .die:nth-child(2)');
+    check('주사위에 마우스를 올려도 배경이 흰색이라 눈이 보인다', (await a.evaluate(() => getComputedStyle(document.querySelectorAll('#dice .die')[1]).backgroundColor)) === 'rgb(255, 255, 255)');
     await a.click('#dice .die:nth-child(1)');
     await a.click('#dice .die:nth-child(3)');
     await b.waitForFunction(() => document.querySelectorAll('#dice .die.held').length === 2);
@@ -104,6 +115,12 @@ const stateOf = (page) => page.evaluate(() => ({
     sa = await stateOf(a);
     check('고정한 주사위는 그대로고 굴림이 1번 남는다', sa.dice[0] === keep[0] && sa.dice[2] === keep[1]);
 
+    for (const n of [2, 4, 5]) await a.click(`#dice .die:nth-child(${n})`);
+    await a.waitForFunction(() => document.querySelectorAll('#dice .die.held').length === 5);
+    sa = await stateOf(a);
+    check('5개를 모두 고정하면 굴리기가 꺼지고 이유가 적힌다', sa.rollDisabled && /고정을 풀어야/.test(sa.rollLabel) && /모두 고정/.test(sa.message), sa.rollLabel + ' / ' + sa.message);
+    for (const n of [2, 4, 5]) await a.click(`#dice .die:nth-child(${n})`);
+    await a.waitForFunction(() => document.querySelectorAll('#dice .die.held').length === 2);
     await a.click('#dice .die:nth-child(1)');
     await a.waitForFunction(() => document.querySelectorAll('#dice .die.held').length === 1);
     check('다시 눌러 고정을 풀 수 있다', JSON.stringify((await stateOf(a)).held) === JSON.stringify([false, false, true, false, false]));
@@ -115,7 +132,7 @@ const stateOf = (page) => page.evaluate(() => ({
     await b.waitForFunction(() => !document.getElementById('roll').disabled);
     sa = await stateOf(a); sb = await stateOf(b);
     check('기록하면 점수판에 들어가고 박서준 차례가 된다', sb.turn.join() === '박서준' && sa.rollDisabled && sb.dice.every((v) => v === 0) && sa.dice.every((v) => v === 0), JSON.stringify(sb));
-    check('기록한 점수가 두 화면 점수판의 합계에 같이 보인다', (await a.textContent('#sheet tfoot td')) === (await b.textContent('#sheet tfoot td')) && Number(await a.textContent('#sheet tfoot td')) > 0);
+    check('기록한 점수가 두 화면 점수판의 합계에 같이 보인다', JSON.stringify(await a.locator('#sheet tfoot td').allTextContents().then((t) => t.sort())) === JSON.stringify(await b.locator('#sheet tfoot td').allTextContents().then((t) => t.sort())) && Number(await a.textContent('#sheet tfoot td')) > 0);
 
     console.log('\n=== 끝까지 ===');
     const playTurn = async (page) => {
