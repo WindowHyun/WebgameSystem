@@ -3,7 +3,7 @@
 /**
  * 카드 게임 요청 형식 검사(web/protocol.js의 validateCardGameMessage).
  *
- *   - 화면(public/poker.js·blackjack.js·holdem.js·mind.js·galpang.js·yacht.js)이 실제로 보내는 요청은 모두 통과한다.
+ *   - 화면(public/poker.js·blackjack.js·holdem.js·mind.js·galpang.js·yacht.js·clue.js)이 실제로 보내는 요청은 모두 통과한다.
  *     여기서 막히면 그 버튼이 통째로 안 먹는다.
  *   - 형식이 틀린 요청(모르는 type, 문자열 불리언, 객체 ID, 너무 긴 이름 등)은 방에 닿기 전에 거절한다.
  *   - 게임마다 자기 요청만 받는다(포커에 hit, 블랙잭에 starVote 등은 거절).
@@ -88,6 +88,19 @@ const SENT = {
     { type: 'score', category: 'yacht' },
     { type: 'score', category: 'littleStraight' },
   ],
+  // 보드 추리 게임: 굴리기·비밀 통로·이동(방 또는 칸)·추측·카드 보여 주기·고발·차례 끝내기.
+  clue: [
+    ...COMMON,
+    { type: 'roll' },
+    { type: 'passage' },
+    { type: 'move', room: 'library' },
+    { type: 'move', x: 7, y: 3 },
+    { type: 'move', x: 0, y: 0 },
+    { type: 'suggest', suspect: 'plum', weapon: 'rope' },
+    { type: 'show', card: 'dagger' },
+    { type: 'accuse', suspect: 'green', weapon: 'rope', room: 'kitchen' },
+    { type: 'endTurn' },
+  ],
 };
 
 for (const [game, messages] of Object.entries(SENT)) {
@@ -137,6 +150,19 @@ const BAD = [
   ['야추다이스 칸 이름이 빈 문자열', 'yacht', { type: 'score', category: '' }],
   ['야추다이스 칸 이름이 너무 김', 'yacht', { type: 'score', category: 'x'.repeat(65) }],
   ['포커에 야추다이스 요청', 'poker', { type: 'roll' }],
+  ['클루에 배팅 요청', 'clue', { type: 'raise', amount: 100 }],
+  ['클루 이동에 목적지 없음', 'clue', { type: 'move' }],
+  ['클루 이동 칸이 소수', 'clue', { type: 'move', x: 1.5, y: 2 }],
+  ['클루 이동 칸이 문자열', 'clue', { type: 'move', x: '1', y: '2' }],
+  ['클루 이동 칸이 음수', 'clue', { type: 'move', x: -1, y: 2 }],
+  ['클루 이동 방이 객체', 'clue', { type: 'move', room: { $ne: null } }],
+  ['클루 추측에 흉기 없음', 'clue', { type: 'suggest', suspect: 'plum' }],
+  ['클루 추측 범인이 객체', 'clue', { type: 'suggest', suspect: { $ne: null }, weapon: 'rope' }],
+  ['클루 고발에 장소 없음', 'clue', { type: 'accuse', suspect: 'plum', weapon: 'rope' }],
+  ['클루 카드 이름이 너무 김', 'clue', { type: 'show', card: 'x'.repeat(65) }],
+  ['클루 카드 이름 없음', 'clue', { type: 'show' }],
+  ['야추다이스에 클루 요청', 'yacht', { type: 'suggest', suspect: 'plum', weapon: 'rope' }],
+  ['클루에 야추다이스 요청', 'clue', { type: 'hold', held: [true, true, true, true, true] }],
   ['줄이 없는 명령', 'galpang', { type: 'command' }],
   ['숫자 명령', 'galpang', { type: 'command', line: 5 }],
   ['객체 명령', 'galpang', { type: 'command', line: { $gt: '' } }],
@@ -171,7 +197,8 @@ for (const game of Object.keys(CARD_GAME_MESSAGES)) {
   const { createMindRoom } = require('../web/mind-room');
   const { createGalpangRoom } = require('../web/galpang-room');
   const { createYachtRoom } = require('../web/yacht-room');
-  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['holdem', createHoldemRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom], ['yacht', createYachtRoom]]) {
+  const { createClueRoom } = require('../web/clue-room');
+  for (const [game, create] of [['poker', createPokerRoom], ['blackjack', createBlackjackRoom], ['holdem', createHoldemRoom], ['mind', createMindRoom], ['galpang', createGalpangRoom], ['yacht', createYachtRoom], ['clue', createClueRoom]]) {
     const room = create({ onChange() {}, onAction() {} });
     try {
       const joined = room.join({ nickname: '가'.repeat(30) });

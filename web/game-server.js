@@ -21,6 +21,7 @@ const { createHoldemRoom } = require('./holdem-room');
 const { createMindRoom } = require('./mind-room');
 const { createGalpangRoom } = require('./galpang-room');
 const { createYachtRoom } = require('./yacht-room');
+const { createClueRoom } = require('./clue-room');
 const { isAllowedOrigin } = require('./origin');
 const { validateClientMessage, validateCardGameMessage } = require('./protocol');
 const { grantProblem } = require('./room-helpers');
@@ -92,6 +93,18 @@ const CARD_GAME_ACTIONS = {
     hold: (room, id, m) => room.hold(id, m.held),
     score: (room, id, m) => room.score(id, m.category),
   },
+  // 칩이 없는 보드 추리 게임. 주사위·카드 나누기는 서버가 하고, 화면은 이동할 곳·추측·고발만 보낸다.
+  clue: {
+    ready: (room, id, m) => room.setReady(id, m.ready),
+    start: (room, id) => room.begin(id),
+    roll: (room, id) => room.roll(id),
+    passage: (room, id) => room.passage(id),
+    move: (room, id, m) => room.move(id, typeof m.room === 'string' ? { room: m.room } : { x: m.x, y: m.y }),
+    suggest: (room, id, m) => room.suggest(id, m.suspect, m.weapon),
+    show: (room, id, m) => room.show(id, m.card),
+    accuse: (room, id, m) => room.accuse(id, m.suspect, m.weapon, m.room),
+    endTurn: (room, id) => room.endTurn(id),
+  },
 };
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -161,6 +174,7 @@ function createGameServer(options) {
     mind: { label: '더 마인드', logLabel: '마인드', portalLabel: '더 마인드', create: createMindRoom, actions: CARD_GAME_ACTIONS.mind, clients: new Set(), room: null },
     galpang: { label: '갈팡질팡', logLabel: '갈팡질팡', portalLabel: '갈팡질팡', create: createGalpangRoom, actions: CARD_GAME_ACTIONS.galpang, clients: new Set(), room: null },
     yacht: { label: '야추다이스', logLabel: '야추다이스', portalLabel: '야추다이스', create: createYachtRoom, actions: CARD_GAME_ACTIONS.yacht, clients: new Set(), room: null },
+    clue: { label: '클루', logLabel: '클루', portalLabel: '클루', create: createClueRoom, actions: CARD_GAME_ACTIONS.clue, clients: new Set(), room: null },
   };
   const cardGames = () => Object.values(CARD_GAMES);
   const portalClients = new Set();

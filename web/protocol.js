@@ -100,6 +100,17 @@ const CARD_GAME_MESSAGES = {
     hold: (m) => (Array.isArray(m.held) && m.held.length === 5 && m.held.every((v) => typeof v === 'boolean') ? null : 'held'),
     score: (m) => (str(m.category, LIMITS.id) ? null : 'category'),
   },
+  // 클루: 굴리기·비밀 통로·이동(방 이름 또는 x,y 칸)·추측·카드 보여 주기·고발·차례 끝내기. 카드 이름이 맞는지는 방이 본다.
+  clue: {
+    ...CARD_COMMON,
+    roll: () => null,
+    passage: () => null,
+    move: (m) => (str(m.room, LIMITS.id) || (Number.isInteger(m.x) && Number.isInteger(m.y) && m.x >= 0 && m.x < 100 && m.y >= 0 && m.y < 100) ? null : 'room/x/y'),
+    suggest: (m) => (str(m.suspect, LIMITS.id) && str(m.weapon, LIMITS.id) ? null : 'suspect/weapon'),
+    show: (m) => (str(m.card, LIMITS.id) ? null : 'card'),
+    accuse: (m) => (str(m.suspect, LIMITS.id) && str(m.weapon, LIMITS.id) && str(m.room, LIMITS.id) ? null : 'suspect/weapon/room'),
+    endTurn: () => null,
+  },
 };
 
 function checkAgainst(table, msg) {

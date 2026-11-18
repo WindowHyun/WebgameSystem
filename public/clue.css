@@ -1,0 +1,92 @@
+/* 클루 - 포커 화면(poker.css, responsive-fixes.css)의 틀 위에 보드·주사위·추리 노트만 얹는다. */
+
+.clue-page .round-info:after{content:none}
+
+#board{min-height:330px;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:flex-start;gap:14px;padding:16px 12px;border:1px solid #350d36;border-radius:8px;background:#4a154b;box-shadow:inset 0 0 0 6px #ffffff1a;color:#fff}
+.rules{max-width:620px;margin:auto;text-align:left;font-size:13px;line-height:1.65}
+.rules b{display:block;margin-bottom:6px;color:#fff;font-size:15px}
+.rules p{margin:0 0 8px}
+.rules strong{color:#ecb22e}
+.rules ul{margin:0;padding:0 0 0 18px}
+.rules li{margin-bottom:4px}
+.rules li b{display:inline;margin:0 6px 0 0;font-size:13px;color:#ecb22e}
+#game-view{display:flex;width:100%;flex-direction:column;align-items:center;gap:14px}
+#game-view.hidden{display:none}
+
+.result{width:100%;max-width:900px;padding:12px 14px;border-radius:8px;background:#fff8e6;color:#3f2e00;font-size:14px;line-height:1.6}
+.result.hidden{display:none}
+.result b{display:block;margin-bottom:4px;font-size:16px}
+.rules-fold{width:100%;max-width:900px;color:#fff;font-size:13px}
+.rules-fold summary{display:inline-block;padding:6px 12px;border:1px solid #ffffff55;border-radius:14px;color:#f4e8f5;font-weight:700;cursor:pointer;list-style:none}
+.rules-fold summary::-webkit-details-marker{display:none}
+.rules-fold[open] summary{background:#ffffff1f}
+.rules-fold .rules{margin:10px 0 0;padding:12px 14px;border-radius:8px;background:#ffffff14}
+
+.clue-grid{display:grid;width:100%;max-width:900px;grid-template-columns:minmax(0,480px) minmax(240px,1fr);gap:14px;align-items:start}
+.map-wrap{border-radius:8px;overflow:hidden;background:#f3ead6;box-shadow:0 4px 14px #0004}
+#map{display:block;width:100%;height:auto}
+#map [data-move]{cursor:pointer}
+#map .reach-cell{fill:#2ea04366;stroke:#1f7a33;stroke-width:1}
+#map .reach-cell:hover{fill:#2ea043aa}
+#map .reach-room{fill:#2ea04333;stroke:#1f7a33;stroke-width:3;stroke-dasharray:6 4}
+#map .reach-room:hover{fill:#2ea04377}
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+/* 주사위 */
+.dice-area{display:flex;flex-direction:column;align-items:center;gap:8px}
+.dice{display:flex;justify-content:center;gap:12px;min-height:60px}
+.die{position:relative;width:54px;height:54px;display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);gap:2px;padding:8px;border:1px solid #d8d8da;border-radius:10px;background:#fff;box-shadow:0 5px 12px #0004}
+.die i{width:100%;height:100%;border-radius:50%}
+.die i.on{background:#1d1c1d}
+.die.empty{background:#ffffff26;border:2px dashed #ffffff55;box-shadow:none}
+.die.empty:after{content:"?";grid-area:2/2;place-self:center;color:#ffffff88;font-size:20px;font-weight:700}
+.die.rolled{animation:clue-roll .45s ease}
+@keyframes clue-roll{0%{transform:rotate(-200deg) scale(.6);opacity:.2}60%{transform:rotate(15deg) scale(1.08);opacity:1}100%{transform:none}}
+.dice-note{min-height:1.4em;color:#f4e8f5;font-size:13px;font-weight:700;text-align:center}
+
+/* 패널(카드 고르기·추측·고발·내 카드·노트) */
+.panel{padding:10px 12px;border-radius:8px;background:#ffffff14;color:#fff;font-size:13px;line-height:1.55}
+.panel.hidden{display:none}
+.panel>b{display:block;margin-bottom:6px;font-size:14px}
+.panel-note{margin:0 0 8px;color:#f4e8f5}
+.panel label{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.panel label select{flex:1;min-width:0;padding:6px 8px;border-radius:6px;border:1px solid #ffffff55;background:#fff;color:#1d1c1d;font-size:14px}
+.panel .row{display:flex;gap:8px}
+.panel .row button{flex:1}
+.panel button.danger{background:#a52323;color:#fff}
+.pick-card{display:block;width:100%;margin:0 0 6px;padding:8px 10px;text-align:left}
+.clue-hand{display:flex;flex-wrap:wrap;gap:6px}
+.clue-card{display:inline-block;padding:4px 9px;border-radius:6px;background:#fff;color:#1d1c1d;font-size:12px;font-weight:700}
+.clue-card.suspect{border-left:4px solid #d72c0d}
+.clue-card.weapon{border-left:4px solid #5a5a5c}
+.clue-card.room{border-left:4px solid #1264a3}
+
+/* 추리 노트 */
+.notebook{background:#fff;color:#1d1c1d}
+.notebook>b{color:#4a154b}
+.notebook table{width:100%;border-collapse:collapse;font-size:12px}
+.notebook th{padding:5px 4px;text-align:left;color:#4a154b;background:#f4eef5;font-size:11px}
+.notebook td{padding:4px;border-bottom:1px solid #eee;vertical-align:middle}
+.notebook td.mark{width:34px;text-align:center;cursor:pointer;user-select:none;font-weight:700;border-radius:4px}
+.notebook td.mark:hover{background:#f4eef5}
+.notebook td.mark.no{color:#a52323}
+.notebook td.mark.maybe{color:#b07a00}
+.notebook td.mark.yes{color:#1f7a33}
+.notebook td.note{color:#666;font-size:11px}
+.notebook tr.mine td{background:#faf7fb}
+.notebook tr.seen td.label{text-decoration:line-through;color:#8d8d8f}
+.notebook .hint{margin:6px 0 0;color:#8d8d8f;font-size:11px}
+
+#status-chip.low{background:#fcebeb;color:#a52323}
+#turn-controls .main-actions{width:100%;flex-wrap:wrap}
+#turn-controls button{flex:1 1 120px}
+#turn-controls button.hidden{display:none}
+@media(max-width:900px){
+  .clue-grid{grid-template-columns:minmax(0,1fr)}
+  .map-wrap{max-width:520px;margin:0 auto;width:100%}
+}
+@media(max-width:760px){
+  #board{padding:12px 6px}
+  .die{width:48px;height:48px;padding:7px}
+}
+@media(prefers-reduced-motion:reduce){.die.rolled{animation:none}}
