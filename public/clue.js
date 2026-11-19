@@ -18,6 +18,7 @@
   var populated = false;
   var marks = {};          // 추리 노트에 직접 적은 표시 { 카드: 0~3 }
   var marksSig = null;
+  var seenCount = null;    // 지금까지 받은 카드 수(새로 받았을 때만 팝업을 띄운다. 접속·재접속 때는 띄우지 않는다)
 
   var COLORS = { scarlett: '#d72c0d', mustard: '#ecb22e', white: '#ffffff', green: '#2e8b57', peacock: '#1264a3', plum: '#7b3f9e' };
   var DARK_TEXT = { mustard: true, white: true };
@@ -261,6 +262,23 @@
       + '<p class="hint">칸을 누르면 ✕(아님) → ?(의심) → ✓(유력) 순으로 바뀝니다. 내 카드와 보여 준 카드는 자동으로 ✕가 됩니다.</p>';
   }
 
+  /** 방금 받은 카드를 팝업으로 보여 준다. 어떤 추측에 누가 보여 줬는지도 함께. */
+  function showSeen(entry) {
+    $('seen-from').textContent = entry.by + '님이 보여 준 카드';
+    $('seen-card').textContent = cardLabel(entry.card);
+    $('seen-card').className = 'seen-face ' + cardKind(entry.card);
+    $('seen-ask').textContent = '내 추측: ' + suspectLabel(entry.suspect) + ', ' + weaponLabel(entry.weapon) + ', ' + roomLabel(entry.room);
+    $('seen-popup').classList.remove('hidden');
+    $('seen-ok').focus();
+  }
+  function closeSeen() { $('seen-popup').classList.add('hidden'); }
+  function checkSeen() {
+    var list = state.you.seen;
+    if (seenCount !== null && list.length > seenCount) showSeen(list[list.length - 1]);
+    if (list.length < (seenCount || 0)) closeSeen();
+    seenCount = list.length;
+  }
+
   // ───────────────────────────── 화면 ─────────────────────────────
 
   var startConfirmOpen = false;
@@ -294,6 +312,7 @@
     $('phase').textContent = PHASE[state.phase] || state.phase;
     $('my-piece').textContent = you.suspect ? suspectLabel(you.suspect) : '-';
     loadMarks();
+    checkSeen();
 
     var showGame = state.board.length > 0 && (playing || !!state.result);
     $('rules').classList.toggle('hidden', showGame);
@@ -416,6 +435,8 @@
   $('start-go').onclick = function () { closeStartConfirm(); send('start'); };
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape' && startConfirmOpen) closeStartConfirm(); });
 
+  $('seen-ok').onclick = closeSeen;
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeSeen(); });
   $('roll').onclick = function () { markSending($('roll')); send('roll'); };
   $('passage').onclick = function () { markSending($('passage')); send('passage'); };
   $('end').onclick = function () { markSending($('end')); accuseOpen = false; send('endTurn'); };

@@ -6,7 +6,7 @@
   <title>클루</title>
   <link rel="stylesheet" href="poker.css?v=4">
   <link rel="stylesheet" href="responsive-fixes.css?v=7">
-  <link rel="stylesheet" href="clue.css?v=5">
+  <link rel="stylesheet" href="clue.css?v=7">
 </head>
 <body class="poker-page clue-page">
   <div id="app">
@@ -90,9 +90,10 @@
   </div>
 
   <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary" data-help="시작하지 않고 돌아갑니다.">취소</button><button id="start-go" data-help="준비한 참가자들과 새 게임을 시작합니다.">시작하기</button></div></div></div>
+  <div id="seen-popup" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="seen-title"><div class="modal-card seen-card"><small id="seen-from"></small><h2 id="seen-title">카드를 받았습니다</h2><div id="seen-card" class="seen-face"></div><p id="seen-ask"></p><div><button id="seen-ok" data-help="받은 카드를 확인했습니다. 추리 노트에는 자동으로 ✕가 적힙니다.">확인</button></div></div></div>
   <div id="error" role="alert"></div>
   <script src="game-socket.js?v=2"></script>
-  <script src="clue.js?v=4"></script>
+  <script src="clue.js?v=5"></script>
   <script src="mobile.js?v=4"></script>
   <script src="cover.js?v=14"></script>
 </body>
