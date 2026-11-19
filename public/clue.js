@@ -11,7 +11,7 @@
   var nickname = sessionStorage.getItem(NAME_KEY);
   if (!nickname) { location.href = '/'; return; }
 
-  var CELL = 20;
+  var CELL = 24;
   var state = null;
   var skew = 0;            // 서버 시계 - 내 시계
   var accuseOpen = false;
@@ -85,58 +85,89 @@
 
   // ───────────────────────────── 보드 ─────────────────────────────
 
-  function tokenSvg(x, y, kind, key, extra) {
+  var ROOM_FILL = { kitchen: '#f4d9c6', ballroom: '#e4d4f0', conservatory: '#cfe8d0', dining: '#f1e0b8', billiard: '#c9e2ea', library: '#e8cfc0', lounge: '#f0c9cf', hall: '#d9d9ec', study: '#d6dfc4' };
+  var WEAPON_ICON = { candlestick: '🕯️', dagger: '🗡️', leadPipe: '🔩', revolver: '🔫', rope: '➰', wrench: '🔧' };
+  var SLOT = 24;
+
+  function tokenSvg(x, y, kind, key) {
     if (kind === 'suspect') {
       var dark = DARK_TEXT[key] ? '#1d1c1d' : '#fff';
-      return '<g class="token"' + extra + '><title>' + escapeHtml(suspectLabel(key)) + '</title><circle cx="' + x + '" cy="' + y + '" r="8" fill="' + COLORS[key] + '" stroke="#1d1c1d" stroke-width="1.2"/>'
-        + '<text x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" font-size="11" font-weight="700" fill="' + dark + '">' + escapeHtml(first(suspectLabel(key))) + '</text></g>';
+      return '<g class="token" filter="url(#sh)"><title>' + escapeHtml(suspectLabel(key)) + '</title><circle cx="' + x + '" cy="' + y + '" r="10.5" fill="' + COLORS[key] + '" stroke="#fff" stroke-width="2"/>'
+        + '<text x="' + x + '" y="' + (y + 4.5) + '" text-anchor="middle" font-size="12" font-weight="700" fill="' + dark + '">' + escapeHtml(first(suspectLabel(key))) + '</text></g>';
     }
-    return '<g class="token"><title>' + escapeHtml(weaponLabel(key)) + '</title><rect x="' + (x - 7) + '" y="' + (y - 7) + '" width="14" height="14" rx="3" fill="#5a5a5c" stroke="#1d1c1d" stroke-width="1"/>'
-      + '<text x="' + x + '" y="' + (y + 4) + '" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">' + escapeHtml(first(weaponLabel(key))) + '</text></g>';
+    return '<g class="token" filter="url(#sh)"><title>' + escapeHtml(weaponLabel(key)) + '</title><rect x="' + (x - 10) + '" y="' + (y - 10) + '" width="20" height="20" rx="5" fill="#2f2a3a" stroke="#fff" stroke-width="1.5"/>'
+      + '<text x="' + x + '" y="' + (y + 5) + '" text-anchor="middle" font-size="13">' + WEAPON_ICON[key] + '</text></g>';
   }
 
   function mapHtml() {
     var map = state.map;
     var you = state.you;
+    var W = map.w * CELL;
+    var H = map.h * CELL;
     var reach = you && you.reach ? you.reach : { cells: [], rooms: [] };
-    var out = '<rect width="' + map.w * CELL + '" height="' + map.h * CELL + '" fill="#f3ead6"/>';
+    var out = '<defs><filter id="sh" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#000" flood-opacity=".55"/></filter></defs>'
+      + '<rect width="' + W + '" height="' + H + '" fill="#2b1d12"/>';
 
-    // 복도: 방·가운데를 뺀 모든 칸
     var inRect = function (r, x, y) { return x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2; };
     var doors = {};
     map.rooms.forEach(function (room) { room.doors.forEach(function (d) { doors[d.x + ',' + d.y] = true; }); });
     for (var y = 0; y < map.h; y += 1) {
       for (var x = 0; x < map.w; x += 1) {
         if (inRect(map.center, x, y) || map.rooms.some(function (r) { return inRect(r, x, y); })) continue;
-        out += '<rect x="' + x * CELL + '" y="' + y * CELL + '" width="' + CELL + '" height="' + CELL + '" fill="' + (doors[x + ',' + y] ? '#ffe08a' : '#f9f3e3') + '" stroke="#d9ccaa" stroke-width=".5"/>';
+        var fill = doors[x + ',' + y] ? '#e6c46a' : ((x + y) % 2 ? '#f3e7c8' : '#ebdcb5');
+        out += '<rect x="' + x * CELL + '" y="' + y * CELL + '" width="' + CELL + '" height="' + CELL + '" fill="' + fill + '"/>';
       }
     }
-    // 가운데 봉투
+
+    // 가운데 정답 봉투
     var c = map.center;
-    out += '<rect x="' + c.x1 * CELL + '" y="' + c.y1 * CELL + '" width="' + (c.x2 - c.x1 + 1) * CELL + '" height="' + (c.y2 - c.y1 + 1) * CELL + '" fill="#4a154b"/>'
-      + '<text x="' + (c.x1 + (c.x2 - c.x1 + 1) / 2) * CELL + '" y="' + (c.y1 + (c.y2 - c.y1 + 1) / 2) * CELL + '" text-anchor="middle" font-size="13" font-weight="700" fill="#ecb22e">정답 봉투</text>';
+    var cw = (c.x2 - c.x1 + 1) * CELL;
+    var ch = (c.y2 - c.y1 + 1) * CELL;
+    var ccx = c.x1 * CELL + cw / 2;
+    var ccy = c.y1 * CELL + ch / 2;
+    out += '<rect x="' + c.x1 * CELL + '" y="' + c.y1 * CELL + '" width="' + cw + '" height="' + ch + '" fill="#2d1b3d" stroke="#d4a73c" stroke-width="3"/>'
+      + '<rect x="' + (c.x1 * CELL + 6) + '" y="' + (c.y1 * CELL + 6) + '" width="' + (cw - 12) + '" height="' + (ch - 12) + '" fill="none" stroke="#d4a73c" stroke-opacity=".5"/>'
+      + '<g transform="translate(' + (ccx - 24) + ',' + (ccy - 30) + ')"><rect width="48" height="34" rx="4" fill="#f5e6b8" stroke="#d4a73c" stroke-width="1.5"/><path d="M1 2 L24 21 L47 2" fill="none" stroke="#d4a73c" stroke-width="1.5"/></g>'
+      + '<text x="' + ccx + '" y="' + (ccy + 30) + '" text-anchor="middle" font-size="14" font-weight="700" fill="#ecb22e">정답 봉투</text>';
 
     // 방
     var slots = {};
     map.rooms.forEach(function (room) {
-      var w = (room.x2 - room.x1 + 1) * CELL;
-      var h = (room.y2 - room.y1 + 1) * CELL;
-      out += '<rect x="' + room.x1 * CELL + '" y="' + room.y1 * CELL + '" width="' + w + '" height="' + h + '" fill="#e8dff0" stroke="#4a154b" stroke-width="2"/>'
-        + '<text x="' + (room.x1 * CELL + 6) + '" y="' + (room.y1 * CELL + 15) + '" font-size="12" font-weight="700" fill="#4a154b">' + escapeHtml(room.label) + '</text>';
+      var x = room.x1 * CELL; var y = room.y1 * CELL;
+      var w = (room.x2 - room.x1 + 1) * CELL; var h = (room.y2 - room.y1 + 1) * CELL;
+      out += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + (ROOM_FILL[room.key] || '#e8dff0') + '" stroke="#3b2a1a" stroke-width="3"/>'
+        + '<rect x="' + (x + 5) + '" y="' + (y + 5) + '" width="' + (w - 10) + '" height="' + (h - 10) + '" fill="none" stroke="#fff" stroke-opacity=".65"/>'
+        + '<text x="' + (x + w / 2) + '" y="' + (y + 22) + '" text-anchor="middle" font-size="14" font-weight="700" fill="#3b2a1a">' + escapeHtml(room.label) + '</text>';
       if (room.passage) {
-        out += '<text x="' + (room.x1 * CELL + 6) + '" y="' + (room.y2 * CELL + CELL - 5) + '" font-size="10" fill="#7b3f9e">비밀 통로 → ' + escapeHtml(roomLabel(room.passage)) + '</text>';
+        out += '<text x="' + (x + w / 2) + '" y="' + (y + h - 9) + '" text-anchor="middle" font-size="11" font-weight="700" fill="#6a3f8e">⇄ ' + escapeHtml(roomLabel(room.passage)) + '</text>';
       }
+      // 문: 방 벽에 금색 문짝을 그린다
+      room.doors.forEach(function (d) {
+        var bar;
+        if (d.y === room.y2 + 1) bar = [d.x * CELL + 4, y + h - 3, CELL - 8, 6];
+        else if (d.y === room.y1 - 1) bar = [d.x * CELL + 4, y - 3, CELL - 8, 6];
+        else if (d.x === room.x1 - 1) bar = [x - 3, d.y * CELL + 4, 6, CELL - 8];
+        else bar = [x + w - 3, d.y * CELL + 4, 6, CELL - 8];
+        out += '<rect x="' + bar[0] + '" y="' + bar[1] + '" width="' + bar[2] + '" height="' + bar[3] + '" rx="2" fill="#e6c46a" stroke="#7a5a1a" stroke-width="1.2"/>';
+      });
       slots[room.key] = { room: room, count: 0 };
     });
+    function place(slot) {
+      var r = slot.room;
+      var perRow = Math.max(1, Math.floor(((r.x2 - r.x1 + 1) * CELL - 12) / SLOT));
+      var n = slot.count;
+      slot.count += 1;
+      return { x: r.x1 * CELL + 6 + SLOT / 2 + (n % perRow) * SLOT, y: r.y1 * CELL + 40 + Math.floor(n / perRow) * SLOT };
+    }
 
-    // 이동 가능 표시(말보다 아래에 깔고, 눌리는 칸은 말 위에 투명 덮개로 올린다)
+    // 이동 가능 표시
     var overlay = '';
     reach.cells.forEach(function (cell) {
-      overlay += '<rect class="reach-cell" data-move="1" data-x="' + cell.x + '" data-y="' + cell.y + '" x="' + cell.x * CELL + '" y="' + cell.y * CELL + '" width="' + CELL + '" height="' + CELL + '"><title>여기로 이동</title></rect>';
+      overlay += '<rect class="reach-cell" data-move="1" data-x="' + cell.x + '" data-y="' + cell.y + '" x="' + (cell.x * CELL + 1) + '" y="' + (cell.y * CELL + 1) + '" width="' + (CELL - 2) + '" height="' + (CELL - 2) + '" rx="4"><title>여기로 이동</title></rect>';
     });
     reach.rooms.forEach(function (key) {
       var room = slots[key].room;
-      overlay += '<rect class="reach-room" data-move="1" data-room="' + key + '" x="' + (room.x1 * CELL + 2) + '" y="' + (room.y1 * CELL + 2) + '" width="' + ((room.x2 - room.x1 + 1) * CELL - 4) + '" height="' + ((room.y2 - room.y1 + 1) * CELL - 4) + '"><title>' + escapeHtml(room.label) + '(으)로 이동</title></rect>';
+      overlay += '<rect class="reach-room" data-move="1" data-room="' + key + '" x="' + (room.x1 * CELL + 4) + '" y="' + (room.y1 * CELL + 4) + '" width="' + ((room.x2 - room.x1 + 1) * CELL - 8) + '" height="' + ((room.y2 - room.y1 + 1) * CELL - 8) + '" rx="8"><title>' + escapeHtml(room.label) + '(으)로 이동</title></rect>';
     });
 
     // 말과 흉기
@@ -148,30 +179,19 @@
       if (!at) return;
       var seat = seatBySuspect[s.key];
       var mine = state.you && state.you.suspect === s.key;
-      var turn = seat && state.phase === 'playing' && seat.id === state.turnId;
+      var turn = seat && state.phase === 'playing' && seat.id === state.waitingId;
+      var p = at.room ? place(slots[at.room]) : { x: at.x * CELL + CELL / 2, y: at.y * CELL + CELL / 2 };
       var ring = '';
-      var cx; var cy;
-      if (at.room) {
-        var slot = slots[at.room];
-        var perRow = Math.max(1, Math.floor(((slot.room.x2 - slot.room.x1 + 1) * CELL - 4) / 20));
-        cx = slot.room.x1 * CELL + 12 + (slot.count % perRow) * 20;
-        cy = slot.room.y1 * CELL + 30 + Math.floor(slot.count / perRow) * 20;
-        slot.count += 1;
-      } else { cx = at.x * CELL + CELL / 2; cy = at.y * CELL + CELL / 2; }
-      if (turn) ring = '<circle cx="' + cx + '" cy="' + cy + '" r="12" fill="none" stroke="#ecb22e" stroke-width="3"/>';
-      else if (mine) ring = '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="none" stroke="#4a154b" stroke-width="2" stroke-dasharray="3 2"/>';
+      if (turn) ring = '<circle class="turn-ring" cx="' + p.x + '" cy="' + p.y + '" r="15" fill="none" stroke="#ecb22e" stroke-width="3"/>';
+      else if (mine) ring = '<circle cx="' + p.x + '" cy="' + p.y + '" r="14" fill="none" stroke="#4a154b" stroke-width="2" stroke-dasharray="4 3"/>';
       var gone = seat && (seat.eliminated || seat.left);
-      tokens += ring + '<g opacity="' + (gone ? '.45' : '1') + '">' + tokenSvg(cx, cy, 'suspect', s.key, '') + '</g>';
+      tokens += ring + '<g opacity="' + (gone ? '.4' : '1') + '">' + tokenSvg(p.x, p.y, 'suspect', s.key) + '</g>';
     });
     state.weapons.forEach(function (w) {
-      var key = state.weaponRooms[w.key];
-      var slot = slots[key];
+      var slot = slots[state.weaponRooms[w.key]];
       if (!slot) return;
-      var perRow = Math.max(1, Math.floor(((slot.room.x2 - slot.room.x1 + 1) * CELL - 4) / 20));
-      var cx = slot.room.x1 * CELL + 12 + (slot.count % perRow) * 20;
-      var cy = slot.room.y1 * CELL + 30 + Math.floor(slot.count / perRow) * 20;
-      slot.count += 1;
-      tokens += tokenSvg(cx, cy, 'weapon', w.key, '');
+      var p = place(slot);
+      tokens += tokenSvg(p.x, p.y, 'weapon', w.key);
     });
     return out + tokens + overlay;
   }
@@ -198,6 +218,7 @@
   function populate() {
     if (populated) return;
     populated = true;
+    $('map').setAttribute('viewBox', '0 0 ' + state.map.w * CELL + ' ' + state.map.h * CELL);
     function fill(id, list) { $(id).innerHTML = list.map(function (item) { return '<option value="' + item.key + '">' + escapeHtml(item.label) + '</option>'; }).join(''); }
     fill('sg-suspect', state.suspects); fill('sg-weapon', state.weapons);
     fill('ac-suspect', state.suspects); fill('ac-weapon', state.weapons); fill('ac-room', state.rooms);
@@ -226,7 +247,7 @@
     var seen = {};
     you.seen.forEach(function (s) { (seen[s.card] = seen[s.card] || []).push(s.by); });
     function rows(title, list) {
-      return '<tr><th colspan="3">' + title + '</th></tr>' + list.map(function (item) {
+      return '<table><tr><th colspan="3">' + title + '</th></tr>' + list.map(function (item) {
         var cls = mine[item.key] ? 'mine' : (seen[item.key] ? 'seen' : '');
         var note = mine[item.key] ? '내 카드' : (seen[item.key] ? escapeHtml(seen[item.key].join(', ')) + '님이 보여 줌' : '');
         var m = marks[item.key] || 0;
@@ -234,9 +255,9 @@
           ? '<td class="mark no">✕</td>'
           : '<td class="mark ' + MARK_CLASS[m] + '" data-mark="' + item.key + '" role="button" tabindex="0" aria-label="' + escapeHtml(item.label) + ' 표시 바꾸기">' + (MARK_TEXT[m] || '·') + '</td>';
         return '<tr class="' + cls + '"><td class="label">' + escapeHtml(item.label) + '</td>' + markCell + '<td class="note">' + note + '</td></tr>';
-      }).join('');
+      }).join('') + '</table>';
     }
-    return '<b>추리 노트</b><table>' + rows('범인', state.suspects) + rows('흉기', state.weapons) + rows('장소', state.rooms) + '</table>'
+    return '<b>추리 노트</b><div class="nb-grid">' + rows('범인', state.suspects) + rows('흉기', state.weapons) + rows('장소', state.rooms) + '</div>'
       + '<p class="hint">칸을 누르면 ✕(아님) → ?(의심) → ✓(유력) 순으로 바뀝니다. 내 카드와 보여 준 카드는 자동으로 ✕가 됩니다.</p>';
   }
 
@@ -267,6 +288,7 @@
     populate();
     document.body.dataset.phase = state.phase;
     var you = state.you;
+    document.body.dataset.myturn = you.myTurn || you.disprove ? '1' : '';
     var playing = state.phase === 'playing';
     var lobby = !playing;
     $('phase').textContent = PHASE[state.phase] || state.phase;
@@ -318,7 +340,7 @@
       else status = p.id === state.waitingId ? '차례' : '대기';
       var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + ' · 카드 ' + seat.cards + '장</small>' : '';
       var initial = Array.from(p.nickname)[0] || '나';
-      return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
+      return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '"' + (seat ? ' data-suspect="' + seat.suspect + '" style="--pc:' + COLORS[seat.suspect] + '"' : '') + ' data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
         + (p.id === you.id ? ' (나)' : '') + '</b>' + piece + '<span class="status">' + status + '</span></div>';
     }).join(''));
 
