@@ -32,7 +32,7 @@ function lcg(seed) {
 
 /** names 명이 입장·준비·시작한 방. seats는 차례 순서. by(이름)로 자리를 찾는다. */
 function game(names, options) {
-  const room = createClueRoom({ random: lcg(7), disconnectGraceMs: 40, ...(options || {}) });
+  const room = createClueRoom({ random: lcg(7), disconnectGraceMs: 40, autoEndMs: 0, ...(options || {}) });
   const joined = {};
   for (const name of names) joined[name] = room.join({ nickname: name });
   for (const name of names) room.setReady(joined[name].playerId, true);
@@ -52,7 +52,7 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   const everywhere = computeReach({ x: SUSPECTS[0].start.x, y: SUSPECTS[0].start.y }, 200);
   let corridors = 0;
   for (let y = 0; y < MAP.h; y += 1) for (let x = 0; x < MAP.w; x += 1) if (isCorridor(x, y)) corridors += 1;
-  check('시작 칸에서 모든 방과 모든 복도 칸에 갈 수 있다', everywhere.rooms.length === 9 && everywhere.cells.length + 1 === corridors, `${everywhere.rooms.length}방 ${everywhere.cells.length + 1}/${corridors}칸`);
+  check('시작 칸에서 모든 방(정답 봉투 방 포함)과 모든 복도 칸에 갈 수 있다', everywhere.rooms.length === 10 && everywhere.rooms.includes('envelope') && everywhere.cells.length + 1 === corridors, `${everywhere.rooms.length}방 ${everywhere.cells.length + 1}/${corridors}칸`);
   check('비밀 통로는 서로 마주 보는 모서리 방이다', ROOMS.filter((r) => r.passage).every((r) => ROOMS.find((o) => o.key === r.passage).passage === r.key) && ROOMS.filter((r) => r.passage).length === 4);
 
   console.log('\n=== 이동 계산 ===');
@@ -130,7 +130,7 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g4.room.roll(g4.id(cur)); g4.room._debug().setDice([1, 2]);
   check('방에 들어가면 추측 단계다', g4.room.move(g4.id(cur), { room: 'ballroom' }) === null && g4.room._debug().step === 'suggest' && g4.room._debug().positions[cs.suspect].room === 'ballroom');
   check('이동이 끝나면 더 움직일 수 없다', /이미 움직였습니다/.test(g4.room.move(g4.id(cur), { x: 7, y: 3 }) || ''));
-  check('추측 단계에서 내 상태는 추측 가능·고발 가능·차례 끝내기 가능이다', (() => { const y = state(g4, cur).you; return y.canSuggest && y.canAccuse && y.canEnd && !y.canRoll; })());
+  check('추측 단계에서 내 상태는 추측 가능·고발 불가(봉투 방이 아님)·차례 끝내기 가능이다', (() => { const y = state(g4, cur).you; return y.canSuggest && !y.canAccuse && y.canEnd && !y.canRoll; })());
   g4.room.endTurn(g4.id(cur));
 
   cur = turnName(g4); cs = g4.seat(cur);
@@ -187,7 +187,9 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g5.room._debug().setPosition(s0.suspect, { room: 'study' });
   g5.room._debug().setPosition('white', { room: 'study' }); // 어디든
   g5.room._debug().seats[0].summoned = true;
-  check('가진 카드가 한 장뿐이면 서버가 대신 보여 준다(고르는 단계 없음)', g5.room.suggest(s0.id, 'plum', 'rope') === null && g5.room._debug().step === 'end' && g5.room.stateFor(s0.id).you.seen.some((x) => x.card === 'plum' && x.byId === s2.id));
+  check('가진 카드가 한 장뿐이어도 자동으로 보여 주지 않고 가진 사람이 직접 고른다', g5.room.suggest(s0.id, 'plum', 'rope') === null && g5.room._debug().step === 'disprove' && g5.room._debug().pending.disproverId === s2.id && g5.room._debug().pending.options.length === 1 && g5.room.stateFor(s0.id).you.seen.length === 1);
+  check('한 장이어도 고르는 창은 반박할 사람에게만 간다', !!g5.room.stateFor(s2.id).you.disprove && g5.room.stateFor(s2.id).you.disprove.options.length === 1 && g5.room.stateFor(s1.id).you.disprove === null && g5.room.stateFor(s0.id).you.disprove === null);
+  check('한 장짜리도 눌러서 보여 주면 추측한 사람에게 간다', g5.room.show(s2.id, 'plum') === null && g5.room.stateFor(s0.id).you.seen.some((x) => x.card === 'plum' && x.byId === s2.id) && g5.room._debug().step === 'end');
   g5.room.dispose();
 
   // 시계 방향 순서: 0번이 추측하면 1번 → 2번 순서로 본다
@@ -201,13 +203,60 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g6.room._debug().setPosition(q[0].suspect, { room: 'hall' });
   g6.room._debug().seats[0].summoned = true;
   g6.room.suggest(q[0].id, 'plum', 'dagger');
+  g6.room.show(q[1].id, 'dagger');
   check('추측한 사람 다음부터 시계 방향으로 첫 사람이 보여 준다(둘 다 가졌으면 가까운 쪽)', g6.room.stateFor(q[0].id).you.seen[0].byId === q[1].id && g6.room.stateFor(q[0].id).lastSuggestion.passed.length === 0);
   g6.room.endTurn(q[0].id);
   g6.room._debug().setPosition(q[1].suspect, { room: 'hall' });
   g6.room._debug().seats[1].summoned = true;
   g6.room.suggest(q[1].id, 'white', 'revolver');
+  g6.room.show(q[3].id, 'revolver');
   check('앞사람이 못 보여 주면 지나치고 그다음 사람이 보여 준다(지나친 사람이 공개된다)', g6.room.stateFor(q[1].id).you.seen[0].byId === q[3].id && JSON.stringify(g6.room.stateFor(q[0].id).lastSuggestion.passed) === JSON.stringify([q[2].id]));
   g6.room.dispose();
+  console.log('\n=== 제자리에 있기 ===');
+  const gs = game(['가', '나', '다']);
+  const st = gs.dbg.seats;
+  check('굴리기 전에는 제자리에 있을 수 없다', /먼저 주사위/.test(gs.room.stay(st[0].id) || ''));
+  gs.room.roll(st[0].id);
+  check('남의 차례에는 제자리에 있을 수 없다', /내 차례가 아닙니다/.test(gs.room.stay(st[1].id) || ''));
+  check('이동 단계에는 제자리에 있기가 켜져 있다(나에게만)', gs.room.stateFor(st[0].id).you.canStay === true && gs.room.stateFor(st[1].id).you.canStay === false);
+  check('복도에서 제자리에 있으면 끝 단계가 되고 그 자리에 그대로다', (() => { const before = JSON.stringify(gs.room._debug().positions[st[0].suspect]); return gs.room.stay(st[0].id) === null && gs.room._debug().step === 'end' && JSON.stringify(gs.room._debug().positions[st[0].suspect]) === before; })());
+  check('한 차례에 두 번 머물 수 없다', /이미 움직였습니다/.test(gs.room.stay(st[0].id) || '') && /이미 움직였습니다/.test(gs.room.move(st[0].id, { x: 0, y: 0 }) || ''));
+  gs.room.endTurn(st[0].id);
+  // 방 안에서 머물기: 직전에 추측한 방이 아니면 추측할 수 있고, 추측한 방이면 못 한다
+  gs.room._debug().setPosition(st[1].suspect, { room: 'hall' });
+  gs.room.roll(st[1].id);
+  check('방 안에서 제자리에 있으면 그 방에서 추측할 수 있다', gs.room.stay(st[1].id) === null && gs.room._debug().step === 'suggest' && gs.room.stateFor(st[1].id).you.canSuggest === true);
+  gs.room.suggest(st[1].id, 'plum', 'rope');
+  if (gs.room._debug().step === 'disprove') gs.room.show(gs.room._debug().pending.disproverId, gs.room._debug().pending.options[0]);
+  gs.room.endTurn(st[1].id);
+  gs.room.endTurn(st[2].id);
+  gs.room.roll(st[0].id); gs.room.endTurn(st[0].id);
+  gs.room.roll(st[1].id);
+  check('직전에 추측한 방에 그대로 머물면 추측은 못 하고 끝 단계다', gs.room._debug().positions[st[1].suspect].room === 'hall' && gs.room.stay(st[1].id) === null && gs.room._debug().step === 'end' && gs.room.stateFor(st[1].id).you.canSuggest === false);
+  gs.room.endTurn(st[1].id);
+  gs.room.dispose();
+
+
+  console.log('\n=== 정답 봉투 방(고발은 여기서만) ===');
+  const ge = game(['가', '나', '다']);
+  const e = ge.dbg.seats;
+  ge.room._debug().setSolution({ suspect: 'green', weapon: 'rope', room: 'kitchen' });
+  check('봉투 방은 문 칸에서 한 칸이면 들어갈 수 있다(위·아래·좌·우)', [[10, 7], [13, 16], [8, 11], [15, 13]].every(([x, y]) => computeReach({ x, y }, 1).rooms.includes('envelope')));
+  check('무도회장 문 칸은 봉투 방 문이 아니다(각자 자기 방으로만 들어간다)', !computeReach({ x: 11, y: 7 }, 1).rooms.includes('envelope') && computeReach({ x: 11, y: 7 }, 1).rooms.includes('ballroom'));
+  check('봉투 방에서는 8개 문 칸으로 나갈 수 있다', computeReach({ room: 'envelope' }, 1).cells.length === 8);
+  check('복도에서 고발하면 안내와 함께 거절되고 탈락하지 않는다', /정답 봉투 방/.test(ge.room.accuse(e[0].id, 'green', 'rope', 'kitchen') || '') && e[0].eliminated === false);
+  check('고발 버튼은 봉투 방에 있을 때만 켜진다', ge.room.stateFor(e[0].id).you.canAccuse === false);
+  ge.room._debug().setPosition(e[0].suspect, { x: 10, y: 7 });
+  ge.room.roll(e[0].id); ge.room._debug().setDice([1, 1]);
+  check('굴려서 봉투 방에 들어가면 끝 단계가 되고 고발할 수 있다', ge.room.move(e[0].id, { room: 'envelope' }) === null && ge.room._debug().step === 'end' && ge.room._debug().positions[e[0].suspect].room === 'envelope' && ge.room.stateFor(e[0].id).you.canAccuse === true);
+  check('봉투 방에서는 추측할 수 없다', ge.room.stateFor(e[0].id).you.canSuggest === false && /정답 봉투 방에서는 추측/.test(ge.room.suggest(e[0].id, 'plum', 'rope') || ''));
+  check('남의 고발 버튼은 켜지지 않는다', ge.room.stateFor(e[1].id).you.canAccuse === false);
+  ge.room.endTurn(e[0].id); ge.room.endTurn(e[1].id); ge.room.endTurn(e[2].id);
+  check('봉투 방 안에서 차례를 시작하면 굴리기 전에도 고발할 수 있다', turnName(ge) === e[0].nickname && ge.room.stateFor(e[0].id).you.canAccuse === true && ge.room.stateFor(e[0].id).you.canRoll === true);
+  ge.room.roll(e[0].id);
+  check('봉투 방에서 제자리에 있으면 추측 없이 끝 단계다', ge.room.stay(e[0].id) === null && ge.room._debug().step === 'end' && ge.room.stateFor(e[0].id).you.canSuggest === false && ge.room.stateFor(e[0].id).you.canAccuse === true);
+  check('봉투 방에서 맞게 고발하면 승리한다', ge.room.accuse(e[0].id, 'green', 'rope', 'kitchen') === null && ge.room.stateFor(e[1].id).result.winnerId === e[0].id);
+  ge.room.dispose();
 
   console.log('\n=== 고발 ===');
   const g7 = game(['가', '나', '다']);
@@ -215,6 +264,10 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g7.room._debug().setSolution({ suspect: 'green', weapon: 'rope', room: 'kitchen' });
   check('남의 차례에 고발하면 거절된다', /내 차례가 아닙니다/.test(g7.room.accuse(p[1].id, 'green', 'rope', 'kitchen') || ''));
   check('모르는 카드로 고발하면 거절된다', /알 수 없는/.test(g7.room.accuse(p[0].id, 'x', 'rope', 'kitchen') || '') && /알 수 없는 장소/.test(g7.room.accuse(p[0].id, 'green', 'rope', 'moon') || ''));
+  check('정답 봉투 방이 아닌 곳(복도)에서는 고발할 수 없다', /정답 봉투 방/.test(g7.room.accuse(p[0].id, 'green', 'rope', 'kitchen') || '') && p[0].eliminated === false && g7.room._debug().phase === 'playing');
+  g7.room._debug().setPosition(p[0].suspect, { room: 'hall' });
+  check('다른 방 안에서도 고발할 수 없다', /정답 봉투 방/.test(g7.room.accuse(p[0].id, 'green', 'rope', 'kitchen') || '') && p[0].eliminated === false);
+  g7.room._debug().setPosition(p[0].suspect, { room: 'envelope' });
   check('틀린 고발은 탈락이고 차례가 넘어간다(정답은 안 알려 준다)', g7.room.accuse(p[0].id, 'plum', 'rope', 'kitchen') === null && p[0].eliminated === true && turnName(g7) === p[1].nickname && g7.room.stateFor(p[1].id).result === null && g7.room.stateFor(p[1].id).phase === 'playing');
   check('탈락한 사람은 더 조작할 수 없다', /내 차례가 아닙니다/.test(g7.room.roll(p[0].id) || '') && g7.room.stateFor(p[0].id).you.eliminated === true && g7.room.stateFor(p[0].id).you.myTurn === false);
   g7.room.endTurn(p[1].id);
@@ -227,7 +280,9 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g7.room._debug().setPosition(p[1].suspect, { room: 'study' });
   g7.room._debug().seats[1].summoned = true;
   g7.room.suggest(p[1].id, 'white', 'wrench');
+  g7.room.show(p[0].id, 'wrench');
   check('탈락한 사람의 카드도 반박에 쓰인다', g7.room.stateFor(p[1].id).you.seen.some((x) => x.card === 'wrench' && x.byId === p[0].id));
+  g7.room._debug().setPosition(p[1].suspect, { room: 'envelope' });
   check('맞는 고발이면 승리하고 정답이 공개된다', g7.room.accuse(p[1].id, 'green', 'rope', 'kitchen') === null && g7.room.stateFor(p[2].id).phase === 'result' && g7.room.stateFor(p[2].id).result.winnerId === p[1].id && g7.room.stateFor(p[2].id).result.solution.room === 'kitchen');
   check('끝난 판의 참가자는 자동으로 준비된다', g7.room.stateFor(p[2].id).you.ready === true && g7.room.stateFor(p[2].id).canStart === true);
   check('끝난 판에서는 더 조작할 수 없다', /진행 중인 게임이 없습니다/.test(g7.room.roll(p[2].id) || ''));
@@ -237,6 +292,7 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   const g8 = game(['가', '나']);
   const duo = g8.dbg.seats;
   g8.room._debug().setSolution({ suspect: 'green', weapon: 'rope', room: 'kitchen' });
+  g8.room._debug().setPosition(duo[0].suspect, { room: 'envelope' });
   g8.room.accuse(duo[0].id, 'plum', 'rope', 'kitchen');
   check('둘이 하다 한 명이 틀리면 남은 사람이 이긴다', g8.room.stateFor(duo[1].id).phase === 'result' && g8.room.stateFor(duo[1].id).result.winnerId === duo[1].id && g8.room.stateFor(duo[1].id).result.reason === 'lastStanding');
   g8.room.dispose();
@@ -251,14 +307,114 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   check('문 칸에 다른 말이 서 있으면 그 문으로 못 들어가고 칸에도 못 선다', !reach9.rooms.includes('ballroom') && !reach9.cells.some((c) => c.x === 7 && c.y === 3));
   g9.room.dispose();
 
+  console.log('\n=== 시작 전에 말 고르기 ===');
+  const gp = createClueRoom({ random: lcg(3), autoEndMs: 0 });
+  const pid = ['가', '나', '다'].map((n) => gp.join({ nickname: n }).playerId);
+  const ghost = gp.join({ nickname: '구경' }).playerId; // 안 뛰는 사람
+  check('시작 전에 말을 고를 수 있고 모두에게 보인다', gp.pickSuspect(pid[0], 'plum') === null && gp.stateFor(pid[0]).you.pick === 'plum' && gp.stateFor(pid[1]).picks.plum.id === pid[0] && gp.stateFor(pid[1]).picks.plum.nickname === '가');
+  check('다른 사람이 고른 말은 고를 수 없다', /이미 가님이 골랐습니다/.test(gp.pickSuspect(pid[1], 'plum') || '') && gp.stateFor(pid[1]).you.pick === null);
+  check('모르는 말은 거절된다', /알 수 없는 말/.test(gp.pickSuspect(pid[1], 'nobody') || ''));
+  check('고른 것을 풀면 다른 사람이 고를 수 있다', gp.pickSuspect(pid[0], null) === null && gp.pickSuspect(pid[1], 'plum') === null && gp.pickSuspect(pid[1], null) === null);
+  gp.pickSuspect(pid[0], 'scarlett'); gp.pickSuspect(pid[2], 'green'); gp.pickSuspect(ghost, 'peacock');
+  for (const id of pid) gp.setReady(id, true);
+  check('시작하면 고른 말을 그대로 받고 안 고른 사람은 남은 말을 받는다(겹침 없음)', (() => {
+    if (gp.begin(pid[0]) !== null) return false;
+    const seat = (id) => gp._debug().seats.find((x) => x.id === id);
+    const got = gp._debug().seats.map((x) => x.suspect);
+    return seat(pid[0]).suspect === 'scarlett' && seat(pid[2]).suspect === 'green' && new Set(got).size === 3 && !['scarlett', 'green'].includes(seat(pid[1]).suspect);
+  })());
+  check('안 뛰는 사람이 골라 둔 말은 피해서 나눈다', gp._debug().seats.every((x) => x.suspect !== 'peacock'));
+  check('게임 중에는 말을 바꿀 수 없다', /게임이 끝난 뒤/.test(gp.pickSuspect(pid[0], 'white') || ''));
+  gp.dispose();
+
+  console.log('\n=== 자동 차례 종료(방에 안 들어가거나 추측이 끝나면 곧 넘어간다) ===');
+  const ga = game(['가', '나', '다'], { autoEndMs: 50 });
+  const au = ga.dbg.seats;
+  ga.room.roll(au[0].id); ga.room._debug().setDice([1, 1]);
+  const cell0 = ga.room.stateFor(au[0].id).you.reach.cells[0];
+  ga.room.move(au[0].id, cell0);
+  check('복도로 이동하면 자동 종료가 예약되고 남은 시각이 상태에 실린다', ga.room._debug().step === 'end' && typeof ga.room.stateFor(au[1].id).autoEndsAt === 'number');
+  await sleep(150);
+  check('잠시 뒤 차례가 자동으로 다음 사람에게 넘어간다', ga.room._debug().turn === 1 && ga.room._debug().step === 'start' && ga.room.stateFor(au[1].id).autoEndsAt === null);
+  ga.room._debug().setPosition(au[1].suspect, { x: 7, y: 3 });
+  ga.room.roll(au[1].id); ga.room._debug().setDice([1, 2]);
+  ga.room.move(au[1].id, { room: 'ballroom' });
+  await sleep(150);
+  check('방에 들어가 추측을 고르는 동안에는 자동으로 넘어가지 않는다', ga.room._debug().turn === 1 && ga.room._debug().step === 'suggest');
+  for (const seat of au) ga.room._debug().setHand(seat.id, []);
+  ga.room.suggest(au[1].id, 'plum', 'rope');
+  check('추측이 끝나면 끝 단계가 되고', ga.room._debug().step === 'end' && typeof ga.room.stateFor(au[1].id).autoEndsAt === 'number');
+  await sleep(150);
+  check('잠시 뒤 차례가 자동으로 넘어간다(카드를 본 뒤도 마찬가지)', ga.room._debug().turn === 2 && ga.room._debug().step === 'start');
+  ga.room._debug().setPosition(au[2].suspect, { x: 10, y: 7 });
+  ga.room.roll(au[2].id); ga.room._debug().setDice([1, 1]);
+  ga.room.move(au[2].id, { room: 'envelope' });
+  await sleep(150);
+  check('정답 봉투 방에서는 고발할 수 있게 자동으로 넘어가지 않는다', ga.room._debug().turn === 2 && ga.room._debug().step === 'end' && ga.room.stateFor(au[2].id).you.canAccuse === true && ga.room.stateFor(au[2].id).autoEndsAt === null);
+  ga.room.dispose();
+
+  const gm = game(['가', '나'], { autoEndMs: 80 });
+  const mm = gm.dbg.seats;
+  gm.room.roll(mm[0].id); gm.room._debug().setDice([1, 1]);
+  gm.room.move(mm[0].id, gm.room.stateFor(mm[0].id).you.reach.cells[0]);
+  gm.room.endTurn(mm[0].id);
+  await sleep(200);
+  check('직접 차례를 끝내면 예약된 자동 종료가 취소되어 다음 사람 차례를 건드리지 않는다', gm.room._debug().turn === 1 && gm.room._debug().step === 'start');
+  gm.room.dispose();
+
+  console.log('\n=== 10초 동안 안 굴리면 서버가 대신 진행 ===');
+  const gt = game(['가', '나']);
+  check('굴리기 전 제한시간(기본 10초)이 상태에 실린다', gt.room.stateFor(gt.id('가')).autoRollSec === 10 && gt.room.stateFor(gt.id('가')).turnEndsAt - Date.now() <= 10000 + 50 && gt.room.stateFor(gt.id('가')).turnEndsAt - Date.now() > 8000);
+  gt.room.dispose();
+
+  // 가장 가까운 방: 눈이 12(6+6)라 주방(3걸음)·무도회장(5걸음) 모두 닿지만 가까운 주방을 고른다
+  const gn = game(['가', '나'], { random: () => 0.99, autoRollMs: 40, turnTimeoutMs: 0, disproveTimeoutMs: 0 });
+  const nn = gn.dbg.seats;
+  gn.room._debug().setPosition(nn[0].suspect, { x: 6, y: 6 });
+  await sleep(200);
+  const sn = gn.room.stateFor(nn[0].id);
+  check('안 굴리면 대신 굴려 가장 가까운 방(주방)으로 들어간다', gn.room._debug().positions[nn[0].suspect].room === 'kitchen' && gn.room._debug().dice.join() === '6,6');
+  check('그 방에서 자동으로 추측한다(내가 모르는 범인·흉기로)', !!sn.lastSuggestion && sn.lastSuggestion.byId === nn[0].id && sn.lastSuggestion.room === 'kitchen' && !nn[0].hand.includes(sn.lastSuggestion.suspect) && !nn[0].hand.includes(sn.lastSuggestion.weapon));
+  check('자동으로 한 차례는 연속 시간 초과로 센다', nn[0].idle === 1);
+  gn.room.dispose();
+
+  // 이미 받은 카드는 피해서 추측한다
+  const gk = game(['가', '나'], { random: () => 0.99, autoRollMs: 40, turnTimeoutMs: 0, disproveTimeoutMs: 0 });
+  const kk = gk.dbg.seats;
+  gk.room._debug().setHand(kk[0].id, ['mustard']);
+  kk[0].seen.push({ card: 'plum', by: '나', byId: kk[1].id, suspect: 'plum', weapon: 'rope', room: 'hall' });
+  gk.room._debug().setPosition(kk[0].suspect, { x: 6, y: 6 });
+  await sleep(200);
+  const lk = gk.room.stateFor(kk[0].id).lastSuggestion;
+  check('내 카드·받은 카드는 빼고 아직 모르는 것만 골라 추측한다', !!lk && !['mustard', 'plum'].includes(lk.suspect));
+  gk.room.dispose();
+
+  // 눈이 낮아 방에 못 들어가면 갈 수 있는 무작위 칸으로 이동한다(눈 1+1=2)
+  const gl = game(['가', '나'], { random: () => 0, autoRollMs: 40, turnTimeoutMs: 0, disproveTimeoutMs: 0 });
+  const ll = gl.dbg.seats;
+  gl.room._debug().setPosition(ll[0].suspect, { x: 0, y: 16 });
+  await sleep(200);
+  const at = gl.room._debug().positions[ll[0].suspect];
+  check('눈이 낮아 방에 못 가면 갈 수 있는 복도 칸으로 이동하고 추측은 하지 않는다', at.x !== undefined && Math.abs(at.x - 0) + Math.abs(at.y - 16) <= 2 && !(at.x === 0 && at.y === 16) && gl.room.stateFor(ll[0].id).lastSuggestion === null && gl.room._debug().step === 'end');
+  gl.room.dispose();
+
+  // 직접 굴리면 10초 타이머는 사라진다(대신 굴리지 않는다)
+  const gh = game(['가', '나'], { autoRollMs: 60, turnTimeoutMs: 0 });
+  const hh = gh.dbg.seats;
+  gh.room.roll(hh[0].id);
+  const diceBefore = gh.room._debug().dice.join();
+  await sleep(200);
+  check('직접 굴린 차례는 대신 진행하지 않는다(굴림이 바뀌지 않고 이동 대기 그대로다)', gh.room._debug().step === 'move' && gh.room._debug().dice.join() === diceBefore && hh[0].idle === 0);
+  gh.room.dispose();
+
   console.log('\n=== 제한시간·퇴장 ===');
-  const t = game(['가', '나', '다'], { turnTimeoutMs: 40, disproveTimeoutMs: 40 });
+  const t = game(['가', '나', '다'], { turnTimeoutMs: 40, disproveTimeoutMs: 40, autoRollMs: 40 });
   const t0 = turnName(t);
-  await sleep(120);
+  await sleep(400);
   check('차례 제한시간이 지나면 차례가 넘어간다', turnName(t) !== t0 || t.room._debug().phase !== 'playing');
   t.room.dispose();
 
-  const idle = game(['가', '나'], { turnTimeoutMs: 25, disproveTimeoutMs: 25 });
+  const idle = game(['가', '나'], { turnTimeoutMs: 25, disproveTimeoutMs: 25, autoRollMs: 25 });
   await sleep(400);
   const gone = idle.dbg.seats.filter((s) => s.left).length;
   check('3번 연속 시간을 넘기면 게임에서 빠지고, 남은 사람이 이긴다', gone >= 1 && idle.room._debug().phase === 'result' && idle.room.stateFor(idle.id('가')).result.reason === 'lastStanding');
@@ -269,7 +425,8 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   dc.room._debug().setHand(d[1].id, ['dagger', 'candlestick']);
   dc.room._debug().setPosition(d[0].suspect, { room: 'hall' });
   dc.room._debug().seats[0].summoned = true;
-  dc.room.suggest(d[0].id, 'plum', 'dagger'); // 1번이 한 장만 가졌으니 바로 끝난다
+  dc.room.suggest(d[0].id, 'plum', 'dagger'); // 1번이 한 장만 가졌어도 직접 눌러 보여 준다
+  dc.room.show(d[1].id, 'dagger');
   dc.room._debug().seats[0].summoned = false;
   dc.room.endTurn(d[0].id);
   dc.room.leave(d[2].id);

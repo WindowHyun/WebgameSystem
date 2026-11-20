@@ -104,7 +104,9 @@ const CARD_GAME_MESSAGES = {
   clue: {
     ...CARD_COMMON,
     roll: () => null,
+    pick: (m) => (m.suspect === undefined || m.suspect === null || str(m.suspect, LIMITS.id) ? null : 'suspect'),
     passage: () => null,
+    stay: () => null,
     move: (m) => (str(m.room, LIMITS.id) || (Number.isInteger(m.x) && Number.isInteger(m.y) && m.x >= 0 && m.x < 100 && m.y >= 0 && m.y < 100) ? null : 'room/x/y'),
     suggest: (m) => (str(m.suspect, LIMITS.id) && str(m.weapon, LIMITS.id) ? null : 'suspect/weapon'),
     show: (m) => (str(m.card, LIMITS.id) ? null : 'card'),

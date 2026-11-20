@@ -8,18 +8,24 @@
  *   - 자기 차례에 주사위 2개를 굴려 나온 눈의 합까지 복도 칸을 걸어 이동한다. 다른 사람의 말이 선 칸은 지나갈 수도,
  *     설 수도 없고, 문 칸이 막히면 그 문으로는 방에 들어갈 수 없다. 방에 들어가면 이동이 끝난다.
  *   - 모서리 방(주방↔연구실, 온실↔라운지)은 주사위를 굴리는 대신 비밀 통로로 건너갈 수 있다.
+ *   - 주사위를 굴린 뒤에도 움직이지 않고 제자리에 있을 수 있다. 방 안이라면 직전에 추측한 방이 아닌 경우에만 거기서 추측할 수 있다
+ *     (같은 방에서 연달아 추측하려면 다른 사람의 추측에 불려 와야 한다).
  *   - 방에 들어가면 그 방에서 "범인 + 흉기"를 추측한다. 추측한 범인의 말과 흉기가 그 방으로 불려 온다.
  *     추측한 사람 다음 차례부터 시계 방향으로, 세 장 중 하나라도 가진 첫 사람이 한 장을 골라 추측한 사람에게만 몰래 보여 준다.
  *     아무도 없으면 넘어간다. 다른 사람의 추측으로 불려 온 사람은 다음 차례에 주사위를 굴리지 않고 그 방에서 바로 추측할 수 있다.
- *   - 자기 차례에는 언제든 고발(범인·흉기·장소)할 수 있다. 맞히면 이기고, 틀리면 탈락한다.
+ *   - 고발(범인·흉기·장소)은 주사위로 가운데 "정답 봉투" 방에 들어가야 할 수 있다(방 안에서는 추측을 못 한다). 맞히면 이기고, 틀리면 탈락한다.
  *     탈락한 사람은 더 움직이지 않지만, 그 사람의 카드는 계속 다른 사람의 추측을 반박한다.
  *
  * [기본값] 원작에 없는 온라인 사정은 이렇게 정했다.
  *   - 주사위와 카드 나누기는 서버가 한다. 카드는 본인에게만 보이고, 보여 준 카드는 추측한 사람에게만 간다.
  *     비밀 봉투의 답은 게임이 끝날 때까지 어떤 화면에도 가지 않는다.
- *   - 2~6명이 한다. 말(범인)은 무작위로 나눠 받고, 차례는 스칼렛·머스터드·화이트·그린·피콕·플럼 순이다.
+ *   - 2~6명이 한다. 말(범인)은 시작 전에 원하는 것을 고를 수 있고(한 말은 한 사람만), 고르지 않은 사람은 남은 말을 무작위로 받는다.
+ *     차례는 스칼렛·머스터드·화이트·그린·피콕·플럼 순이다.
  *     참가자가 맡지 않은 말도 보드에 서 있고 막는 말이 된다.
- *   - 보여 줄 카드가 한 장뿐이면 서버가 대신 보여 준다. 두 장 이상이면 가진 사람이 고른다.
+ *   - 보여 줄 카드가 한 장뿐이어도 가진 사람이 직접 눌러 보여 준다(한 장인지 두 장인지 시간으로 드러나지 않게). 시간이 지나면 서버가 첫 번째를 대신 보여 준다.
+ *   - 차례가 와도 10초 동안 주사위를 굴리지 않으면 서버가 대신 굴리고, 가장 가까운 방으로 들어가 아직 확인하지 않은 범인·흉기로 추측한다.
+ *     주사위가 낮아 방에 못 들어가면 갈 수 있는 곳 중 무작위 칸으로 이동한다. 이렇게 자동으로 진행된 차례가 3번 연속이면 게임에서 빠진다.
+ *   - 방에 들어가지 않고 끝난 이동(복도·제자리)이나 추측이 끝난 차례는 3초 뒤에 자동으로 끝난다(정답 봉투 방에 있을 때는 고발할 수 있게 기다린다).
  *   - 차례는 제한시간(기본 120초), 카드를 고르는 것은 45초다. 넘기면 차례는 넘어가고 카드는 서버가 첫 번째를 보여 준다.
  *     3번 연속 시간을 넘기면 게임에서 빠진다. 보스 키로 화면을 가린 사람을 기다리는 동안 제한시간은 멈춘다.
  *   - 연결이 끊긴 사람이 유예(기본 30초) 안에 돌아오지 않으면 게임에서 빠진다. 빠진 사람의 카드는 서버가 대신 보여 준다.
@@ -72,6 +78,12 @@ const ROOMS = [
   { key: 'study', label: '연구실', x1: 17, y1: 21, x2: 23, y2: 24, doors: [[20, 20], [16, 22]], passage: 'kitchen' },
 ];
 
+// 가운데 정답 봉투 자리도 걸어서 들어가는 방이다. 고발은 여기서만 할 수 있다(카드 장소가 아니고 추측도 못 한다).
+const ENVELOPE = {
+  key: 'envelope', label: '정답 봉투', x1: 9, y1: 8, x2: 14, y2: 15,
+  doors: [[10, 7], [13, 7], [10, 16], [13, 16], [8, 11], [8, 13], [15, 11], [15, 13]],
+};
+
 const SUSPECT_KEYS = SUSPECTS.map((s) => s.key);
 const WEAPON_KEYS = WEAPONS.map((w) => w.key);
 const ROOM_KEYS = ROOMS.map((r) => r.key);
@@ -81,8 +93,9 @@ const CARDS = [
   ...ROOMS.map((r) => ({ key: r.key, label: r.label, kind: 'room' })),
 ];
 const CARD_KEYS = CARDS.map((c) => c.key);
-const labelOf = (key) => (CARDS.find((c) => c.key === key) || { label: key }).label;
+const labelOf = (key) => (key === 'envelope' ? ENVELOPE.label : (CARDS.find((c) => c.key === key) || { label: key }).label);
 const roomByKey = (key) => ROOMS.find((r) => r.key === key);
+const nodeByKey = (key) => (key === 'envelope' ? ENVELOPE : roomByKey(key));
 
 const cellKey = (x, y) => `${x},${y}`;
 const inside = (rect, x, y) => x >= rect.x1 && x <= rect.x2 && y >= rect.y1 && y <= rect.y2;
@@ -93,7 +106,7 @@ function isCorridor(x, y) {
 }
 // 문 칸 -> 그 칸에서 들어갈 수 있는 방
 const DOOR_ROOMS = new Map();
-for (const room of ROOMS) {
+for (const room of [...ROOMS, ENVELOPE]) {
   for (const [x, y] of room.doors) {
     const key = cellKey(x, y);
     DOOR_ROOMS.set(key, [...(DOOR_ROOMS.get(key) || []), room.key]);
@@ -105,6 +118,7 @@ const MAP = {
   w: GRID.w,
   h: GRID.h,
   center: CENTER,
+  centerDoors: ENVELOPE.doors.map(([x, y]) => ({ x, y })),
   rooms: ROOMS.map((r) => ({ key: r.key, label: r.label, x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2, doors: r.doors.map(([x, y]) => ({ x, y })), passage: r.passage || null })),
 };
 
@@ -118,7 +132,7 @@ function computeReach(from, steps, blocked) {
   const dist = new Map([[start, 0]]);
   const queue = [start];
   const neighbors = (node) => {
-    if (node.startsWith('r:')) return roomByKey(node.slice(2)).doors.map(([x, y]) => cellKey(x, y));
+    if (node.startsWith('r:')) return nodeByKey(node.slice(2)).doors.map(([x, y]) => cellKey(x, y));
     const [x, y] = node.split(',').map(Number);
     const next = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].filter(([nx, ny]) => isCorridor(nx, ny)).map(([nx, ny]) => cellKey(nx, ny));
     for (const room of DOOR_ROOMS.get(node) || []) next.push(`r:${room}`);
@@ -136,12 +150,13 @@ function computeReach(from, steps, blocked) {
   }
   const cells = [];
   const rooms = [];
+  const roomDist = {}; // 방까지 걸음 수(가까운 방을 고르는 데 쓴다)
   for (const node of dist.keys()) {
     if (node === start) continue;
-    if (node.startsWith('r:')) rooms.push(node.slice(2));
+    if (node.startsWith('r:')) { rooms.push(node.slice(2)); roomDist[node.slice(2)] = dist.get(node); }
     else { const [x, y] = node.split(',').map(Number); cells.push({ x, y }); }
   }
-  return { cells, rooms };
+  return { cells, rooms, roomDist };
 }
 
 function createClueRoom(options) {
@@ -151,6 +166,8 @@ function createClueRoom(options) {
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const random = opts.random || Math.random;
   const turnTimeoutMs = Number.isFinite(opts.turnTimeoutMs) ? opts.turnTimeoutMs : 120000;
+  const autoRollMs = Number.isFinite(opts.autoRollMs) ? opts.autoRollMs : 10000;
+  const autoEndMs = Number.isFinite(opts.autoEndMs) ? opts.autoEndMs : 3000;
   const disproveTimeoutMs = Number.isFinite(opts.disproveTimeoutMs) ? opts.disproveTimeoutMs : 45000;
   const disconnectGraceMs = Number.isFinite(opts.disconnectGraceMs) ? opts.disconnectGraceMs : 30000;
   const safeTimeout = createSafeTimeout('클루');
@@ -171,6 +188,7 @@ function createClueRoom(options) {
   let suggestionSeq = 0;
   let result = null;
   const dropTimers = new Map();
+  let autoEnd = null;  // { at, timer, seatId } 방에 안 들어가고 끝난 이동·추측이 끝난 차례를 곧 넘기는 타이머
 
   const makeId = () => crypto.randomBytes(8).toString('hex');
   const makeToken = () => crypto.randomBytes(18).toString('hex');
@@ -205,7 +223,31 @@ function createClueRoom(options) {
     const turned = pause.sync();
     if (turned && turned.paused) act(turned.paused.map(nameOf).join(', '), '화면 가림 - 제한시간 멈춤');
     else if (turned) act('진행', `제한시간 다시 흐름 (${Math.round(turned.resumedAfterMs / 1000)}초 멈춤${turned.expired ? ', 멈출 수 있는 최대 시간 초과' : ''})`);
+    syncAutoEnd();
     notify();
+  }
+
+  /** 끝 단계(복도에 서거나 추측이 끝남)면 잠깐 뒤 차례를 자동으로 넘긴다. 정답 봉투 방에서는 고발할 수 있게 기다린다. */
+  function syncAutoEnd() {
+    const seat = currentSeat();
+    const want = autoEndMs > 0 && phase === 'playing' && step === 'end' && !!seat && roomOf(seat) !== 'envelope';
+    if (!want) {
+      if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
+      return;
+    }
+    if (autoEnd && autoEnd.seatId === seat.id) return;
+    if (autoEnd) clearTimeout(autoEnd.timer);
+    const seatId = seat.id;
+    const timer = safeTimeout(() => {
+      autoEnd = null;
+      const now = currentSeat();
+      if (phase !== 'playing' || step !== 'end' || !now || now.id !== seatId) return;
+      note(`${nameOf(seatId)}님의 차례가 자동으로 끝났습니다.`);
+      act(nameOf(seatId), '차례 자동 종료');
+      advance();
+      changed();
+    }, autoEndMs);
+    autoEnd = { at: Date.now() + autoEndMs, timer, seatId };
   }
 
   const uniqueNickname = (value, exceptId) => uniqueName(new Set(players.filter((p) => p.id !== exceptId).map((p) => p.nickname)), value, makeId);
@@ -216,7 +258,7 @@ function createClueRoom(options) {
     clock.clear();
     const id = waitingOn();
     if (!id) return;
-    const ms = step === 'disprove' ? disproveTimeoutMs : turnTimeoutMs;
+    const ms = step === 'disprove' ? disproveTimeoutMs : step === 'start' ? autoRollMs : turnTimeoutMs;
     if (ms <= 0) return;
     clock.start(() => autoPlay(id), ms);
   }
@@ -301,7 +343,7 @@ function createClueRoom(options) {
       if (!matches.length) { passed.push(seat.id); continue; }
       pending.passed = passed;
       lastSuggestion.passed = passed.slice();
-      if (matches.length === 1 || seat.left) { revealCard(seat, matches[0]); return; }
+      if (seat.left) { revealCard(seat, matches[0]); return; }
       pending.disproverId = seat.id;
       pending.options = matches;
       step = 'disprove';
@@ -317,18 +359,48 @@ function createClueRoom(options) {
     armTimer();
   }
 
-  /** 제한시간이 지났다. 카드를 기다리던 중이면 첫 번째 카드를 보여 주고, 아니면 차례를 넘긴다. */
+  /** 이 사람이 아직 확인하지 못한 카드만 남긴 후보(내 카드·받은 카드는 뺀다). 다 확인했으면 전체. */
+  function unknownKeys(seat, keys) {
+    const known = new Set(seat.hand.concat(seat.seen.map((x) => x.card)));
+    const open = keys.filter((k) => !known.has(k));
+    return open.length ? open : keys;
+  }
+
+  /** 대신 진행: 굴리고 → 가장 가까운 방으로(못 가면 갈 수 있는 무작위 칸으로) → 방이면 확인 못 한 범인·흉기로 추측한다. */
+  function autoRun(seat) {
+    const id = seat.id;
+    if (step === 'start') roll(id);
+    if (step === 'move') {
+      const reach = reachOf(seat);
+      const rooms = reach.rooms.filter((r) => r !== 'envelope');
+      if (rooms.length) {
+        const nearest = Math.min(...rooms.map((r) => reach.roomDist[r]));
+        move(id, { room: pick(rooms.filter((r) => reach.roomDist[r] === nearest)) });
+      } else if (reach.cells.length) {
+        move(id, pick(reach.cells));
+      } else stay(id);
+    }
+    if (step === 'suggest') suggest(id, pick(unknownKeys(seat, SUSPECT_KEYS)), pick(unknownKeys(seat, WEAPON_KEYS)));
+  }
+
+  /** 제한시간이 지났다. 카드를 기다리던 중이면 첫 번째 카드를 보여 주고, 내 차례면 서버가 대신 진행한다. */
   function autoPlay(id) {
     const seat = seatOf(id);
     if (!seat || waitingOn() !== id) return;
-    seat.idle += 1;
-    act(nameOf(id), `시간 초과 (${seat.idle}/${IDLE_LIMIT})`);
+    const idle = seat.idle + 1;
+    act(nameOf(id), `시간 초과 (${idle}/${IDLE_LIMIT})`);
     if (step === 'disprove') {
       note(`${nameOf(id)}님의 시간이 지나 카드를 대신 보여 주었습니다.`);
+      seat.idle = idle;
       revealCard(seat, pending.options[0]);
-    } else {
+    } else if (step === 'end') {
       note(`${nameOf(id)}님의 시간이 지나 차례를 넘깁니다.`);
       advance();
+      seat.idle = idle;
+    } else {
+      note(`${nameOf(id)}님이 제때 진행하지 않아 서버가 대신 진행합니다.`);
+      autoRun(seat);
+      seat.idle = idle; // 직접 한 행동이 아니라서 연속 시간 초과로 센다(위 함수들이 0으로 돌려놓는다)
     }
     if (phase === 'playing' && seat.idle >= IDLE_LIMIT && !seat.left) {
       note(`${nameOf(id)}님이 ${IDLE_LIMIT}번 연속 시간을 넘겨 게임에서 빠집니다.`);
@@ -370,6 +442,7 @@ function createClueRoom(options) {
   function resetRoom() {
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
+    if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
     pause.reset();
     players.length = 0; history.length = 0; seats = []; turn = 0; phase = 'lobby'; result = null;
     step = 'start'; dice = null; moveLeft = 0; solution = null; positions = {}; weaponRooms = {}; pending = null; lastSuggestion = null;
@@ -388,7 +461,7 @@ function createClueRoom(options) {
       return { playerId: restored.id, token: restored.token, restored: true };
     }
     if (players.length >= ROOM_CAPACITY) return { error: `방이 가득 찼습니다. (최대 ${ROOM_CAPACITY}명)` };
-    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), connected: true, ready: false };
+    const player = { id: makeId(), token: makeToken(), nickname: uniqueNickname(clean), connected: true, ready: false, pick: null };
     players.push(player);
     act(player.nickname, `입장${phase === 'playing' ? ' (진행 중 - 다음 게임부터)' : ''}`);
     changed();
@@ -451,6 +524,20 @@ function createClueRoom(options) {
     return null;
   }
 
+  /** 시작 전에 원하는 말(범인)을 고른다. 한 말은 한 사람만 고를 수 있다. 빈 값이면 고른 것을 푼다. */
+  function pickSuspect(id, key) {
+    if (phase === 'playing') return '게임이 끝난 뒤에 말을 고를 수 있습니다.';
+    const player = find(id);
+    if (!player) return '참가자를 찾을 수 없습니다.';
+    if (key === null || key === undefined || key === '') { player.pick = null; changed(); return null; }
+    if (!SUSPECT_KEYS.includes(key)) return '알 수 없는 말입니다.';
+    const holder = players.find((p) => p.pick === key && p.id !== id);
+    if (holder) return `${labelOf(key)}은(는) 이미 ${holder.nickname}님이 골랐습니다.`;
+    player.pick = key;
+    changed();
+    return null;
+  }
+
   const readyPlayers = () => players.filter((p) => p.connected && p.ready);
 
   function begin(id) {
@@ -461,12 +548,18 @@ function createClueRoom(options) {
     if (going.length < MIN_PLAYERS) return `준비한 참가자가 ${MIN_PLAYERS}명 이상이어야 합니다. 준비를 눌러 주세요.`;
     if (going.length > MAX_PLAYERS) return `클루는 ${MAX_PLAYERS}명까지 할 수 있습니다. 준비한 사람을 ${MAX_PLAYERS}명 이하로 맞춰 주세요.`;
 
-    // 말은 무작위로 나눠 받고, 차례는 스칼렛부터 정해진 순서로 돈다.
-    const characters = shuffle(SUSPECT_KEYS).slice(0, going.length).sort((a, b) => SUSPECT_KEYS.indexOf(a) - SUSPECT_KEYS.indexOf(b));
-    const people = shuffle(going);
-    seats = characters.map((suspect, index) => ({
-      id: people[index].id, nickname: people[index].nickname, suspect, hand: [], seen: [], eliminated: false, left: false, idle: 0, summoned: false,
+    // 고른 말은 그대로, 안 고른 사람은 남은 말을 무작위로 받는다(안 뛰는 사람이 고른 말은 되도록 피한다). 차례는 스칼렛부터 정해진 순서로 돈다.
+    const taken = new Set(going.filter((p) => p.pick).map((p) => p.pick));
+    const others = new Set(players.filter((p) => !going.includes(p) && p.pick).map((p) => p.pick));
+    const open = shuffle(SUSPECT_KEYS.filter((k) => !taken.has(k)));
+    const free = open.filter((k) => !others.has(k)).concat(open.filter((k) => others.has(k)));
+    const assigned = going.map((p) => ({ player: p, suspect: p.pick || free.shift() }));
+    assigned.sort((a, b) => SUSPECT_KEYS.indexOf(a.suspect) - SUSPECT_KEYS.indexOf(b.suspect));
+    seats = assigned.map(({ player, suspect }) => ({
+      id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, left: false, idle: 0, summoned: false, suggestedIn: null,
     }));
+    for (const seat of seats) find(seat.id).pick = seat.suspect; // 다음 판도 같은 말
+    for (const p of players) { if (!going.includes(p) && p.pick && seats.some((x) => x.suspect === p.pick)) p.pick = null; }
     solution = { suspect: pick(SUSPECT_KEYS), weapon: pick(WEAPON_KEYS), room: pick(ROOM_KEYS) };
     const rest = shuffle(CARD_KEYS.filter((key) => key !== solution.suspect && key !== solution.weapon && key !== solution.room));
     rest.forEach((card, index) => seats[index % seats.length].hand.push(card));
@@ -527,6 +620,7 @@ function createClueRoom(options) {
     if (!room || !room.passage) return '비밀 통로가 있는 모서리 방에 있어야 합니다.';
     positions[seat.suspect] = { room: room.passage };
     seat.summoned = false;
+    seat.suggestedIn = null;
     step = 'suggest';
     note(`${seat.nickname}님이 비밀 통로로 ${labelOf(from)}에서 ${labelOf(room.passage)}(으)로 건너갔습니다.`);
     act(seat.nickname, `비밀 통로 ${labelOf(from)} → ${labelOf(room.passage)}`);
@@ -545,17 +639,39 @@ function createClueRoom(options) {
     if (typeof target.room === 'string') {
       if (!reach.rooms.includes(target.room)) return '그 방까지는 갈 수 없습니다. (거리가 멀거나 문이 막혀 있습니다)';
       positions[seat.suspect] = { room: target.room };
+      seat.suggestedIn = null;
       moveLeft = 0;
-      step = 'suggest';
+      step = target.room === 'envelope' ? 'end' : 'suggest';
       note(`${seat.nickname}님이 ${labelOf(target.room)}(으)로 들어갔습니다.`);
       act(seat.nickname, `이동 → ${labelOf(target.room)}`);
     } else {
       if (!Number.isInteger(target.x) || !Number.isInteger(target.y) || !reach.cells.some((c) => c.x === target.x && c.y === target.y)) return '그 칸까지는 갈 수 없습니다.';
       positions[seat.suspect] = { x: target.x, y: target.y };
+      seat.suggestedIn = null;
       moveLeft = 0;
       step = 'end';
       act(seat.nickname, `이동 → (${target.x}, ${target.y})`);
     }
+    armTimer();
+    changed();
+    return null;
+  }
+
+  /** 굴린 뒤 움직이지 않고 제자리에 있는다. 방 안이면 직전에 추측한 방이 아닐 때만 추측 단계가 된다. */
+  function stay(id) {
+    const seat = turnOf(id);
+    if (typeof seat === 'string') return seat;
+    if (step !== 'move') return step === 'start' ? '먼저 주사위를 굴려 주세요.' : '이번 차례에는 이미 움직였습니다.';
+    const room = roomOf(seat);
+    moveLeft = 0;
+    if (room && room !== 'envelope' && seat.suggestedIn !== room) {
+      step = 'suggest';
+      note(`${seat.nickname}님이 ${labelOf(room)}에 그대로 머뭅니다.`);
+    } else {
+      step = 'end';
+      note(`${seat.nickname}님이 제자리에 머뭅니다.`);
+    }
+    act(seat.nickname, `제자리 ${room ? labelOf(room) : '복도'}`);
     armTimer();
     changed();
     return null;
@@ -566,16 +682,18 @@ function createClueRoom(options) {
     if (typeof seat === 'string') return seat;
     const room = roomOf(seat);
     const canAtStart = step === 'start' && seat.summoned && !!room;
+    if (room === 'envelope') return '정답 봉투 방에서는 추측할 수 없습니다. 범인·흉기·장소를 고발하세요.';
     if (step !== 'suggest' && !canAtStart) return room ? '이번 차례에는 추측할 수 없습니다. (방에 들어왔을 때 한 번만 할 수 있습니다)' : '추측은 방 안에서만 할 수 있습니다.';
     if (!SUSPECT_KEYS.includes(suspect)) return '알 수 없는 범인입니다.';
     if (!WEAPON_KEYS.includes(weapon)) return '알 수 없는 흉기입니다.';
     seat.summoned = false;
+    seat.suggestedIn = room;
     // 추측한 범인의 말과 흉기가 그 방으로 불려 온다. 말이 참가자의 것이면 그 사람은 다음 차례에 바로 추측할 수 있다.
     const movedFrom = positions[suspect].room;
     positions[suspect] = { room };
     weaponRooms[weapon] = room;
     const owner = seats.find((s) => s.suspect === suspect);
-    if (owner && owner !== seat && movedFrom !== room) owner.summoned = true;
+    if (owner && owner !== seat && movedFrom !== room) { owner.summoned = true; owner.suggestedIn = null; }
     suggestionSeq += 1;
     lastSuggestion = { seq: suggestionSeq, byId: seat.id, suspect, weapon, room, shownBy: null, passed: [] };
     pending = { suggesterId: seat.id, suspect, weapon, room, disproverId: null, options: [], passed: [] };
@@ -603,6 +721,7 @@ function createClueRoom(options) {
     if (!SUSPECT_KEYS.includes(suspect)) return '알 수 없는 범인입니다.';
     if (!WEAPON_KEYS.includes(weapon)) return '알 수 없는 흉기입니다.';
     if (!ROOM_KEYS.includes(room)) return '알 수 없는 장소입니다.';
+    if (roomOf(seat) !== 'envelope') return '고발하려면 주사위로 가운데 정답 봉투 방에 들어가야 합니다.';
     const text = `${labelOf(suspect)}, ${labelOf(weapon)}, ${labelOf(room)}`;
     if (suspect === solution.suspect && weapon === solution.weapon && room === solution.room) {
       act(seat.nickname, `고발 성공 ${text}`);
@@ -654,6 +773,10 @@ function createClueRoom(options) {
       turnId: turnSeat ? turnSeat.id : null,
       waitingId: waitingOn(),
       turnEndsAt: phase === 'playing' ? clock.endsAt() : null,
+      autoEndsAt: autoEnd ? autoEnd.at : null,
+      autoRollSec: Math.round(autoRollMs / 1000),
+      // 시작 전에 누가 어떤 말을 골랐는지(게임 중에는 점수판에 말이 나온다)
+      picks: phase === 'playing' ? {} : Object.fromEntries(players.filter((p) => p.pick).map((p) => [p.pick, { id: p.id, nickname: p.nickname }])),
       paused: pause.pausedAt() !== null,
       pausedAt: pause.pausedAt(),
       minPlayers: MIN_PLAYERS,
@@ -669,6 +792,7 @@ function createClueRoom(options) {
         ready: me.ready,
         inGame: !!seat && !seat.left && phase === 'playing',
         suspect: seat ? seat.suspect : null,
+        pick: me.pick,
         eliminated: !!seat && seat.eliminated,
         myTurn: mine,
         hand: seat ? seat.hand.slice() : [],
@@ -676,8 +800,9 @@ function createClueRoom(options) {
         canRoll: mine && step === 'start',
         canPassage: mine && step === 'start' && !!here && !!here.passage,
         passageTo: mine && here ? here.passage || null : null,
-        canSuggest: mine && !!atRoom && (step === 'suggest' || (step === 'start' && seat.summoned)),
-        canAccuse: mine,
+        canStay: mine && step === 'move',
+        canSuggest: mine && !!atRoom && atRoom !== 'envelope' && (step === 'suggest' || (step === 'start' && seat.summoned)),
+        canAccuse: mine && atRoom === 'envelope',
         canEnd: mine,
         reach: mine && step === 'move' ? reachOf(seat) : null,
         disprove: youDisprove ? { options: pending.options.slice(), suspect: pending.suspect, weapon: pending.weapon, room: pending.room, byId: pending.suggesterId } : null,
@@ -701,11 +826,12 @@ function createClueRoom(options) {
   function dispose() {
     for (const timer of dropTimers.values()) clearTimeout(timer);
     dropTimers.clear();
+    if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
     pause.dispose();
   }
 
   return {
-    join, disconnect, leave, setCovered, setReady, begin, roll, passage, move, suggest, show, accuse, endTurn, rosterList, stateFor, dispose,
+    join, disconnect, leave, setCovered, setReady, pickSuspect, begin, roll, passage, move, stay, suggest, show, accuse, endTurn, rosterList, stateFor, dispose,
     // 테스트에서 상태를 정하고 들여다보기 위한 것. 서버는 쓰지 않는다.
     _debug: () => ({
       players, seats, phase, turn, step, dice, moveLeft, solution, positions, weaponRooms, pending,
