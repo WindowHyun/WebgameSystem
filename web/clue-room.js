@@ -8,11 +8,14 @@
  *   - 자기 차례에 주사위 2개를 굴려 나온 눈의 합까지 복도 칸을 걸어 이동한다. 다른 사람의 말이 선 칸은 지나갈 수도,
  *     설 수도 없고, 문 칸이 막히면 그 문으로는 방에 들어갈 수 없다. 방에 들어가면 이동이 끝난다.
  *   - 모서리 방(주방↔연구실, 온실↔라운지)은 주사위를 굴리는 대신 비밀 통로로 건너갈 수 있다.
- *   - 주사위를 굴린 뒤에도 움직이지 않고 제자리에 있을 수 있다. 방 안이라면 직전에 추측한 방이 아닌 경우에만 거기서 추측할 수 있다
- *     (같은 방에서 연달아 추측하려면 다른 사람의 추측에 불려 와야 한다).
+ *   - 주사위를 굴린 뒤에도 움직이지 않고 제자리에 있을 수 있다. 제자리가 방 안이면 그 방에서 바로 추측을 시작한다.
  *   - 방에 들어가면 그 방에서 "범인 + 흉기"를 추측한다. 추측한 범인의 말과 흉기가 그 방으로 불려 온다.
  *     추측한 사람 다음 차례부터 시계 방향으로, 세 장 중 하나라도 가진 첫 사람이 한 장을 골라 추측한 사람에게만 몰래 보여 준다.
  *     아무도 없으면 넘어간다. 다른 사람의 추측으로 불려 온 사람은 다음 차례에 주사위를 굴리지 않고 그 방에서 바로 추측할 수 있다.
+ *   - 힌트 카드: 복도의 "힌트 칸"에서 이동을 마치면 힌트 카드를 한 장 뽑는다(3종을 같은 비율로 섞은 덱, 다 뽑으면 다시 섞는다).
+ *       턴 한 번 더  뽑는 즉시 쓰인다. 이번 차례가 끝나면 같은 사람이 한 번 더 진행한다.
+ *       추리 한 번 더  가지고 있다가, 내 차례에 추리가 끝난 뒤 버튼으로 같은 방에서 한 번 더 추리한다(쓰면 사라진다).
+ *       같이 보기  가지고 있다가, 남이 추리해 카드를 보여 준 직후에 버튼으로 그 카드를 같이 본다(쓰면 사라진다).
  *   - 고발(범인·흉기·장소)은 주사위로 가운데 "정답 봉투" 방에 들어가야 할 수 있다(방 안에서는 추측을 못 한다). 맞히면 이기고, 틀리면 탈락한다.
  *     탈락한 사람은 더 움직이지 않지만, 그 사람의 카드는 계속 다른 사람의 추측을 반박한다.
  *
@@ -23,7 +26,7 @@
  *     차례는 스칼렛·머스터드·화이트·그린·피콕·플럼 순이다.
  *     참가자가 맡지 않은 말도 보드에 서 있고 막는 말이 된다.
  *   - 보여 줄 카드가 한 장뿐이어도 가진 사람이 직접 눌러 보여 준다(한 장인지 두 장인지 시간으로 드러나지 않게). 시간이 지나면 서버가 첫 번째를 대신 보여 준다.
- *   - 차례가 와도 10초 동안 주사위를 굴리지 않으면 서버가 대신 굴리고, 가장 가까운 방으로 들어가 아직 확인하지 않은 범인·흉기로 추측한다.
+ *   - 차례가 와도 30초 동안 주사위를 굴리지 않으면 서버가 대신 굴리고, 가장 가까운 방으로 들어가 아직 확인하지 않은 범인·흉기로 추측한다.
  *     주사위가 낮아 방에 못 들어가면 갈 수 있는 곳 중 무작위 칸으로 이동한다. 이렇게 자동으로 진행된 차례가 3번 연속이면 게임에서 빠진다.
  *   - 방에 들어가지 않고 끝난 이동(복도·제자리)이나 추측이 끝난 차례는 3초 뒤에 자동으로 끝난다(정답 봉투 방에 있을 때는 고발할 수 있게 기다린다).
  *   - 차례는 제한시간(기본 120초), 카드를 고르는 것은 45초다. 넘기면 차례는 넘어가고 카드는 서버가 첫 번째를 보여 준다.
@@ -84,6 +87,15 @@ const ENVELOPE = {
   doors: [[10, 7], [13, 7], [10, 16], [13, 16], [8, 11], [8, 13], [15, 11], [15, 13]],
 };
 
+// 힌트 칸: 복도 위의 이 칸에서 이동을 마치면 힌트 카드를 한 장 뽑는다(지나가기만 하면 뽑지 않는다). 문·말의 시작 칸과 겹치지 않는다.
+const HINT_CELLS = [[6, 2], [16, 5], [3, 8], [21, 6], [12, 7], [4, 16], [16, 13], [12, 17], [7, 22], [18, 20]];
+const HINT_KINDS = [
+  { key: 'extraTurn', label: '턴 한 번 더', text: '뽑는 즉시 쓰입니다. 이번 차례가 끝나면 한 번 더 진행합니다.' },
+  { key: 'extraSuggest', label: '추리 한 번 더', text: '내 차례에 추리가 끝난 뒤 같은 방에서 한 번 더 추리할 수 있습니다.' },
+  { key: 'peek', label: '같이 보기', text: '남이 추리해 카드를 보여 준 직후에 그 카드를 같이 볼 수 있습니다.' },
+];
+const HINT_PER_KIND = 4; // 한 번에 섞는 덱: 3종 x 4장
+
 const SUSPECT_KEYS = SUSPECTS.map((s) => s.key);
 const WEAPON_KEYS = WEAPONS.map((w) => w.key);
 const ROOM_KEYS = ROOMS.map((r) => r.key);
@@ -94,6 +106,7 @@ const CARDS = [
 ];
 const CARD_KEYS = CARDS.map((c) => c.key);
 const labelOf = (key) => (key === 'envelope' ? ENVELOPE.label : (CARDS.find((c) => c.key === key) || { label: key }).label);
+const HINT_CELL_SET = new Set(HINT_CELLS.map(([x, y]) => `${x},${y}`));
 const roomByKey = (key) => ROOMS.find((r) => r.key === key);
 const nodeByKey = (key) => (key === 'envelope' ? ENVELOPE : roomByKey(key));
 
@@ -119,6 +132,7 @@ const MAP = {
   h: GRID.h,
   center: CENTER,
   centerDoors: ENVELOPE.doors.map(([x, y]) => ({ x, y })),
+  hintCells: HINT_CELLS.map(([x, y]) => ({ x, y })),
   rooms: ROOMS.map((r) => ({ key: r.key, label: r.label, x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2, doors: r.doors.map(([x, y]) => ({ x, y })), passage: r.passage || null })),
 };
 
@@ -166,7 +180,7 @@ function createClueRoom(options) {
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const random = opts.random || Math.random;
   const turnTimeoutMs = Number.isFinite(opts.turnTimeoutMs) ? opts.turnTimeoutMs : 120000;
-  const autoRollMs = Number.isFinite(opts.autoRollMs) ? opts.autoRollMs : 10000;
+  const autoRollMs = Number.isFinite(opts.autoRollMs) ? opts.autoRollMs : 30000;
   const autoEndMs = Number.isFinite(opts.autoEndMs) ? opts.autoEndMs : 3000;
   const disproveTimeoutMs = Number.isFinite(opts.disproveTimeoutMs) ? opts.disproveTimeoutMs : 45000;
   const disconnectGraceMs = Number.isFinite(opts.disconnectGraceMs) ? opts.disconnectGraceMs : 30000;
@@ -185,7 +199,14 @@ function createClueRoom(options) {
   let weaponRooms = {}; // 흉기 key -> 방 key
   let pending = null;  // { suggesterId, suspect, weapon, room, disproverId, options, passed }
   let lastSuggestion = null; // 모두에게 보이는 마지막 추측
+  let hintDeck = [];        // 남은 힌트 카드(맨 뒤가 맨 위)
+  let hintSeq = 0;
+  let lastHintDraw = null;  // 모두에게 보이는 마지막 뽑기 { seq, byId, kind(턴 한 번 더만 공개, 나머지는 null) }
+  const shownCards = new Map(); // 추측 번호 -> 그때 보여 준 카드("같이 보기"용. 서버 안에서만 쓴다)
+  let lastAccusation = null; // 모두에게 보이는 마지막 고발 { seq, byId, suspect, weapon, room, correct }
+  let accusationSeq = 0;
   let suggestionSeq = 0;
+  const suggestionLog = []; // 이번 판의 모든 추측(누가·무엇을·결과). 카드 이름은 없다 - 모두에게 보여도 되는 정보만
   let result = null;
   const dropTimers = new Map();
   let autoEnd = null;  // { at, timer, seatId } 방에 안 들어가고 끝난 이동·추측이 끝난 차례를 곧 넘기는 타이머
@@ -230,7 +251,8 @@ function createClueRoom(options) {
   /** 끝 단계(복도에 서거나 추측이 끝남)면 잠깐 뒤 차례를 자동으로 넘긴다. 정답 봉투 방에서는 고발할 수 있게 기다린다. */
   function syncAutoEnd() {
     const seat = currentSeat();
-    const want = autoEndMs > 0 && phase === 'playing' && step === 'end' && !!seat && roomOf(seat) !== 'envelope';
+    const holdsExtra = !!seat && seat.hints.includes('extraSuggest') && !!roomOf(seat); // 추리 한 번 더 카드를 쓸 수 있게 기다린다
+    const want = autoEndMs > 0 && phase === 'playing' && step === 'end' && !!seat && roomOf(seat) !== 'envelope' && !holdsExtra;
     if (!want) {
       if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
       return;
@@ -288,7 +310,8 @@ function createClueRoom(options) {
     phase = 'result';
     result = { winnerId: winnerSeat ? winnerSeat.id : null, winner: winnerSeat ? nameOf(winnerSeat.id) : null, reason: reason || 'none', solution: solved, message };
     // 이번 판을 뛴 사람(빠진 사람 제외)은 다음 판도 자동으로 준비된다. 빠지려면 준비를 취소한다.
-    for (const p of players) p.ready = !!seatOf(p.id) && !seatOf(p.id).left;
+    // 뛴 사람은 자동 준비(나간 사람 제외), 안 뛴 사람은 중간에 눌러 둔 "다음 판 참가"를 유지한다.
+    for (const p of players) p.ready = seatOf(p.id) ? !seatOf(p.id).left : p.ready;
     note(message);
     act('결과', message);
   }
@@ -306,6 +329,14 @@ function createClueRoom(options) {
     dice = null;
     moveLeft = 0;
     step = 'start';
+    const current = seats[turn];
+    if (phase === 'playing' && current && !current.eliminated && !current.left && current.extraTurns > 0) {
+      current.extraTurns -= 1;
+      note(`${current.nickname}님이 "턴 한 번 더" 카드로 한 번 더 진행합니다.`);
+      act(current.nickname, '턴 한 번 더 사용');
+      armTimer();
+      return;
+    }
     for (let n = 1; n <= seats.length; n += 1) {
       const index = (turn + n) % seats.length;
       if (!seats[index].eliminated && !seats[index].left) {
@@ -322,8 +353,11 @@ function createClueRoom(options) {
   /** 보여 주기가 끝났다: 추측한 사람에게만 카드를 남기고 추측 뒤 단계로 넘어간다. */
   function revealCard(disproverSeat, card) {
     const asker = seatOf(pending.suggesterId);
-    asker.seen.push({ card, byId: disproverSeat.id, by: nameOf(disproverSeat.id), suspect: pending.suspect, weapon: pending.weapon, room: pending.room });
+    shownCards.set(pending.seq, card);
+    if (shownCards.size > 20) shownCards.delete(shownCards.keys().next().value);
+    asker.seen.push({ card, byId: disproverSeat.id, by: nameOf(disproverSeat.id), suspect: pending.suspect, weapon: pending.weapon, room: pending.room, seq: pending.seq });
     lastSuggestion.shownBy = disproverSeat.id;
+    lastSuggestion.resolved = true;
     note(`${nameOf(disproverSeat.id)}님이 ${nameOf(asker.id)}님에게 카드를 보여 주었습니다.`);
     act(nameOf(disproverSeat.id), `카드 보여 줌 ${labelOf(card)} → ${nameOf(asker.id)}`);
     pending = null;
@@ -353,6 +387,7 @@ function createClueRoom(options) {
     }
     lastSuggestion.passed = passed;
     lastSuggestion.shownBy = null;
+    lastSuggestion.resolved = true;
     note('아무도 보여 줄 카드가 없었습니다.');
     pending = null;
     step = 'end';
@@ -445,7 +480,7 @@ function createClueRoom(options) {
     if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
     pause.reset();
     players.length = 0; history.length = 0; seats = []; turn = 0; phase = 'lobby'; result = null;
-    step = 'start'; dice = null; moveLeft = 0; solution = null; positions = {}; weaponRooms = {}; pending = null; lastSuggestion = null;
+    step = 'start'; dice = null; moveLeft = 0; solution = null; positions = {}; weaponRooms = {}; pending = null; lastSuggestion = null; lastAccusation = null; hintDeck = []; lastHintDraw = null; shownCards.clear(); suggestionLog.length = 0;
   }
 
   function join({ nickname, token }) {
@@ -516,7 +551,8 @@ function createClueRoom(options) {
   }
 
   function setReady(id, ready) {
-    if (phase === 'playing') return '게임이 끝난 뒤에 준비할 수 있습니다.';
+    // 이번 판을 뛰는 사람은 끝난 뒤에만. 중간에 들어온 사람은 진행 중에도 "다음 판 참가"를 눌러 둘 수 있다.
+    if (phase === 'playing' && inGame(id)) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
     if (!player) return '참가자를 찾을 수 없습니다.';
     player.ready = !!ready;
@@ -556,7 +592,7 @@ function createClueRoom(options) {
     const assigned = going.map((p) => ({ player: p, suspect: p.pick || free.shift() }));
     assigned.sort((a, b) => SUSPECT_KEYS.indexOf(a.suspect) - SUSPECT_KEYS.indexOf(b.suspect));
     seats = assigned.map(({ player, suspect }) => ({
-      id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, left: false, idle: 0, summoned: false, suggestedIn: null,
+      id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, left: false, idle: 0, summoned: false, suggestedIn: null, hints: [], extraTurns: 0, peeked: [], drew: null,
     }));
     for (const seat of seats) find(seat.id).pick = seat.suspect; // 다음 판도 같은 말
     for (const p of players) { if (!going.includes(p) && p.pick && seats.some((x) => x.suspect === p.pick)) p.pick = null; }
@@ -574,6 +610,11 @@ function createClueRoom(options) {
     moveLeft = 0;
     pending = null;
     lastSuggestion = null;
+    lastAccusation = null;
+    hintDeck = [];
+    lastHintDraw = null;
+    shownCards.clear();
+    suggestionLog.length = 0;
     result = null;
     phase = 'playing';
     for (const p of players) p.ready = false;
@@ -651,20 +692,21 @@ function createClueRoom(options) {
       moveLeft = 0;
       step = 'end';
       act(seat.nickname, `이동 → (${target.x}, ${target.y})`);
+      if (HINT_CELL_SET.has(`${target.x},${target.y}`)) drawHint(seat);
     }
     armTimer();
     changed();
     return null;
   }
 
-  /** 굴린 뒤 움직이지 않고 제자리에 있는다. 방 안이면 직전에 추측한 방이 아닐 때만 추측 단계가 된다. */
+  /** 굴린 뒤 움직이지 않고 제자리에 있는다. 제자리가 방 안이면(정답 봉투 방 제외) 그 방에서 추측 단계가 된다. */
   function stay(id) {
     const seat = turnOf(id);
     if (typeof seat === 'string') return seat;
     if (step !== 'move') return step === 'start' ? '먼저 주사위를 굴려 주세요.' : '이번 차례에는 이미 움직였습니다.';
     const room = roomOf(seat);
     moveLeft = 0;
-    if (room && room !== 'envelope' && seat.suggestedIn !== room) {
+    if (room && room !== 'envelope') {
       step = 'suggest';
       note(`${seat.nickname}님이 ${labelOf(room)}에 그대로 머뭅니다.`);
     } else {
@@ -675,6 +717,64 @@ function createClueRoom(options) {
     armTimer();
     changed();
     return null;
+  }
+
+  /** 힌트 칸에서 이동을 마쳤다: 덱에서 한 장 뽑는다. 턴 한 번 더는 바로 쓰이고, 나머지는 가지고 있는다. */
+  function drawHint(seat) {
+    if (!hintDeck.length) hintDeck = shuffle(HINT_KINDS.flatMap((k) => Array(HINT_PER_KIND).fill(k.key)));
+    const kind = hintDeck.pop();
+    hintSeq += 1;
+    seat.drew = { seq: hintSeq, kind };
+    lastHintDraw = { seq: hintSeq, byId: seat.id, kind: kind === 'extraTurn' ? kind : null };
+    if (kind === 'extraTurn') {
+      seat.extraTurns += 1;
+      note(`${seat.nickname}님이 힌트 칸에서 "턴 한 번 더" 카드를 얻었습니다. 이번 차례가 끝나면 한 번 더 진행합니다.`);
+    } else {
+      seat.hints.push(kind);
+      note(`${seat.nickname}님이 힌트 칸에서 힌트 카드를 한 장 얻었습니다.`);
+    }
+    act(seat.nickname, `힌트 카드 ${HINT_KINDS.find((k) => k.key === kind).label}`);
+  }
+
+  /** 가지고 있는 힌트 카드를 쓴다. extraSuggest(추리 한 번 더) | peek(같이 보기) */
+  function useHint(id, kind) {
+    if (phase !== 'playing') return '진행 중인 게임이 없습니다.';
+    const seat = seatOf(id);
+    if (!seat || seat.left || seat.eliminated) return '지금은 힌트 카드를 쓸 수 없습니다.';
+    if (kind === 'extraSuggest') {
+      const turnSeat = currentSeat();
+      if (!turnSeat || turnSeat.id !== id || step === 'disprove') return '추리 한 번 더 카드는 내 차례에만 쓸 수 있습니다.';
+      if (step !== 'end') return '추리가 끝난 뒤에 쓸 수 있습니다.';
+      const room = roomOf(seat);
+      if (!room || room === 'envelope') return '추리 한 번 더 카드는 방 안에서만 쓸 수 있습니다.';
+      const index = seat.hints.indexOf('extraSuggest');
+      if (index < 0) return '추리 한 번 더 카드가 없습니다.';
+      seat.hints.splice(index, 1);
+      seat.idle = 0;
+      step = 'suggest';
+      note(`${seat.nickname}님이 "추리 한 번 더" 카드를 썼습니다.`);
+      act(seat.nickname, '추리 한 번 더 사용');
+      armTimer();
+      changed();
+      return null;
+    }
+    if (kind === 'peek') {
+      const last = lastSuggestion;
+      if (!last || !last.resolved || !last.shownBy) return '같이 볼 수 있는 추리가 없습니다. (카드가 보여진 직후에만 쓸 수 있습니다)';
+      if (last.byId === id || last.shownBy === id) return '이 추리의 카드는 이미 알고 있습니다.';
+      if (seat.peeked.some((p) => p.seq === last.seq)) return '이미 같이 본 추리입니다.';
+      const index = seat.hints.indexOf('peek');
+      if (index < 0) return '같이 보기 카드가 없습니다.';
+      const card = shownCards.get(last.seq);
+      if (!card) return '카드를 찾을 수 없습니다.';
+      seat.hints.splice(index, 1);
+      seat.peeked.push({ card, seq: last.seq, byId: last.byId, by: nameOf(last.shownBy), suspect: last.suspect, weapon: last.weapon, room: last.room });
+      note(`${seat.nickname}님이 "같이 보기" 카드를 썼습니다.`);
+      act(seat.nickname, `같이 보기 사용 → ${labelOf(card)}`);
+      changed();
+      return null;
+    }
+    return '알 수 없는 힌트 카드입니다.';
   }
 
   function suggest(id, suspect, weapon) {
@@ -695,8 +795,10 @@ function createClueRoom(options) {
     const owner = seats.find((s) => s.suspect === suspect);
     if (owner && owner !== seat && movedFrom !== room) { owner.summoned = true; owner.suggestedIn = null; }
     suggestionSeq += 1;
-    lastSuggestion = { seq: suggestionSeq, byId: seat.id, suspect, weapon, room, shownBy: null, passed: [] };
-    pending = { suggesterId: seat.id, suspect, weapon, room, disproverId: null, options: [], passed: [] };
+    lastSuggestion = { seq: suggestionSeq, byId: seat.id, suspect, weapon, room, shownBy: null, passed: [], resolved: false };
+    suggestionLog.push(lastSuggestion);
+    if (suggestionLog.length > 80) suggestionLog.shift();
+    pending = { seq: suggestionSeq, suggesterId: seat.id, suspect, weapon, room, disproverId: null, options: [], passed: [] };
     note(`${seat.nickname}님의 추측: ${labelOf(suspect)}, ${labelOf(weapon)}, ${labelOf(room)}`);
     act(seat.nickname, `추측 ${labelOf(suspect)} / ${labelOf(weapon)} / ${labelOf(room)}`);
     resolveSuggestion();
@@ -723,7 +825,10 @@ function createClueRoom(options) {
     if (!ROOM_KEYS.includes(room)) return '알 수 없는 장소입니다.';
     if (roomOf(seat) !== 'envelope') return '고발하려면 주사위로 가운데 정답 봉투 방에 들어가야 합니다.';
     const text = `${labelOf(suspect)}, ${labelOf(weapon)}, ${labelOf(room)}`;
-    if (suspect === solution.suspect && weapon === solution.weapon && room === solution.room) {
+    const correct = suspect === solution.suspect && weapon === solution.weapon && room === solution.room;
+    accusationSeq += 1;
+    lastAccusation = { seq: accusationSeq, byId: seat.id, suspect, weapon, room, correct };
+    if (correct) {
       act(seat.nickname, `고발 성공 ${text}`);
       finish(seat, 'accusation');
       changed();
@@ -786,6 +891,11 @@ function createClueRoom(options) {
       // 정답은 게임이 끝난 뒤에만 낸다.
       result,
       lastSuggestion,
+      hintKinds: HINT_KINDS,
+      lastHintDraw,
+      lastAccusation, // 고발이 맞았는지 틀렸는지(모두에게 알림으로 띄운다)
+      // 이번 판의 모든 추측(오래된 것부터). 내 추측·남의 추측을 따로 보는 화면이 쓴다.
+      suggestions: suggestionLog.map((x) => ({ seq: x.seq, byId: x.byId, suspect: x.suspect, weapon: x.weapon, room: x.room, shownBy: x.shownBy, resolved: x.resolved })),
       history: history.slice(-14),
       you: me ? {
         id: me.id,
@@ -796,13 +906,21 @@ function createClueRoom(options) {
         eliminated: !!seat && seat.eliminated,
         myTurn: mine,
         hand: seat ? seat.hand.slice() : [],
-        seen: seat ? seat.seen.map((s) => ({ card: s.card, by: s.by, byId: s.byId, suspect: s.suspect, weapon: s.weapon, room: s.room })) : [],
+        seen: seat ? seat.seen.map((s) => ({ card: s.card, by: s.by, byId: s.byId, suspect: s.suspect, weapon: s.weapon, room: s.room, seq: s.seq })) : [],
         canRoll: mine && step === 'start',
         canPassage: mine && step === 'start' && !!here && !!here.passage,
         passageTo: mine && here ? here.passage || null : null,
         canStay: mine && step === 'move',
         canSuggest: mine && !!atRoom && atRoom !== 'envelope' && (step === 'suggest' || (step === 'start' && seat.summoned)),
         canAccuse: mine && atRoom === 'envelope',
+        // 힌트 카드(가진 것만 나에게 보인다. 남에게는 장수만 간다)
+        hints: seat ? seat.hints.slice() : [],
+        extraTurns: seat ? seat.extraTurns : 0,
+        drew: seat ? seat.drew : null,
+        peeked: seat ? seat.peeked.map((p) => ({ card: p.card, seq: p.seq, byId: p.byId, by: p.by, suspect: p.suspect, weapon: p.weapon, room: p.room })) : [],
+        canExtraSuggest: mine && step === 'end' && !!atRoom && atRoom !== 'envelope' && !!seat && seat.hints.includes('extraSuggest'),
+        canPeek: !!seat && !seat.left && !seat.eliminated && phase === 'playing' && seat.hints.includes('peek') && !!lastSuggestion && lastSuggestion.resolved && !!lastSuggestion.shownBy
+          && lastSuggestion.byId !== id && lastSuggestion.shownBy !== id && !seat.peeked.some((p) => p.seq === lastSuggestion.seq),
         canEnd: mine,
         reach: mine && step === 'move' ? reachOf(seat) : null,
         disprove: youDisprove ? { options: pending.options.slice(), suspect: pending.suspect, weapon: pending.weapon, room: pending.room, byId: pending.suggesterId } : null,
@@ -816,6 +934,8 @@ function createClueRoom(options) {
         left: s.left,
         connected: !!find(s.id) && find(s.id).connected,
         cards: s.hand.length,
+        hints: s.hints.length,
+        extraTurns: s.extraTurns,
       })),
       players: players.filter((p) => p.connected || inGame(p.id)).map((p) => ({
         id: p.id, nickname: p.nickname, connected: p.connected, ready: p.ready, inGame: inGame(p.id),
@@ -831,7 +951,7 @@ function createClueRoom(options) {
   }
 
   return {
-    join, disconnect, leave, setCovered, setReady, pickSuspect, begin, roll, passage, move, stay, suggest, show, accuse, endTurn, rosterList, stateFor, dispose,
+    join, disconnect, leave, setCovered, setReady, pickSuspect, begin, useHint, roll, passage, move, stay, suggest, show, accuse, endTurn, rosterList, stateFor, dispose,
     // 테스트에서 상태를 정하고 들여다보기 위한 것. 서버는 쓰지 않는다.
     _debug: () => ({
       players, seats, phase, turn, step, dice, moveLeft, solution, positions, weaponRooms, pending,
@@ -839,11 +959,14 @@ function createClueRoom(options) {
       setSolution: (next) => { solution = { ...next }; },
       setPosition: (suspect, at) => { positions[suspect] = at; },
       setHand: (seatId, hand) => { seatOf(seatId).hand = hand.slice(); },
+      setHints: (seatId, list) => { seatOf(seatId).hints = list.slice(); },
+      setDeck: (list) => { hintDeck = list.slice(); },
+      hintDeck: () => hintDeck.slice(),
     }),
     status: () => ({ phase, playerCount: players.filter((p) => p.connected).length }),
   };
 }
 
 module.exports = {
-  createClueRoom, computeReach, isCorridor, MAP, SUSPECTS, WEAPONS, ROOMS, CARDS, MIN_PLAYERS, MAX_PLAYERS, DICE, GRID,
+  createClueRoom, computeReach, isCorridor, HINT_CELLS, HINT_KINDS, MAP, SUSPECTS, WEAPONS, ROOMS, CARDS, MIN_PLAYERS, MAX_PLAYERS, DICE, GRID,
 };

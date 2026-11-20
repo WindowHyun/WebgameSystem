@@ -243,6 +243,8 @@
         // 예전에는 여기서 지워 버려서 다시 들어오면 칩이 100만 원으로 되살아났다(지고 있으면
         // 나갔다 오면 그만인 게임이 됐다). 탭을 닫으면 sessionStorage와 함께 사라진다.
         if (data.type === 'left') { location.href = '/'; return; }
+        // 화면 파일을 건드리지 않고 공통 기능(public/join-next.js)이 상태를 볼 수 있게 알린다.
+        try { document.dispatchEvent(new CustomEvent('game-state', { detail: data })); } catch (e) { /* 이벤트를 못 쓰는 환경 */ }
         onMessage(data);
       };
       socket.onerror = function () { /* onclose에서 한 번만 복구한다. */ };
@@ -307,7 +309,9 @@
     }, PING_MS);
 
     connect();
-    return { send: send, leave: leave };
+    var api = { send: send, leave: leave };
+    window.GameSocket.current = api;
+    return api;
   }
 
   window.GameSocket = { open: open };

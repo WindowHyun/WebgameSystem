@@ -142,7 +142,7 @@ function createGalpangRoom(options) {
   function endGame(by) {
     clearProposal();
     phase = 'result';
-    for (const p of players) { p.pendingQuit = false; p.ready = roster.includes(p.id); }
+    for (const p of players) { p.pendingQuit = false; p.ready = roster.includes(p.id) || p.ready; } // 중간에 "다음 판 참가"를 눌러 둔 사람도 유지
     const engine = session.engine;
     if (engine.status === STATUS.WON) act(by, `정답 (${engine.round}라운드)`);
     else if (engine.status === STATUS.LOST) {
@@ -325,7 +325,8 @@ function createGalpangRoom(options) {
   }
 
   function setReady(id, ready) {
-    if (live() && !abandoned()) return '게임이 끝난 뒤에 준비할 수 있습니다.';
+    // 이번 판을 뛰는 사람은 끝난 뒤에만. 중간에 들어온 사람은 진행 중에도 "다음 판 참가"를 눌러 둘 수 있다.
+    if (live() && !abandoned() && inGame(id)) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
     if (!player) return '참가자를 찾을 수 없습니다.';
     player.ready = !!ready;

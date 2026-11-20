@@ -312,7 +312,8 @@ function createHoldemRoom(options) {
   }
 
   function setReady(pid, ready) {
-    if (phase !== 'lobby' && phase !== 'result') return '대기 중에만 준비 상태를 바꿀 수 있습니다.';
+    // 이번 판을 뛰는 사람은 판이 끝난 뒤에만 바꾼다. 중간에 들어온 사람은 진행 중에도 "다음 판 참가"를 눌러 둘 수 있다.
+    if (phase !== 'lobby' && phase !== 'result' && dealtIn.includes(pid)) return '대기 중에만 준비 상태를 바꿀 수 있습니다.';
     const p = playerOf(pid);
     if (!p) return '참가자를 찾을 수 없습니다.';
     p.ready = !!ready;
@@ -634,7 +635,7 @@ function createHoldemRoom(options) {
 
   /** 이번 판에 카드를 받은 사람은 다음 판도 자동으로 준비된다(칩이 남아 있을 때). 빠지려면 준비를 취소하고, 새로 온 사람은 직접 준비한다. */
   function autoReadyNext() {
-    for (const p of players) p.ready = dealtIn.includes(p.id) && p.chips > 0;
+    for (const p of players) p.ready = (dealtIn.includes(p.id) || p.ready) && p.chips > 0; // 중간에 "다음 판 참가"를 눌러 둔 사람도 유지
   }
 
   function finishHand(winners, { revealed, hands }) {

@@ -188,7 +188,8 @@ function createYachtRoom(options) {
     held = Array(DICE).fill(false);
     rollsLeft = ROLLS;
     // 이번 판을 뛴 사람은 다음 판도 자동으로 준비된다. 빠지려면 준비를 취소한다.
-    for (const p of players) p.ready = !!seatOf(p.id) && !seatOf(p.id).left;
+    // 뛴 사람은 자동 준비(나간 사람 제외), 안 뛴 사람은 중간에 눌러 둔 "다음 판 참가"를 유지한다.
+    for (const p of players) p.ready = seatOf(p.id) ? !seatOf(p.id).left : p.ready;
     note(message);
     act('결과', `${message} (${ranked.map((e) => `${e.nickname} ${e.total}점`).join(', ')})`);
   }
@@ -328,7 +329,8 @@ function createYachtRoom(options) {
   }
 
   function setReady(id, ready) {
-    if (phase === 'playing') return '게임이 끝난 뒤에 준비할 수 있습니다.';
+    // 이번 판을 뛰는 사람은 끝난 뒤에만. 중간에 들어온 사람은 진행 중에도 "다음 판 참가"를 눌러 둘 수 있다.
+    if (phase === 'playing' && inGame(id)) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
     if (!player) return '참가자를 찾을 수 없습니다.';
     player.ready = !!ready;

@@ -127,7 +127,7 @@ function createMindRoom(options) {
     pauseReason = null;
     result = { won, ended: !!ended, level, levels, message };
     // 이번 판을 뛴 사람은 다음 판도 자동으로 준비된다. 빠지려면 준비를 취소한다.
-    for (const p of players) { p.ready = roster.includes(p.id); p.focused = false; }
+    for (const p of players) { p.ready = roster.includes(p.id) || p.ready; p.focused = false; } // 중간에 "다음 판 참가"를 눌러 둔 사람도 유지
     note(message);
     act('결과', message);
   }
@@ -270,7 +270,8 @@ function createMindRoom(options) {
   }
 
   function setReady(id, ready) {
-    if (phase !== 'lobby' && phase !== 'result') return '게임이 끝난 뒤에 준비할 수 있습니다.';
+    // 이번 판을 뛰는 사람은 끝난 뒤에만. 중간에 들어온 사람은 진행 중에도 "다음 판 참가"를 눌러 둘 수 있다.
+    if (phase !== 'lobby' && phase !== 'result' && roster.includes(id)) return '게임이 끝난 뒤에 준비할 수 있습니다.';
     const player = find(id);
     if (!player) return '참가자를 찾을 수 없습니다.';
     player.ready = !!ready;

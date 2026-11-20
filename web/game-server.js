@@ -99,6 +99,7 @@ const CARD_GAME_ACTIONS = {
     start: (room, id) => room.begin(id),
     roll: (room, id) => room.roll(id),
     pick: (room, id, m) => room.pickSuspect(id, typeof m.suspect === 'string' ? m.suspect : null),
+    useHint: (room, id, m) => room.useHint(id, m.kind),
     passage: (room, id) => room.passage(id),
     stay: (room, id) => room.stay(id),
     move: (room, id, m) => room.move(id, typeof m.room === 'string' ? { room: m.room } : { x: m.x, y: m.y }),

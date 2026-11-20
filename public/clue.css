@@ -36,7 +36,7 @@
 .rules-fold .rules{margin:10px 0 0;padding:12px 14px;border-radius:10px;background:#ffffff10}
 
 .clue-grid{display:grid;width:100%;max-width:1320px;grid-template-columns:minmax(0,1fr) 320px;gap:16px;align-items:start}
-.map-wrap{border-radius:12px;overflow:hidden;background:#2b1d12;border:4px solid #4a3220;box-shadow:0 8px 24px #0006}
+.map-wrap{width:76.5%;margin:0 auto;border-radius:12px;overflow:hidden;background:#2b1d12;border:4px solid #4a3220;box-shadow:0 8px 24px #0006}
 #map{display:block;width:100%;height:auto}
 #map .reach-cell{fill:#2ea04380;stroke:#fff;stroke-width:1.5;cursor:pointer;animation:clue-pulse 1.2s ease-in-out infinite}
 #map .reach-cell:hover{fill:#2ea043;animation:none}
@@ -102,11 +102,12 @@
 #turn-controls button.hidden{display:none}
 @media(max-width:1180px){
   .clue-grid{grid-template-columns:minmax(0,1fr)}
-  .map-wrap{max-width:860px;margin:0 auto;width:100%}
+  .map-wrap{max-width:860px;margin:0 auto;width:76.5%}
   .side>.notebook{grid-column:1/-1}
   .side{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
 }
 @media(max-width:760px){
+  .map-wrap{width:100%}
   #board{padding:12px 8px}
   .die{width:50px;height:50px;padding:8px}
 }
@@ -175,3 +176,77 @@
 .toast.shown{border:2px solid #2ea043;padding:14px 16px}
 .toast.shown>b{color:#7fe09a;font-size:16px;margin-bottom:6px}
 .toast .verdict.ok{color:#7fe09a}
+
+/* 추리 기록(내 추리 / 상대 추리) */
+.log-box>b small{margin-left:6px;color:#cdbfe0;font-weight:400;font-size:12px}
+.log-tabs{display:flex;gap:6px;margin-bottom:8px}
+.log-tab{flex:1;min-height:34px;padding:0 8px;border:1px solid #ffffff44;border-radius:8px;background:transparent;color:#e0d4ec;font-size:13px;font-weight:700}
+.log-tab:hover{background:#ffffff22;color:#fff}
+.log-tab.on{background:#ecb22e;border-color:#ecb22e;color:#3f2e00}
+.suggestions{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow-y:auto}
+.sg-empty{margin:0;color:#cdbfe0;font-size:12px}
+.sg-item{padding:8px 10px;border-radius:10px;background:#ffffff12;border-left:4px solid #8a7aa8}
+.sg-item.mine{border-left-color:#ecb22e;background:#ecb22e1f}
+.sg-head{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
+.sg-result{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+.sg-result.ok{background:#2ea04333;color:#9fe8b2}
+.sg-result.none{background:#d72c0d33;color:#ffb0a2}
+.sg-result.wait{background:#ffffff22;color:#e0d4ec}
+.sg-said{margin:4px 0 6px;font-size:13px;line-height:1.5}
+.sg-chips{display:flex;flex-wrap:wrap;gap:4px}
+.sg-chips .chip{padding:3px 8px;border-radius:6px;background:#fff;color:#1d1c1d;font-size:12px;font-weight:700;border-top:3px solid #5a5a5c}
+.sg-chips .chip.suspect{border-top-color:#d72c0d}
+.sg-chips .chip.room{border-top-color:#1264a3}
+.sg-got{margin-top:6px;font-size:12px;color:#f3e3b0}
+
+/* 힌트 영역의 ? (의심하는 카드) */
+.hint-q{margin-top:4px;padding:8px 10px;border-radius:10px;background:#ecb22e1f;border:1px dashed #ecb22e88}
+.hint-q-title{display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:12px;color:#f3dc9b}
+.hint-q-title small{font-weight:400;color:#cdbfe0}
+.hint-q-title i,.hint-q-card i{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:#ecb22e;color:#3f2e00;font-style:normal;font-size:12px;font-weight:700}
+.hint-q-list{display:flex;flex-wrap:wrap;gap:6px}
+.hint-q-card{display:inline-flex;align-items:center;gap:6px;padding:5px 10px 5px 6px;border-radius:8px;background:#fff;color:#1d1c1d;font-size:13px;font-weight:700;border-top:4px solid #5a5a5c}
+.hint-q-card.suspect{border-top-color:#d72c0d}
+.hint-q-card.room{border-top-color:#1264a3}
+
+/* 추리 기록 칩의 표시(✕ 확인한 카드 / ? 아직 모르는 카드 / ✓ 유력) */
+.sg-chips .chip{display:inline-flex;align-items:center;gap:4px}
+.mk{display:inline-grid;place-items:center;width:16px;height:16px;border-radius:50%;font-style:normal;font-size:11px;font-weight:700}
+.mk.x{background:#a52323;color:#fff}
+.mk.q{background:#ecb22e;color:#3f2e00}
+.mk.y{background:#1f7a33;color:#fff}
+
+/* 고발 결과 알림(맞음/틀림) */
+.toast.accuse-ok{border:3px solid #2ea043;padding:16px 18px;background:#12301c}
+.toast.accuse-bad{border:3px solid #d72c0d;padding:16px 18px;background:#33140f}
+.toast.accuse-ok>b,.toast.accuse-bad>b{font-size:17px;margin-bottom:6px}
+.toast .verdict.big{margin-top:12px;font-size:19px;line-height:1.4}
+.toast.accuse-ok .verdict.big{color:#8ff0a8}
+
+/* 힌트 카드(진짜 힌트 카드) */
+.hint-box>b small{margin-left:6px;color:#cdbfe0;font-weight:400;font-size:12px}
+.hint-cards{display:flex;flex-direction:column;gap:8px}
+.hint-help{margin:8px 0 0;color:#cdbfe0;font-size:12px;line-height:1.5}
+.hint-empty{margin:0;color:#cdbfe0;font-size:12px}
+.hc-note{padding:8px 10px;border-radius:8px;background:#ecb22e26;border:1px dashed #ecb22e88;color:#f3dc9b;font-size:12px}
+.hc-card{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:12px;background:linear-gradient(#f9e29a,#f0c95a);color:#3f2e00;border:2px solid #c99a1e}
+.hc-face{display:flex;flex-direction:column;gap:2px}
+.hc-face b{font-size:15px}
+.hc-face small{font-size:12px;line-height:1.45;color:#5b4408}
+.hc-use{width:100%;min-height:36px;background:#3f2e00;border-color:#3f2e00;color:#fff}
+.hc-use:disabled{background:#8a7a4a;border-color:#8a7a4a}
+.hc-why{font-size:11px;color:#6b5410}
+.hc-peeked{display:flex;flex-direction:column;gap:6px}
+.hc-peeked>b{font-size:12px;color:#cdbfe0}
+.hint-item{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:10px;background:#ffffff12}
+.hint-face{flex:0 0 auto;min-width:76px;padding:8px 10px;border-radius:8px;background:#fff;color:#1d1c1d;font-size:14px;font-weight:700;text-align:center;border-top:5px solid #5a5a5c}
+.hint-item.suspect .hint-face{border-top-color:#d72c0d}
+.hint-item.room .hint-face{border-top-color:#1264a3}
+.hint-meta{display:flex;flex-direction:column;min-width:0}
+.hint-meta b{font-size:12px;color:#fff}
+.hint-meta small{font-size:11px;color:#cdbfe0}
+.toast.hint{border:2px solid #f0c95a}
+.toast.hint>b{color:#f7d774}
+.toast-actions{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.toast-btn{min-height:38px;border-color:#f0c95a;background:#f0c95a;color:#3f2e00}
+.toast-btn:hover{background:#f7d774;color:#3f2e00}

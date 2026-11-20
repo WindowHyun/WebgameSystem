@@ -18,7 +18,11 @@
   var populated = false;
   var marks = {};          // 추리 노트에 직접 적은 표시 { 카드: 0~3 }
   var marksSig = null;
+  var hintSeq = null;      // 마지막으로 알린 힌트 뽑기 번호(접속·재접속 때 이미 지난 것은 알리지 않는다)
+  var peekedCount = null;  // 같이 본 카드 수(새로 봤을 때만 팝업)
+  var accusedSeq = null;   // 마지막으로 알린 고발 번호(접속·재접속 때 이미 지난 고발은 알리지 않는다)
   var alertedSeq = null;   // 결과(누가 보여 줬는지)까지 알린 추측 번호
+  var logFilter = 'all';   // 추리 기록 보기: all | mine | others
   var seenCount = null;    // 지금까지 받은 카드 수(새로 받았을 때만 팝업을 띄운다. 접속·재접속 때는 띄우지 않는다)
 
   var COLORS = { scarlett: '#d72c0d', mustard: '#ecb22e', white: '#ffffff', green: '#2e8b57', peacock: '#1264a3', plum: '#7b3f9e' };
@@ -113,11 +117,15 @@
     var inRect = function (r, x, y) { return x >= r.x1 && x <= r.x2 && y >= r.y1 && y <= r.y2; };
     var doors = {};
     map.rooms.forEach(function (room) { room.doors.forEach(function (d) { doors[d.x + ',' + d.y] = true; }); });
+    var hintCells = {};
+    (map.hintCells || []).forEach(function (h) { hintCells[h.x + ',' + h.y] = true; });
     for (var y = 0; y < map.h; y += 1) {
       for (var x = 0; x < map.w; x += 1) {
         if (inRect(map.center, x, y) || map.rooms.some(function (r) { return inRect(r, x, y); })) continue;
-        var fill = doors[x + ',' + y] ? '#e6c46a' : ((x + y) % 2 ? '#f3e7c8' : '#ebdcb5');
+        var isHint = !!hintCells[x + ',' + y];
+        var fill = isHint ? '#f7d774' : doors[x + ',' + y] ? '#e6c46a' : ((x + y) % 2 ? '#f3e7c8' : '#ebdcb5');
         out += '<rect x="' + x * CELL + '" y="' + y * CELL + '" width="' + CELL + '" height="' + CELL + '" fill="' + fill + '"/>';
+        if (isHint) out += '<g><title>힌트 칸: 여기서 이동을 마치면 힌트 카드를 뽑습니다</title><text x="' + (x * CELL + CELL / 2) + '" y="' + (y * CELL + CELL / 2 + 6) + '" text-anchor="middle" font-size="17" font-weight="700" fill="#8a5a00">★</text></g>';
       }
     }
 
@@ -256,12 +264,14 @@
     you.hand.forEach(function (card) { mine[card] = true; });
     var seen = {};
     you.seen.forEach(function (s) { (seen[s.card] = seen[s.card] || []).push(s.by); });
+    var peekedCards = {};
+    you.peeked.forEach(function (p) { peekedCards[p.card] = true; });
     function rows(title, list) {
       return '<table><tr><th colspan="3">' + title + '</th></tr>' + list.map(function (item) {
-        var cls = mine[item.key] ? 'mine' : (seen[item.key] ? 'seen' : '');
-        var note = mine[item.key] ? '내 카드' : (seen[item.key] ? escapeHtml(seen[item.key].join(', ')) + '님이 보여 줌' : '');
+        var cls = mine[item.key] ? 'mine' : (seen[item.key] || peekedCards[item.key] ? 'seen' : '');
+        var note = mine[item.key] ? '내 카드' : (seen[item.key] ? escapeHtml(seen[item.key].join(', ')) + '님이 보여 줌' : (peekedCards[item.key] ? '같이 본 카드' : ''));
         var m = marks[item.key] || 0;
-        var markCell = mine[item.key] || seen[item.key]
+        var markCell = mine[item.key] || seen[item.key] || peekedCards[item.key]
           ? '<td class="mark no">✕</td>'
           : '<td class="mark ' + MARK_CLASS[m] + '" data-mark="' + item.key + '" role="button" tabindex="0" aria-label="' + escapeHtml(item.label) + ' 표시 바꾸기">' + (MARK_TEXT[m] || '·') + '</td>';
         return '<tr class="' + cls + '"><td class="label">' + escapeHtml(item.label) + '</td>' + markCell + '<td class="note">' + note + '</td></tr>';
@@ -273,6 +283,7 @@
 
   /** 방금 받은 카드를 팝업으로 보여 준다. 어떤 추측에 누가 보여 줬는지도 함께. */
   function showSeen(entry) {
+    $('seen-title').textContent = '카드를 받았습니다';
     $('seen-from').textContent = entry.by + '님이 보여 준 카드';
     $('seen-card').textContent = cardLabel(entry.card);
     $('seen-card').className = 'seen-face ' + cardKind(entry.card);
@@ -320,6 +331,7 @@
     var mine = {};
     state.you.hand.forEach(function (card) { mine[card] = true; });
     state.you.seen.forEach(function (h) { mine[h.card] = true; });
+    state.you.peeked.forEach(function (h) { mine[h.card] = true; });
     var changed = false;
     [ls.suspect, ls.weapon, ls.room].forEach(function (card) {
       if (mine[card] || marks[card]) return;
@@ -327,6 +339,89 @@
       changed = true;
     });
     if (changed) saveMarks();
+  }
+
+  /** 알림 안에서 바로 쓸 수 있는 힌트 카드 버튼(같이 보기 / 추리 한 번 더). */
+  function toastUseButtons() {
+    var you = state.you;
+    var html = '';
+    if (you.canPeek) html += '<button type="button" class="toast-btn" data-use="peek">같이 보기 · 이 카드를 같이 본다</button>';
+    if (you.canExtraSuggest) html += '<button type="button" class="toast-btn" data-use="extraSuggest">추리 한 번 더 쓰기</button>';
+    return html ? '<div class="toast-actions">' + html + '</div>' : '';
+  }
+
+  /** 힌트 카드를 뽑았을 때(내 것은 종류까지, 남의 것은 턴 한 번 더만 종류를 알린다). */
+  function checkHintDraw() {
+    var d = state.lastHintDraw;
+    if (!d) { if (hintSeq === null) hintSeq = 0; return; }
+    if (hintSeq === null) { hintSeq = d.seq; return; }
+    if (d.seq === hintSeq) return;
+    hintSeq = d.seq;
+    var mineDraw = d.byId === state.you.id;
+    var who = nameOfId(d.byId);
+    if (mineDraw && state.you.drew) {
+      var kind = state.you.drew.kind;
+      var info = state.hintKinds.filter(function (k) { return k.key === kind; })[0];
+      toast('<b>힌트 카드를 얻었습니다!</b><div class="said">' + escapeHtml(info ? info.label : '') + '</div><div class="said small">' + escapeHtml(info ? info.text : '') + '</div>', 'hint', 8000);
+    } else if (d.kind === 'extraTurn') {
+      toast('<b>' + escapeHtml(who) + '님이 "턴 한 번 더" 카드를 얻었습니다</b><div class="said small">이번 차례가 끝나면 한 번 더 진행합니다.</div>', 'hint', 6000);
+    } else {
+      toast('<b>' + escapeHtml(who) + '님이 힌트 카드를 얻었습니다</b>', 'hint', 4000);
+    }
+  }
+
+  /** 같이 보기로 본 카드를 팝업으로 보여 준다(본 사람에게만). */
+  function checkPeeked() {
+    var list = state.you.peeked;
+    if (peekedCount !== null && list.length > peekedCount) {
+      var p = list[list.length - 1];
+      $('seen-title').textContent = '같이 본 카드';
+      $('seen-from').textContent = '같이 보기 (' + p.by + '님 → ' + nameOfId(p.byId) + '님)';
+      $('seen-card').textContent = cardLabel(p.card);
+      $('seen-card').className = 'seen-face ' + cardKind(p.card);
+      $('seen-ask').textContent = '남의 추리: ' + suspectLabel(p.suspect) + ', ' + weaponLabel(p.weapon) + ', ' + roomLabel(p.room);
+      $('seen-popup').classList.remove('hidden');
+      $('seen-ok').focus();
+    }
+    peekedCount = list.length;
+  }
+
+  /** 힌트 카드 영역: 가진 카드와 사용 버튼, 같이 본 카드. */
+  function hintCardsHtml() {
+    var you = state.you;
+    var out = '';
+    var kinds = {};
+    state.hintKinds.forEach(function (k) { kinds[k.key] = k; });
+    if (you.extraTurns > 0) out += '<div class="hc-note">"턴 한 번 더" 대기 중 · ' + you.extraTurns + '회 (이번 차례가 끝나면 한 번 더 진행합니다)</div>';
+    you.hints.forEach(function (key) {
+      var k = kinds[key];
+      var usable = key === 'extraSuggest' ? you.canExtraSuggest : key === 'peek' ? you.canPeek : false;
+      var why = key === 'extraSuggest' ? '내 차례에 추리가 끝난 뒤 방 안에서 쓸 수 있습니다.' : '남이 추리해 카드를 보여 준 직후에 쓸 수 있습니다.';
+      out += '<div class="hc-card"><div class="hc-face"><b>' + escapeHtml(k.label) + '</b><small>' + escapeHtml(k.text) + '</small></div>'
+        + '<button type="button" class="hc-use" data-use="' + key + '"' + (usable ? '' : ' disabled') + '>' + (usable ? '사용하기' : '지금은 쓸 수 없음') + '</button>'
+        + (usable ? '' : '<small class="hc-why">' + escapeHtml(why) + '</small>') + '</div>';
+    });
+    if (!you.hints.length && !you.extraTurns) out += '<p class="hint-empty">가진 힌트 카드가 없습니다.</p>';
+    if (you.peeked.length) {
+      out += '<div class="hc-peeked"><b>같이 본 카드</b>' + you.peeked.slice().reverse().map(function (p) {
+        return '<div class="hint-item ' + cardKind(p.card) + '"><span class="hint-face">' + escapeHtml(cardLabel(p.card)) + '</span><span class="hint-meta"><b>' + escapeHtml(p.by) + '님 → ' + escapeHtml(nameOfId(p.byId)) + '님</b><small>추리: ' + escapeHtml(suspectLabel(p.suspect)) + ', ' + escapeHtml(weaponLabel(p.weapon)) + ', ' + escapeHtml(roomLabel(p.room)) + '</small></span></div>';
+      }).join('') + '</div>';
+    }
+    return out;
+  }
+
+  /** 고발이 있으면(맞았든 틀렸든) 모든 참가자에게 결과 알림을 띄운다. */
+  function checkAccusation() {
+    var a = state.lastAccusation;
+    if (!a) { if (accusedSeq === null) accusedSeq = 0; return; }
+    if (accusedSeq === null) { accusedSeq = a.seq; return; } // 접속·재접속 직후: 이미 지난 고발은 알리지 않는다
+    if (a.seq === accusedSeq) return;
+    accusedSeq = a.seq;
+    var who = nameOfId(a.byId);
+    var body = '<b>' + escapeHtml(who) + '님의 최종 고발</b><div class="said">' + escapeHtml(sentence(a)) + '</div><div class="chips">'
+      + chip('suspect', suspectLabel(a.suspect)) + chip('weapon', weaponLabel(a.weapon)) + chip('room', roomLabel(a.room)) + '</div>';
+    if (a.correct) toast(body + '<div class="verdict ok big">정답입니다! ' + escapeHtml(who) + '님이 사건을 해결했습니다.</div>', 'accuse-ok', 12000);
+    else toast(body + '<div class="verdict big">오답입니다. ' + escapeHtml(who) + '님은 탈락합니다.</div>', 'accuse-bad', 12000);
   }
 
   /**
@@ -347,9 +442,9 @@
       + chip('suspect', suspectLabel(ls.suspect)) + chip('weapon', weaponLabel(ls.weapon)) + chip('room', roomLabel(ls.room)) + '</div>';
     if (ls.shownBy) {
       autoQuestion(ls);
-      toast(who + '<div class="verdict ok">카드를 보여줬습니다.</div><div class="said small">' + escapeHtml(nameOfId(ls.shownBy)) + '님 → ' + escapeHtml(nameOfId(ls.byId)) + '님</div>', 'shown', 9000);
+      toast(who + '<div class="verdict ok">카드를 보여줬습니다.</div><div class="said small">' + escapeHtml(nameOfId(ls.shownBy)) + '님 → ' + escapeHtml(nameOfId(ls.byId)) + '님</div>' + toastUseButtons(), 'shown', 12000);
     } else {
-      toast(who + '<div class="verdict">아무도 보여 줄 카드가 없었습니다. 추리할 수 없습니다.</div>', 'none', 9000);
+      toast(who + '<div class="verdict">아무도 보여 줄 카드가 없었습니다. 추리할 수 없습니다.</div>' + toastUseButtons(), 'none', 12000);
     }
   }
 
@@ -386,13 +481,35 @@
     }).join(''));
   }
 
-  /** 추측해서 상대가 보여 준 카드(힌트)를 최근 것부터 모아 보여 준다. 카드를 보여 준 사람과 그때의 추측도 함께. */
-  function hintsHtml() {
-    var list = state.you.seen.slice().reverse();
-    if (!list.length) return '<p class="hint-empty">아직 받은 힌트가 없습니다. 추측하면 상대가 보여 준 카드가 여기에 쌓입니다.</p>';
-    return list.map(function (h) {
-      return '<div class="hint-item ' + cardKind(h.card) + '"><span class="hint-face">' + escapeHtml(cardLabel(h.card)) + '</span>'
-        + '<span class="hint-meta"><b>' + escapeHtml(h.by) + '님이 보여 줌</b><small>추측: ' + escapeHtml(suspectLabel(h.suspect)) + ', ' + escapeHtml(weaponLabel(h.weapon)) + ', ' + escapeHtml(roomLabel(h.room)) + '</small></span></div>';
+  /** 이번 판의 모든 추측을 최근 것부터. 내 추리와 상대 추리를 따로 볼 수 있다. 카드 이름은 내가 받은 것만 보인다. */
+  /** 추리 기록의 카드 칩에 붙일 표시: 내 카드·받은 카드는 ✕, 노트에서 ?·✓로 둔 카드는 그대로. */
+  function markOf(key) {
+    var known = state.you.hand.indexOf(key) >= 0 || state.you.seen.some(function (h) { return h.card === key; }) || state.you.peeked.some(function (h) { return h.card === key; });
+    if (known) return '<i class="mk x">✕</i>';
+    if (marks[key] === 2) return '<i class="mk q">?</i>';
+    if (marks[key] === 3) return '<i class="mk y">✓</i>';
+    return '';
+  }
+  function markedChip(kind, key, label) { return '<span class="chip ' + kind + '">' + markOf(key) + escapeHtml(label) + '</span>'; }
+
+  function suggestionsHtml() {
+    var me = state.you.id;
+    var list = state.suggestions.slice().reverse().filter(function (x) {
+      return logFilter === 'mine' ? x.byId === me : logFilter === 'others' ? x.byId !== me : true;
+    });
+    if (!list.length) return '<p class="sg-empty">' + (logFilter === 'mine' ? '아직 내가 한 추리가 없습니다.' : logFilter === 'others' ? '아직 상대가 한 추리가 없습니다.' : '아직 추리가 없습니다.') + '</p>';
+    return list.map(function (x) {
+      var mine = x.byId === me;
+      var got = mine ? state.you.seen.filter(function (h) { return h.seq === x.seq; })[0] : null;
+      var peeked = state.you.peeked.filter(function (h) { return h.seq === x.seq; })[0];
+      var result = !x.resolved ? '<span class="sg-result wait">카드를 고르는 중</span>'
+        : x.shownBy ? '<span class="sg-result ok">' + escapeHtml(nameOfId(x.shownBy)) + '님이 보여 줌</span>'
+          : '<span class="sg-result none">아무도 못 보여 줌</span>';
+      return '<div class="sg-item' + (mine ? ' mine' : '') + '"><div class="sg-head"><b>' + escapeHtml(nameOfId(x.byId)) + (mine ? ' (나)' : '') + '</b>' + result + '</div>'
+        + '<div class="sg-said">' + escapeHtml(sentence(x)) + '</div>'
+        + '<div class="sg-chips">' + markedChip('suspect', x.suspect, suspectLabel(x.suspect)) + markedChip('weapon', x.weapon, weaponLabel(x.weapon)) + markedChip('room', x.room, roomLabel(x.room)) + '</div>'
+        + (got ? '<div class="sg-got">받은 카드: <b>' + escapeHtml(cardLabel(got.card)) + '</b></div>' : '')
+        + (peeked ? '<div class="sg-got">같이 본 카드: <b>' + escapeHtml(cardLabel(peeked.card)) + '</b></div>' : '') + '</div>';
     }).join('');
   }
 
@@ -414,6 +531,9 @@
     loadMarks();
     checkSeen();
     checkSuggestion();
+    checkAccusation();
+    checkHintDraw();
+    checkPeeked();
 
     renderPicks();
     var showGame = state.board.length > 0 && (playing || !!state.result);
@@ -437,6 +557,7 @@
         if (state.step === 'start') message = '내 차례입니다. 주사위를 굴리세요. (' + state.autoRollSec + '초 안에 굴리지 않으면 서버가 대신 굴려 가까운 방으로 가서 추측합니다)' + (you.canPassage ? ' 비밀 통로로 바로 건너갈 수도 있습니다.' : '') + (you.canAccuse ? ' 정답 봉투 방에 있어 바로 고발할 수도 있습니다.' : '') + (you.canSuggest ? ' 불려 온 방이라 굴리지 않고 바로 추측해도 됩니다.' : '');
         else if (state.step === 'move') message = '최대 ' + state.moveLeft + '칸 이동할 수 있습니다. 초록색 칸이나 방을 눌러 이동하거나, 움직이지 않으려면 "제자리에 있기"를 누르세요.' + (you.reach && !you.reach.cells.length && !you.reach.rooms.length ? ' 갈 수 있는 곳이 없습니다. 차례를 끝내세요.' : '');
         else if (state.step === 'suggest') message = '방에 들어왔습니다. 범인과 흉기를 골라 추측하세요.';
+        else if (you.canExtraSuggest) message = '추리가 끝났습니다. "추리 한 번 더" 카드를 쓸 수 있습니다. 쓰지 않으면 차례를 끝내세요.';
         else message = you.canAccuse ? '정답 봉투 방에 있습니다. 범인·흉기·장소를 고발하거나 차례를 끝내세요.' : '이번 차례는 곧 자동으로 끝납니다. 바로 넘기려면 "차례 끝내기"를 누르세요. (고발하려면 주사위로 가운데 정답 봉투 방에 들어가야 합니다)';
       } else message = turnName + '님의 차례입니다.' + (state.board.some(function (b) { return b.id === state.turnId && b.connected === false; }) ? ' 연결이 끊겨 있어 잠시 기다립니다.' : '');
       if (state.paused) message += ' 기다리는 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
@@ -459,7 +580,7 @@
       else if (!p.inGame) status = '구경';
       else if (seat && seat.eliminated) status = '탈락';
       else status = p.id === state.waitingId ? '차례' : '대기';
-      var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + ' · 카드 ' + seat.cards + '장</small>' : '';
+      var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + ' · 카드 ' + seat.cards + '장' + (seat.hints ? ' · 힌트 ' + seat.hints + '장' : '') + '</small>' : '';
       var initial = Array.from(p.nickname)[0] || '나';
       return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '"' + (seat ? ' data-suspect="' + seat.suspect + '"' : '') + ' data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
         + (p.id === you.id ? ' (나)' : '') + '</b>' + piece + '<span class="status">' + status + '</span></div>';
@@ -495,8 +616,11 @@
       $('hand-box').classList.toggle('hidden', !you.hand.length);
       setHtml('hand', you.hand.map(function (card) { return '<span class="clue-card ' + cardKind(card) + '">' + escapeHtml(cardLabel(card)) + '</span>'; }).join(''));
       $('hint-box').classList.toggle('hidden', !you.inGame && !state.result);
-      $('hint-count').textContent = you.seen.length ? you.seen.length + '장' : '';
-      setHtml('hints', hintsHtml());
+      $('hint-count').textContent = you.hints.length ? you.hints.length + '장' : '';
+      setHtml('hint-cards', hintCardsHtml());
+      $('log-box').classList.toggle('hidden', !state.suggestions.length && !you.inGame && !state.result);
+      $('log-count').textContent = state.suggestions.length ? state.suggestions.length + '건' : '';
+      setHtml('suggestions', suggestionsHtml());
       $('notebook').classList.toggle('hidden', !you.inGame && !state.result);
       setHtml('notebook', notebookHtml());
     }
@@ -552,6 +676,27 @@
     var key = chip.getAttribute('data-key');
     send('pick', { suspect: state.you.pick === key ? null : key });
   });
+  document.querySelectorAll('.log-tab').forEach(function (tab) {
+    tab.onclick = function () {
+      logFilter = tab.getAttribute('data-f');
+      document.querySelectorAll('.log-tab').forEach(function (t) {
+        var on = t === tab;
+        t.classList.toggle('on', on);
+        t.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      if (state) setHtml('suggestions', suggestionsHtml());
+    };
+  });
+  function useHintFrom(event) {
+    var button = event.target.closest ? event.target.closest('[data-use]') : null;
+    if (!button || button.disabled || !state) return false;
+    send('useHint', { kind: button.getAttribute('data-use') });
+    return true;
+  }
+  $('hint-cards').addEventListener('click', useHintFrom);
+  $('toasts').addEventListener('click', function (event) {
+    if (useHintFrom(event)) { var toastEl = event.target.closest('.toast'); if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl); }
+  });
   $('seen-ok').onclick = closeSeen;
   document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeSeen(); });
   $('roll').onclick = function () { markSending($('roll')); send('roll'); };
@@ -593,6 +738,7 @@
     marks[key] = ((marks[key] || 0) + 1) % MARK_TEXT.length;
     saveMarks();
     setHtml('notebook', notebookHtml());
+    setHtml('suggestions', suggestionsHtml());
   }
   $('notebook').addEventListener('click', function (event) { cycleMark(event.target.closest ? event.target.closest('td.mark') : null); });
   $('notebook').addEventListener('keydown', function (event) {

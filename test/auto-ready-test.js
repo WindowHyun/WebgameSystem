@@ -31,15 +31,17 @@ function cardGame(label, make, finish) {
   for (const id of [a, b, c]) room.setReady(id, true);
   check('시작할 수 있다', room.begin(a) === null);
   const late = room.join({ nickname: '늦게온사람' }).playerId;
-  check('판 도중에는 준비 상태를 바꿀 수 없다', typeof room.setReady(late, true) === 'string');
+  check('판을 뛰는 사람은 판 도중에 준비 상태를 바꿀 수 없다', typeof room.setReady(a, false) === 'string');
+  check('판 도중에 온 사람은 "다음 판 참가"를 미리 눌러 둘 수 있다', room.setReady(late, true) === null);
 
   finish(room, a);
   check('판이 끝났다', room.stateFor(a).phase === 'result');
   check('판에 참여한 사람은 자동으로 준비된다', [a, b, c].every((id) => readyOf(room, a, id) === true));
-  check('판 도중에 온 사람은 준비되지 않는다', readyOf(room, a, late) === false);
-  check('준비한 수가 참여자 수다', room.stateFor(a).readyCount === 3);
+  check('판 도중에 미리 눌러 둔 사람은 판이 끝나도 준비된 상태로 이어진다', readyOf(room, a, late) === true);
+  check('준비한 수는 참여자 + 미리 누른 사람이다', room.stateFor(a).readyCount === 4);
 
-  check('구경한 사람이 다음 판 준비를 누를 수 있다', room.setReady(late, true) === null && readyOf(room, a, late) === true);
+  check('미리 눌러 둔 사람도 판이 끝난 뒤 준비를 취소할 수 있다', room.setReady(late, false) === null && readyOf(room, a, late) === false);
+  check('다시 눌러 다음 판 준비를 할 수 있다', room.setReady(late, true) === null && readyOf(room, a, late) === true);
   check('자동 준비된 사람도 준비를 취소할 수 있다', room.setReady(b, false) === null && readyOf(room, a, b) === false);
   check('준비 취소한 사람은 다음 판에서 빠진다', room.stateFor(a).readyCount === 3);
 

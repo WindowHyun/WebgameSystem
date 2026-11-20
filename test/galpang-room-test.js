@@ -114,7 +114,7 @@ function setup(extra) {
       check('구경하는 사람도 같은 판(후보·힌트)을 본다', same(sc.candidates, sa.candidates) && same(sc.hints, sa.hints));
       check('시작하면 준비는 풀린다(다음 판에 다시 준비)', sa.players.every((p) => p.ready === false));
       check('진행 중 상태 메시지에 정답·해설·특징·seed가 없다', findSecret(sa) === null && findSecret(sc) === null, findSecret(sa));
-      check('구경하는 사람의 조작은 거절한다(명령어·준비)', typeof t.cmd(c, 'remove 1') === 'string' && typeof t.room.setReady(c.playerId, true) === 'string');
+      check('구경하는 사람은 명령어는 못 하지만 다음 판 준비는 미리 눌러 둘 수 있다', typeof t.cmd(c, 'remove 1') === 'string' && t.room.setReady(c.playerId, true) === null);
       check('진행 중에는 다시 시작할 수 없다', typeof t.room.begin(a.playerId) === 'string');
       const d = t.person('늦은사람');
       check('진행 중에 들어온 사람은 구경한다(다음 게임부터 참여)', t.st(d).you.inGame === false && t.st(d).phase === 'playing' && t.logs.some((l) => l.includes('늦은사람 입장 (진행 중 - 다음 게임부터)')));
@@ -306,7 +306,7 @@ function setup(extra) {
       t.room.disconnect(a.playerId);
       t.room.disconnect(b.playerId);
       const sent = t.changes.length;
-      check('참가자가 막 끊긴 직후(유예 안)에는 아직 돌아올 수 있으니 판이 진행 중이다(시작·준비 불가)', t.st(s).abandoned === false && t.st(s).canStart === false && typeof t.room.begin(s.playerId) === 'string' && typeof t.room.setReady(s.playerId, true) === 'string');
+      check('참가자가 막 끊긴 직후(유예 안)에는 아직 돌아올 수 있으니 판이 진행 중이다(시작·준비 불가)', t.st(s).abandoned === false && t.st(s).canStart === false && typeof t.room.begin(s.playerId) === 'string' && t.room.setReady(s.playerId, true) === null);
       await wait(150);
       check('유예가 끝나는 순간 방에 있던 구경꾼에게 상태가 다시 간다(시간만 지나서 바뀌는 값이라 알리지 않으면 시작 버튼이 안 열린다)', t.changes.slice(sent).some((id) => id === undefined || id === s.playerId), String(t.changes.length - sent)); // id 없는 알림은 모두에게 보내는 방송이다
       const idle = t.st(s);
