@@ -46,6 +46,15 @@
 @keyframes clue-pulse{50%{fill:#2ea043b8}}
 @keyframes clue-ring{50%{opacity:.35;transform:scale(1.15)}}
 .side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.map-col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.turn-banner{width:76.5%;margin:0 auto;padding:8px 14px;border-radius:10px;background:#1c4a35;border:1px solid #ffffff22;color:#e4f4ea;font-size:14px;font-weight:700;text-align:center}
+.turn-banner.mine{background:#ecb22e;border-color:#ecb22e;color:#3f2e00}
+.turn-banner.hidden{display:none}
+.below{width:76.5%;margin:0 auto;display:flex;flex-direction:column;gap:10px;min-width:0}
+.below .controls{margin:0;padding:0}
+.below-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.below-row>.panel.hidden{display:none}
+.below .suggestions{max-height:240px}
 
 /* 주사위 */
 .dice-area{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 10px;border-radius:12px;background:#1c4a35;border:1px solid #ffffff22;box-shadow:inset 0 2px 10px #0005}
@@ -103,11 +112,12 @@
 @media(max-width:1180px){
   .clue-grid{grid-template-columns:minmax(0,1fr)}
   .map-wrap{max-width:860px;margin:0 auto;width:76.5%}
-  .side>.notebook{grid-column:1/-1}
+  .below,.turn-banner{width:76.5%}
   .side{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
 }
 @media(max-width:760px){
-  .map-wrap{width:100%}
+  .map-wrap,.below,.turn-banner{width:100%}
+  .below-row{grid-template-columns:1fr}
   #board{padding:12px 8px}
   .die{width:50px;height:50px;padding:8px}
 }
@@ -225,7 +235,7 @@
 
 /* 힌트 카드(진짜 힌트 카드) */
 .hint-box>b small{margin-left:6px;color:#cdbfe0;font-weight:400;font-size:12px}
-.hint-cards{display:flex;flex-direction:column;gap:8px}
+.hint-cards{display:flex;flex-direction:column;gap:6px}
 .hint-help{margin:8px 0 0;color:#cdbfe0;font-size:12px;line-height:1.5}
 .hint-empty{margin:0;color:#cdbfe0;font-size:12px}
 .hc-note{padding:8px 10px;border-radius:8px;background:#ecb22e26;border:1px dashed #ecb22e88;color:#f3dc9b;font-size:12px}

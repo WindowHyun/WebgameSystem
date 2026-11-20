@@ -6,7 +6,7 @@
   <title>클루</title>
   <link rel="stylesheet" href="poker.css?v=4">
   <link rel="stylesheet" href="responsive-fixes.css?v=7">
-  <link rel="stylesheet" href="clue.css?v=24">
+  <link rel="stylesheet" href="clue.css?v=27">
 </head>
 <body class="poker-page clue-page">
   <div id="app">
@@ -43,33 +43,51 @@
             <div id="result" class="result hidden"></div>
             <details id="rules-fold" class="rules-fold"><summary>규칙 보기</summary><div id="rules-copy" class="rules"></div></details>
             <div class="clue-grid">
-              <div class="map-wrap"><svg id="map" viewBox="0 0 480 500" role="img" aria-label="저택 보드"></svg></div>
-              <div class="side">
-                <div id="dice-area" class="dice-area">
-                  <div id="dice" class="dice" role="group" aria-label="주사위"></div>
-                  <div id="dice-note" class="dice-note"></div>
-                </div>
-                <div id="disprove" class="panel hidden"></div>
-                <div id="suggest-form" class="panel hidden">
+              <div class="map-col">
+                <div id="turn-banner" class="turn-banner hidden"></div>
+                <div class="map-wrap"><svg id="map" viewBox="0 0 480 500" role="img" aria-label="저택 보드"></svg></div>
+                <div class="below">
+                  <section id="turn-controls" class="controls hidden">
+                  <div class="main-actions">
+                  <button id="roll">주사위 굴리기</button>
+                  <button id="stay" class="secondary">제자리에 있기</button>
+                  <button id="passage" class="secondary">비밀 통로</button>
+                  <button id="suggest" class="secondary">추측하기</button>
+                  <button id="accuse" class="secondary">고발하기</button>
+                  <button id="end" class="secondary">차례 끝내기</button>
+                  </div>
+                  </section>
+                  <div id="disprove" class="panel hidden"></div>
+                  <div id="suggest-form" class="panel hidden">
                   <b>추측하기</b>
                   <p id="suggest-room" class="panel-note"></p>
                   <label>범인 <select id="sg-suspect"></select></label>
                   <label>흉기 <select id="sg-weapon"></select></label>
                   <button id="suggest-go">추측하기</button>
-                </div>
-                <div id="accuse-form" class="panel hidden">
+                  </div>
+                  <div id="accuse-form" class="panel hidden">
                   <b>고발하기</b>
                   <p class="panel-note">틀리면 바로 탈락합니다. 확신이 설 때만 하세요.</p>
                   <label>범인 <select id="ac-suspect"></select></label>
                   <label>흉기 <select id="ac-weapon"></select></label>
                   <label>장소 <select id="ac-room"></select></label>
-                  <div class="row"><button id="accuse-cancel" class="secondary" data-help="고발하지 않고 닫습니다.">닫기</button><button id="accuse-go" class="danger" data-help="범인·흉기·장소를 최종 고발합니다. 맞으면 승리, 틀리면 탈락입니다.">고발 확정</button></div>
-                </div>
-                <div id="hand-box" class="panel hidden"><b>내 카드</b><div id="hand" class="clue-hand"></div></div>
-                <div id="hint-box" class="panel hint-box"><b>힌트 카드 <small id="hint-count"></small></b><div id="hint-cards" class="hint-cards"></div><p class="hint-help">복도의 ★ 칸에서 이동을 마치면 힌트 카드를 한 장 뽑습니다.</p></div>
-                <div id="log-box" class="panel log-box"><b>추리 기록 <small id="log-count"></small></b>
+                  <div class="row"><button id="accuse-cancel" class="secondary">닫기</button><button id="accuse-go" class="danger">고발 확정</button></div>
+                  </div>
+                  <div class="below-row">
+                    <div id="hand-box" class="panel hidden"><b>내 카드</b><div id="hand" class="clue-hand"></div></div>
+                    <div id="hint-box" class="panel hint-box"><b>힌트 카드 <small id="hint-count"></small></b><div id="hint-cards" class="hint-cards"></div><p class="hint-help">복도의 ★ 칸에서 이동을 마치면 힌트 카드를 한 장 뽑습니다.</p></div>
+                  </div>
+                  <div id="log-box" class="panel log-box"><b>추리 기록 <small id="log-count"></small></b>
                   <div class="log-tabs" role="group" aria-label="추리 기록 보기"><button type="button" class="log-tab on" data-f="all" aria-pressed="true">전체</button><button type="button" class="log-tab" data-f="mine" aria-pressed="false">내 추리</button><button type="button" class="log-tab" data-f="others" aria-pressed="false">상대 추리</button></div>
                   <div id="suggestions" class="suggestions"></div></div>
+
+                </div>
+              </div>
+              <div class="side">
+                <div id="dice-area" class="dice-area">
+                  <div id="dice" class="dice" role="group" aria-label="주사위"></div>
+                  <div id="dice-note" class="dice-note"></div>
+                </div>
                 <div id="notebook" class="panel notebook"></div>
               </div>
             </div>
@@ -78,31 +96,20 @@
       </section>
 
       <section id="lobby" class="controls">
-        <div class="main-actions"><button id="ready" class="secondary" data-help="게임 참가 준비 상태를 설정하거나 취소합니다.">준비</button><button id="start" data-help="준비를 마친 참가자들과 새 게임을 시작합니다.">게임 시작</button></div>
+        <div class="main-actions"><button id="ready" class="secondary">준비</button><button id="start">게임 시작</button></div>
       </section>
 
-      <section id="turn-controls" class="controls hidden">
-        <div class="main-actions">
-          <button id="roll" data-help="주사위 2개를 굴려 나온 눈의 합만큼 이동할 수 있습니다.">주사위 굴리기</button>
-          <button id="stay" class="secondary" data-help="굴린 주사위로 움직이지 않고 지금 자리에 그대로 머뭅니다. 방 안이라면 거기서 추측할 수 있습니다.">제자리에 있기</button>
-          <button id="passage" class="secondary" data-help="모서리 방의 비밀 통로로 건너편 방에 바로 이동합니다. 주사위를 굴리기 전에만 쓸 수 있습니다.">비밀 통로</button>
-          <button id="suggest" class="secondary">추측하기</button>
-          <button id="accuse" class="secondary" data-help="범인·흉기·장소를 최종 고발합니다. 틀리면 탈락합니다.">고발하기</button>
-          <button id="end" class="secondary" data-help="이번 차례를 마치고 다음 사람에게 넘깁니다.">차례 끝내기</button>
-        </div>
-      </section>
-      <p id="action-help" class="action-help">버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.</p>
 
       <section id="history" aria-label="게임 기록"></section>
     </main>
   </div>
 
-  <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary" data-help="시작하지 않고 돌아갑니다.">취소</button><button id="start-go" data-help="준비한 참가자들과 새 게임을 시작합니다.">시작하기</button></div></div></div>
-  <div id="seen-popup" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="seen-title"><div class="modal-card seen-card"><small id="seen-from"></small><h2 id="seen-title">카드를 받았습니다</h2><div id="seen-card" class="seen-face"></div><p id="seen-ask"></p><div><button id="seen-ok" data-help="받은 카드를 확인했습니다. 추리 노트에는 자동으로 ✕가 적힙니다.">확인</button></div></div></div>
+  <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary">취소</button><button id="start-go">시작하기</button></div></div></div>
+  <div id="seen-popup" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="seen-title"><div class="modal-card seen-card"><small id="seen-from"></small><h2 id="seen-title">카드를 받았습니다</h2><div id="seen-card" class="seen-face"></div><p id="seen-ask"></p><div><button id="seen-ok">확인</button></div></div></div>
   <div id="toasts" aria-live="polite"></div>
   <div id="error" role="alert"></div>
   <script src="game-socket.js?v=3"></script><script src="join-next.js?v=1"></script>
-  <script src="clue.js?v=23"></script>
+  <script src="clue.js?v=26"></script>
   <script src="mobile.js?v=4"></script>
   <script src="cover.js?v=14"></script>
 </body>

@@ -397,9 +397,8 @@
       var k = kinds[key];
       var usable = key === 'extraSuggest' ? you.canExtraSuggest : key === 'peek' ? you.canPeek : false;
       var why = key === 'extraSuggest' ? '내 차례에 추리가 끝난 뒤 방 안에서 쓸 수 있습니다.' : '남이 추리해 카드를 보여 준 직후에 쓸 수 있습니다.';
-      out += '<div class="hc-card"><div class="hc-face"><b>' + escapeHtml(k.label) + '</b><small>' + escapeHtml(k.text) + '</small></div>'
-        + '<button type="button" class="hc-use" data-use="' + key + '"' + (usable ? '' : ' disabled') + '>' + (usable ? '사용하기' : '지금은 쓸 수 없음') + '</button>'
-        + (usable ? '' : '<small class="hc-why">' + escapeHtml(why) + '</small>') + '</div>';
+      out += '<div class="hc-card" title="' + escapeHtml(k.text + (usable ? '' : ' ' + why)) + '"><div class="hc-face"><b>' + escapeHtml(k.label) + '</b></div>'
+        + '<button type="button" class="hc-use" data-use="' + key + '"' + (usable ? '' : ' disabled') + '>' + (usable ? '사용하기' : '지금은 쓸 수 없음') + '</button></div>';
     });
     if (!you.hints.length && !you.extraTurns) out += '<p class="hint-empty">가진 힌트 카드가 없습니다.</p>';
     if (you.peeked.length) {
@@ -540,7 +539,7 @@
     $('rules').classList.toggle('hidden', showGame);
     $('game-view').classList.toggle('hidden', !showGame);
     $('lobby').classList.toggle('hidden', !lobby);
-    $('turn-controls').classList.toggle('hidden', !(playing && you.inGame && !you.eliminated));
+    $('turn-controls').classList.toggle('hidden', !(playing && you.inGame && !you.eliminated && you.myTurn));
     $('ready').textContent = you.ready ? '준비 취소' : '준비';
     $('start').disabled = !state.canStart;
 
@@ -634,8 +633,12 @@
     $('accuse').classList.toggle('hidden', !you.canAccuse);
     $('accuse').textContent = accuseOpen ? '고발 닫기' : '고발하기';
     $('end').classList.toggle('hidden', !you.canEnd);
-    $('roll').textContent = you.myTurn ? (state.step === 'start' ? '주사위 굴리기' : '이미 굴렸습니다') : (turnName ? turnName + '님이 하는 중' : '대기 중');
-    if (!you.myTurn) { $('roll').classList.remove('hidden'); $('roll').disabled = true; }
+    $('roll').textContent = state.step === 'start' ? '주사위 굴리기' : '이미 굴렸습니다';
+    // "○○님이 하는 중"은 지도 위 배너로 보여 준다(내 차례가 아니면 아래 버튼 줄은 숨겨진다).
+    var banner = $('turn-banner');
+    banner.classList.toggle('hidden', !playing);
+    banner.classList.toggle('mine', !!you.myTurn);
+    banner.textContent = !playing ? '' : you.myTurn ? '내 차례입니다' : ((waitName || turnName) ? (waitName || turnName) + '님이 하는 중' : '대기 중');
 
     setHtml('history', state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join(''));
     renderStartConfirm();
@@ -745,13 +748,6 @@
     if (event.key !== 'Enter' && event.key !== ' ') return;
     var cell = event.target.closest ? event.target.closest('td.mark') : null;
     if (cell) { event.preventDefault(); cycleMark(cell); }
-  });
-
-  document.querySelectorAll('button[data-help]').forEach(function (button) {
-    function showHelp() { $('action-help').textContent = button.dataset.help; }
-    button.addEventListener('mouseenter', showHelp);
-    button.addEventListener('focus', showHelp);
-    button.addEventListener('touchstart', showHelp, { passive: true });
   });
 
   socket = window.GameSocket.open({
