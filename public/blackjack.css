@@ -23,5 +23,6 @@
    가려진 카드의 글자는 덮이지 않는 왼쪽으로 붙인다. 맨 오른쪽 카드는 온전히 보이므로
    원래대로 가운데 둔다. 좁은 화면은 카드와 겹침이 따로 잡혀 있어 건드리지 않는다. */
 @media(min-width:761px){
-  .hand .card:not(:last-child){justify-items:start;padding-left:15px}
+  /* 겹쳐서 보이는 폭이 58px라 34px 글자("Q♣")의 무늬가 잘렸다. 겹친 카드만 글자를 줄이고 왼쪽 여백도 줄인다. */
+  .hand .card:not(:last-child){justify-items:start;padding-left:6px;font-size:26px}
 }

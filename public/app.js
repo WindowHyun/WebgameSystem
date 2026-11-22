@@ -71,7 +71,7 @@ var liveSignature = '';    // 진행 블록을 필요할 때만 다시 그리기
 var roleCardOpen = true;   // 역할 카드를 접었다 펼쳤다 - 새 라운드마다 다시 펼친 채로 시작한다
 
 // 사람마다 다른 아바타 색. 이름이 아니라 id로 고른다 - 닉네임이 같아도(중복 처리 전) 사람은 다르다.
-var AVATAR_PALETTE = ['#7F77DD', '#E07B53', '#2BAC76', '#1264A3', '#C93A3A', '#946200', '#00857A', '#8C5AC7'];
+var AVATAR_PALETTE = ['#6860D0', '#B94E26', '#1B7F55', '#1264A3', '#C93A3A', '#946200', '#00857A', '#8C5AC7'];
 function avatarColorFor(key) {
   var s = String(key == null ? '' : key);
   var hash = 0;

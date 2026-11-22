@@ -23,6 +23,7 @@
   var accusedSeq = null;   // 마지막으로 알린 고발 번호(접속·재접속 때 이미 지난 고발은 알리지 않는다)
   var alertedSeq = null;   // 결과(누가 보여 줬는지)까지 알린 추측 번호
   var logFilter = 'all';   // 추리 기록 보기: all | mine | others
+  var showingDisprove = false; // 카드 보여 주기 패널이 이미 떠 있었는지(처음 뜰 때만 화면을 옮긴다)
   var seenCount = null;    // 지금까지 받은 카드 수(새로 받았을 때만 팝업을 띄운다. 접속·재접속 때는 띄우지 않는다)
 
   var COLORS = { scarlett: '#d72c0d', mustard: '#ecb22e', white: '#ffffff', green: '#2e8b57', peacock: '#1264a3', plum: '#7b3f9e' };
@@ -34,6 +35,7 @@
 
   function $(id) { return document.getElementById(id); }
   function escapeHtml(value) { var el = document.createElement('div'); el.textContent = value; return el.innerHTML; }
+  function reducedMotion() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
   function first(text) { return Array.from(text || '?')[0]; }
 
   $('rules-copy').innerHTML = $('rules').innerHTML;
@@ -304,10 +306,10 @@
   function toast(html, cls, ms) {
     var el = document.createElement('div');
     el.className = 'toast ' + (cls || '');
-    el.innerHTML = html;
+    el.innerHTML = html + '<button type="button" class="toast-close" aria-label="알림 닫기">✕</button>';
     var box = $('toasts');
     box.appendChild(el);
-    while (box.children.length > 3) box.removeChild(box.firstChild);
+    while (box.children.length > 2) box.removeChild(box.firstChild);
     function remove() { if (el.parentNode) el.parentNode.removeChild(el); }
     el.onclick = remove;
     setTimeout(remove, ms || 5000);
@@ -340,6 +342,9 @@
     });
     if (changed) saveMarks();
   }
+
+  /** 알림에 힌트 카드 사용 버튼이 붙으면(쓸 수 있는 동안) 오래 둔다. 아니면 짧게 보여 주고 치운다. */
+  function canUseHintCard() { return !!(state.you.canPeek || state.you.canExtraSuggest); }
 
   /** 알림 안에서 바로 쓸 수 있는 힌트 카드 버튼(같이 보기 / 추리 한 번 더). */
   function toastUseButtons() {
@@ -419,8 +424,8 @@
     var who = nameOfId(a.byId);
     var body = '<b>' + escapeHtml(who) + '님의 최종 고발</b><div class="said">' + escapeHtml(sentence(a)) + '</div><div class="chips">'
       + chip('suspect', suspectLabel(a.suspect)) + chip('weapon', weaponLabel(a.weapon)) + chip('room', roomLabel(a.room)) + '</div>';
-    if (a.correct) toast(body + '<div class="verdict ok big">정답입니다! ' + escapeHtml(who) + '님이 사건을 해결했습니다.</div>', 'accuse-ok', 12000);
-    else toast(body + '<div class="verdict big">오답입니다. ' + escapeHtml(who) + '님은 탈락합니다.</div>', 'accuse-bad', 12000);
+    if (a.correct) toast(body + '<div class="verdict ok big">정답입니다! ' + escapeHtml(who) + '님이 사건을 해결했습니다.</div>', 'accuse-ok', 9000);
+    else toast(body + '<div class="verdict big">오답입니다. ' + escapeHtml(who) + '님은 탈락합니다.</div>', 'accuse-bad', 9000);
   }
 
   /**
@@ -441,9 +446,9 @@
       + chip('suspect', suspectLabel(ls.suspect)) + chip('weapon', weaponLabel(ls.weapon)) + chip('room', roomLabel(ls.room)) + '</div>';
     if (ls.shownBy) {
       autoQuestion(ls);
-      toast(who + '<div class="verdict ok">카드를 보여줬습니다.</div><div class="said small">' + escapeHtml(nameOfId(ls.shownBy)) + '님 → ' + escapeHtml(nameOfId(ls.byId)) + '님</div>' + toastUseButtons(), 'shown', 12000);
+      toast(who + '<div class="verdict ok">카드를 보여줬습니다.</div><div class="said small">' + escapeHtml(nameOfId(ls.shownBy)) + '님 → ' + escapeHtml(nameOfId(ls.byId)) + '님</div>' + toastUseButtons(), 'shown', canUseHintCard() ? 12000 : 7000);
     } else {
-      toast(who + '<div class="verdict">아무도 보여 줄 카드가 없었습니다. 추리할 수 없습니다.</div>' + toastUseButtons(), 'none', 12000);
+      toast(who + '<div class="verdict">아무도 보여 줄 카드가 없었습니다. 추리할 수 없습니다.</div>' + toastUseButtons(), 'none', canUseHintCard() ? 12000 : 7000);
     }
   }
 
@@ -603,6 +608,14 @@
       var dp = $('disprove');
       dp.classList.toggle('hidden', !you.disprove);
       setHtml('disprove', disproveHtml());
+      // 카드를 보여 줄 차례가 막 시작됐으면 그 자리로 화면을 옮기고 첫 버튼에 초점을 둔다(놓치면 45초 뒤 서버가 대신 보여 준다).
+      var needShow = !!you.disprove;
+      if (needShow && !showingDisprove) {
+        var firstPick = dp.querySelector('.pick-card');
+        try { dp.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' }); } catch (e) { /* 오래된 브라우저 */ }
+        if (firstPick) { try { firstPick.focus({ preventScroll: true }); } catch (e) { firstPick.focus(); } }
+      }
+      showingDisprove = needShow;
 
       var sug = you.canSuggest && !accuseOpen;
       $('suggest-form').classList.toggle('hidden', !sug);
@@ -625,7 +638,8 @@
     }
 
     $('roll').disabled = !you.canRoll;
-    $('roll').classList.toggle('hidden', !you.canRoll && !you.myTurn);
+    // 이미 굴린 뒤에는 "이미 굴렸습니다"라는 눌리지 않는 큰 버튼을 두지 않고 숨긴다(안내는 위 메시지가 한다).
+    $('roll').classList.toggle('hidden', !you.canRoll);
     $('stay').classList.toggle('hidden', !you.canStay);
     $('passage').classList.toggle('hidden', !you.canPassage);
     $('passage').textContent = you.passageTo ? '비밀 통로 → ' + roomLabel(you.passageTo) : '비밀 통로';
@@ -633,12 +647,14 @@
     $('accuse').classList.toggle('hidden', !you.canAccuse);
     $('accuse').textContent = accuseOpen ? '고발 닫기' : '고발하기';
     $('end').classList.toggle('hidden', !you.canEnd);
-    $('roll').textContent = state.step === 'start' ? '주사위 굴리기' : '이미 굴렸습니다';
+    $('roll').textContent = '주사위 굴리기';
     // "○○님이 하는 중"은 지도 위 배너로 보여 준다(내 차례가 아니면 아래 버튼 줄은 숨겨진다).
     var banner = $('turn-banner');
     banner.classList.toggle('hidden', !playing);
     banner.classList.toggle('mine', !!you.myTurn);
-    banner.textContent = !playing ? '' : you.myTurn ? '내 차례입니다' : ((waitName || turnName) ? (waitName || turnName) + '님이 하는 중' : '대기 중');
+    // 폰에서는 주사위 칸이 지도 한참 아래라, 나온 눈은 배너에도 적어 둔다.
+    var diceText = playing && state.dice ? ' · 🎲 ' + state.dice[0] + '+' + state.dice[1] + '=' + (state.dice[0] + state.dice[1]) : '';
+    banner.textContent = !playing ? '' : (you.myTurn ? '내 차례입니다' : ((waitName || turnName) ? (waitName || turnName) + '님이 하는 중' : '대기 중')) + diceText;
 
     setHtml('history', state.history.slice().reverse().map(function (item) { return '<div>' + escapeHtml(item.text) + '</div>'; }).join(''));
     renderStartConfirm();

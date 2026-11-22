@@ -304,6 +304,10 @@ function createGameServer(options) {
       const info = game.room.status();
       games.push({ key, label: game.portalLabel, phase: info.phase, chips: typeof game.room.grant === 'function', running: running(info.phase), players: game.room.rosterList() });
     }
+    // 포털 목록과 같은 순서로 보여 준다(CARD_GAMES 정의 순서와 달랐다).
+    const ORDER = ['liar', 'poker', 'blackjack', 'holdem', 'mind', 'galpang', 'clue', 'yacht'];
+    const rank = (key) => { const i = ORDER.indexOf(key); return i < 0 ? ORDER.length : i; };
+    games.sort((a, b) => rank(a.key) - rank(b.key));
     return { games, portal: portalClients.size, serverTime: Date.now() };
   }
 
@@ -352,7 +356,7 @@ function createGameServer(options) {
       res.end('{"ok":true}');
       return;
     }
-    const name = requested === '/' ? 'index.html' : (requested === '/order' || requested === '/order/') ? 'order.html' : path.basename(requested);
+    const name = requested === '/' ? 'index.html' : (requested === '/order' || requested === '/order/') ? 'order.html' : requested === '/favicon.ico' ? 'favicon.png' : path.basename(requested); // 브라우저가 알아서 찾는 /favicon.ico도 같은 아이콘으로
     const asset = STATIC_FILES.get(name);
     if (!asset) {
       res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, securityHeaders(req)));

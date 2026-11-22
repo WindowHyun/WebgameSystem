@@ -53,6 +53,11 @@
         document.getElementById(id + '-count').textContent = game.playerCount + '명';
         card.classList.toggle('running', game.status === '진행중');
         card.classList.toggle('waiting', game.status === '진행 대기중');
+        // 데스크톱 목록은 상태 글자와 설명을 숨기므로, 마우스를 올리거나 낭독기로 읽을 때 알 수 있게 붙여 둔다.
+        var desc = card.querySelector('small');
+        var label = card.querySelector('b');
+        card.title = (desc ? desc.textContent + ' · ' : '') + game.status + ' · ' + game.playerCount + '명';
+        card.setAttribute('aria-label', (label ? label.textContent : id) + ', ' + game.status + ', ' + game.playerCount + '명');
       });
     }
   });

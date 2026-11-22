@@ -130,6 +130,8 @@ const stateOf = (page) => page.evaluate(() => ({
     check('칸을 누르면 고른 칸이 표시되고 기록 버튼이 "초이스에 N점 기록"이 된다', !sa.scoreDisabled && /^초이스에 \d+점 기록$/.test(sa.scoreLabel), sa.scoreLabel);
     await a.click('#score');
     await b.waitForFunction(() => !document.getElementById('roll').disabled);
+    // 두 화면은 서버에서 따로 받는다. 상대 화면만 기다리고 바로 내 화면을 읽으면 아직 이전 상태일 수 있어(가끔 실패하던 원인) 내 화면도 넘어갈 때까지 기다린다.
+    await a.waitForFunction(() => !/내 차례입니다/.test(document.getElementById('message').textContent));
     sa = await stateOf(a); sb = await stateOf(b);
     check('기록하면 점수판에 들어가고 박서준 차례가 된다', sb.turn.join() === '박서준' && sa.rollDisabled && sb.dice.every((v) => v === 0) && sa.dice.every((v) => v === 0), JSON.stringify(sb));
     check('기록한 점수가 두 화면 점수판의 합계에 같이 보인다', JSON.stringify(await a.locator('#sheet tfoot td').allTextContents().then((t) => t.sort())) === JSON.stringify(await b.locator('#sheet tfoot td').allTextContents().then((t) => t.sort())) && Number(await a.textContent('#sheet tfoot td')) > 0);

@@ -13,6 +13,8 @@
   if (!nickname) { location.href = '/'; return; }
 
   var state = null;
+  var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
+  var lastHelpPhase = null;
   var selected = [];        // 고른 후보 번호
   var seenSeq = null;       // 이미 보여 준 공통 결과 글의 번호. 처음 받은 상태의 글은 이미 지난 일이다.
   var seenReply = null;     // 나에게만 온 답(도움말·목록·입력 오류)의 번호
@@ -224,6 +226,9 @@
     $('round').textContent = s.phase === 'lobby' ? '-' : s.round + ' / ' + s.maxRound;
     $('status-chip').textContent = s.phase === 'lobby' ? (s.alone ? '혼자' : '준비 ' + s.readyCount + '명') : '후보 ' + s.remaining + '개';
     $('message').textContent = messageFor(s);
+
+    // 단계가 바뀌면 지난 단계에서 본 버튼 설명은 지운다(예전에는 시작 버튼 설명이 판 도중에도 남았다). 홀덤과 같은 방식.
+    if (lastHelpPhase !== state.phase) { $('action-help').textContent = DEFAULT_HELP; lastHelpPhase = state.phase; }
     setHtml('players', playersHtml(s));
     setHtml('hints', hintsHtml(s));
     setHtml('grid', gridHtml(s));
