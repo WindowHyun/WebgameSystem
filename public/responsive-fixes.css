@@ -17,36 +17,36 @@
    한 줄 배치를 유지한 채 폭만 나누면 이번엔 이름이 "김하..."로 잘린다. 그래서
    줄을 하나 늘렸다. 높이는 45px → 51px로 거의 그대로다. */
 @media(max-width:760px){
-  .poker-page #players,.blackjack-page #players{scroll-snap-type:x proximity}
-  .poker-page .player,.blackjack-page .player{
+  .poker-page #players,.blackjack-page #players,.clue-page #players{scroll-snap-type:x proximity}
+  .poker-page .player,.blackjack-page .player,.clue-page .player{
     scroll-snap-align:start;
     flex:1 1 0;min-width:0;
     display:grid;grid-template-columns:22px minmax(0,1fr) auto;
     align-items:center;gap:2px 4px;padding:5px 4px;
   }
-  .poker-page .player:before,.blackjack-page .player:before{
+  .poker-page .player:before,.blackjack-page .player:before,.clue-page .player:before{
     grid-area:1/1/2/2;width:22px;height:22px;font-size:10px;
   }
-  .poker-page .player b,.blackjack-page .player b{
+  .poker-page .player b,.blackjack-page .player b,.clue-page .player b{
     grid-area:1/2/2/4;min-width:0;padding-left:0;align-self:center;font-size:11px;
   }
-  .poker-page .player small,.blackjack-page .player small{
+  .poker-page .player small,.blackjack-page .player small,.clue-page .player small{
     grid-area:2/1/3/3;padding-left:0;margin-top:0;align-self:center;font-size:10px;
   }
-  .poker-page .player .status,.blackjack-page .player .status{
+  .poker-page .player .status,.blackjack-page .player .status,.clue-page .player .status{
     grid-area:2/3/3/4;align-self:center;justify-self:end;font-size:8px;padding:1px 4px;
   }
   /* "차례" 배지. 예전에는 오른쪽 아래 절대배치라 칩 금액과 같은 자리를 써서
      "1,000,000원차례"처럼 붙어 보였다. 상태 배지 자리에 정식으로 앉힌다. */
-  .poker-page .player.turn:after,.blackjack-page .player.turn:after{
+  .poker-page .player.turn:after,.blackjack-page .player.turn:after,.clue-page .player.turn:after{
     content:"차례";position:static;grid-area:2/3/3/4;
     align-self:center;justify-self:end;
     padding:1px 5px;border-radius:9px;background:#dcecff;color:#1164a3;
     font-size:8px;font-weight:700;
   }
   /* 네 명 이상이면 여전히 넘친다. 스크롤바가 없으니 "더 있다"를 가장자리로 알린다. */
-  .poker-page .players-panel,.blackjack-page .players-panel{position:relative}
-  .poker-page .players-panel:after,.blackjack-page .players-panel:after{
+  .poker-page .players-panel,.blackjack-page .players-panel,.clue-page .players-panel{position:relative}
+  .poker-page .players-panel:after,.blackjack-page .players-panel:after,.clue-page .players-panel:after{
     content:"";position:absolute;top:0;right:0;bottom:0;width:22px;
     background:linear-gradient(90deg,#3f0e4000,#3f0e40);pointer-events:none;
   }
@@ -58,12 +58,15 @@
    칸마다 최소 폭을 두고 넘치면 다음 줄로 내린다(폭 320px 폰도 한 줄에 세 칸, 다섯 명이면
    두 줄). 모두가 한눈에 보이니 "옆에 더 있다"는 가장자리 그림자도 필요 없다. */
 @media(max-width:760px){
-  .poker-page #players,.blackjack-page #players{display:grid;grid-template-columns:repeat(auto-fit,minmax(94px,1fr));gap:5px;overflow:visible}
-  .poker-page .player,.blackjack-page .player{flex:none;min-width:0;margin:0}
-  .poker-page .player .status,.blackjack-page .player .status,
-  .poker-page .player.turn:after,.blackjack-page .player.turn:after{white-space:nowrap}
-  .poker-page .players-panel:after,.blackjack-page .players-panel:after{display:none}
+  .poker-page #players,.blackjack-page #players,.clue-page #players{display:grid;grid-template-columns:repeat(auto-fit,minmax(94px,1fr));gap:5px;overflow:visible}
+  .poker-page .player,.blackjack-page .player,.clue-page .player{flex:none;min-width:0;margin:0}
+  .poker-page .player .status,.blackjack-page .player .status,.clue-page .player .status,
+  .poker-page .player.turn:after,.blackjack-page .player.turn:after,.clue-page .player.turn:after{white-space:nowrap}
+  .poker-page .players-panel:after,.blackjack-page .players-panel:after,.clue-page .players-panel:after{display:none}
 }
+
+/* 클루: 말·카드 수·힌트 수까지 적혀 길어서, 폰에서도 잘리지 않게 줄바꿈을 허용한다. */
+@media(max-width:760px){.clue-page .player small{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.3}.clue-page .player{align-items:start}.clue-page .player b{align-self:center}}
 
 /* [이슈] 블랙잭 폰 화면에서 손패가 겹쳐 카드가 가려졌다. 6장이면 2장이 통째로 덮여,
    결과 화면에서도 34점이 맞는지 확인할 수 없었다.

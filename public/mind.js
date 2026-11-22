@@ -11,6 +11,8 @@
   if (!nickname) { location.href = '/'; return; }
 
   var state = null;
+  var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
+  var lastHelpPhase = null;
 
   function $(id) { return document.getElementById(id); }
 
@@ -475,6 +477,8 @@
     }
     $('message').textContent = message;
 
+    // 단계가 바뀌면 지난 단계에서 본 버튼 설명은 지운다(예전에는 시작 버튼 설명이 판 도중에도 남았다). 홀덤과 같은 방식.
+    if (lastHelpPhase !== state.phase) { $('action-help').textContent = DEFAULT_HELP; lastHelpPhase = state.phase; }
     setHtml('players', state.players.map(function (p) {
       var status;
       if (p.connected === false) status = '끊김';

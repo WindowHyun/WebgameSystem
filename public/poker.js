@@ -7,6 +7,8 @@
   if (!nickname) { location.href = '/'; return; }
 
   var state = null;
+  var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
+  var lastHelpPhase = null;
   var donationTarget = null;
 
   function $(id) { return document.getElementById(id); }
@@ -28,7 +30,7 @@
   }
   function chipLine(player) {
     var chips = shortMoney(player.chips);
-    return player.roundBet > 0 ? chips + ' · +' + shortMoney(player.roundBet) : chips;
+    return player.roundBet > 0 ? chips + ' · 배팅 ' + shortMoney(player.roundBet) : chips;
   }
 
   /**
@@ -143,11 +145,13 @@
     if (state.paused && !state.result) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     $('message').textContent = message;
 
+    // 단계가 바뀌면 지난 단계에서 본 버튼 설명은 지운다(예전에는 시작 버튼 설명이 판 도중에도 남았다). 홀덤과 같은 방식.
+    if (lastHelpPhase !== state.phase) { $('action-help').textContent = DEFAULT_HELP; lastHelpPhase = state.phase; }
     $('players').innerHTML = state.players.map(function (player) {
       var waiting = state.phase === 'betting' && !player.inRound;
       // 판이 끝나 대기 중일 때는 지난 판의 폴드·올인이 아니라 다음 판 준비 여부를 보여 준다.
       var status = lobby ? (player.ready ? '준비' : '대기')
-        : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.ready ? '준비' : '대기';
+        : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : state.phase === 'betting' ? '배팅' : player.ready ? '준비' : '대기';
       // 끊긴 채로 판에 남은 사람(올인하고 기다리는 사람). 차례가 오지 않으니 기다릴 필요는 없다.
       // "올인 · 끊김"처럼 두 단어를 쓰면 폰에서 옆의 금액 줄("0 · +100만")이 잘린다.
       // 올인했다는 건 그 금액 줄이 이미 말해 주므로 한 단어로 둔다.

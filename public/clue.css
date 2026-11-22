@@ -80,7 +80,8 @@
 .panel button{width:100%}
 .panel button.danger{background:#a52323;border-color:#a52323;color:#fff}
 .pick-card{display:block;width:100%;margin:0 0 6px;padding:9px 12px;text-align:left}
-#disprove{border-color:#ecb22e;box-shadow:0 0 0 2px #ecb22e55}
+/* 카드를 보여 줄 차례에는 지도 바로 위(안내 배너 아래)에 띄운다. 예전에는 지도 아래라 폰에서 스크롤해 내려가야 보였고, 45초 안에 못 고르면 서버가 첫 카드를 대신 보여 줬다. */
+#disprove{width:76.5%;margin:0 auto;border-color:#ecb22e;box-shadow:0 0 0 2px #ecb22e55}
 .clue-hand{display:flex;flex-wrap:wrap;gap:6px}
 .clue-card{display:inline-flex;align-items:center;padding:5px 10px;border-radius:8px;background:#fff;color:#1d1c1d;font-size:12px;font-weight:700;box-shadow:0 1px 3px #0004}
 .clue-card.suspect{border-left:5px solid #d72c0d}
@@ -97,6 +98,7 @@
 .notebook td.label{font-weight:700}
 .notebook td.mark{width:34px;text-align:center;cursor:pointer;user-select:none;font-weight:700;font-size:14px;border-radius:6px}
 .notebook td.mark:hover{background:#f3e7c8}
+.notebook td.mark:focus-visible{outline:3px solid #1264a3;outline-offset:-2px;background:#f3e7c8}
 .notebook td.mark.no{color:#a52323}
 .notebook td.mark.maybe{color:#b07a00}
 .notebook td.mark.yes{color:#1f7a33}
@@ -116,7 +118,7 @@
   .side{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
 }
 @media(max-width:760px){
-  .map-wrap,.below,.turn-banner{width:100%}
+  .map-wrap,.below,.turn-banner,#disprove{width:100%}
   .below-row{grid-template-columns:1fr}
   #board{padding:12px 8px}
   .die{width:50px;height:50px;padding:8px}
@@ -132,22 +134,26 @@
 .seen-card p{margin:0 0 12px;color:#555;font-size:13px}
 
 /* 추측·카드 보여 줌 알림(화면 위쪽, 클릭을 가로막지 않는다) */
-#toasts{position:fixed;top:68px;left:50%;z-index:26;display:flex;flex-direction:column;align-items:center;gap:8px;width:min(94vw,440px);transform:translateX(-50%);pointer-events:none}
-.toast{pointer-events:auto;width:100%;padding:12px 16px;border-radius:12px;background:#241631;color:#fff;border:1px solid #ffffff33;box-shadow:0 10px 28px #0006;font-size:14px;text-align:center;cursor:pointer;animation:clue-toast .25s ease}
-.toast b{display:block;font-size:15px}
-.toast.suggest{border:2px solid #ecb22e;padding:14px 16px}
-.toast.suggest b{color:#ecb22e;margin-bottom:8px;font-size:16px}
+#toasts{position:fixed;top:60px;left:50%;z-index:26;display:flex;flex-direction:column;align-items:center;gap:8px;width:min(94vw,440px);transform:translateX(-50%);pointer-events:none}
+.toast{position:relative;pointer-events:auto;width:100%;padding:8px 34px 8px 12px;border-radius:12px;background:#241631;color:#fff;border:1px solid #ffffff33;box-shadow:0 10px 28px #0006;font-size:13px;line-height:1.4;text-align:center;cursor:pointer;animation:clue-toast .25s ease}
+/* 알림이 판을 가리지 않게 작게 두고, 닫는 방법이 보이게 ✕를 붙인다. */
+.toast .toast-close{position:absolute;top:4px;right:4px;width:28px;height:28px;min-height:0;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:#ffffff1f;color:#fff;font-size:15px;line-height:1;cursor:pointer}
+.toast .toast-close:hover{background:#ffffff40}
+/* 아래쪽 변형(.shown/.none/.accuse-*/.hint)도 오른쪽 여백을 40px 이상 둬서 ✕ 아래에 제목이 깔리지 않게 한다. */
+.toast b{display:block;font-size:13px}
+.toast.suggest{border:2px solid #ecb22e}
+.toast.suggest b{color:#ecb22e;margin-bottom:4px;font-size:13px}
 .toast.shown{border-color:#2ea043}
 .toast.none{border-color:#d72c0d}
-.toast .chips{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
-.toast .chip{padding:6px 12px;border-radius:8px;background:#fff;color:#1d1c1d;font-size:14px;font-weight:700;border-top:4px solid #5a5a5c}
+.toast .chips{display:flex;flex-wrap:wrap;justify-content:center;gap:4px}
+.toast .chip{padding:3px 8px;border-radius:6px;background:#fff;color:#1d1c1d;font-size:12px;font-weight:700;border-top:3px solid #5a5a5c}
 .toast .chip.suspect{border-top-color:#d72c0d}
 .toast .chip.room{border-top-color:#1264a3}
 @keyframes clue-toast{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.toast{animation:none}}
 
-.toast .said{margin:2px 0 10px;font-size:17px;font-weight:700;line-height:1.5;color:#fff}
-.toast .said.small{margin:2px 0 0;font-size:13px;font-weight:400;color:#cfe9d4}
+.toast .said{margin:2px 0 6px;font-size:14px;font-weight:700;line-height:1.4;color:#fff}
+.toast .said.small{margin:2px 0 0;font-size:12px;font-weight:400;color:#cfe9d4}
 
 /* 말 고르기 */
 .pick-box{width:100%;max-width:1320px}
@@ -179,11 +185,11 @@
 .hint-meta b{font-size:12px;color:#fff}
 .hint-meta small{font-size:11px;color:#cdbfe0}
 
-.toast.none{border:2px solid #d72c0d;padding:14px 16px}
+.toast.none{border:2px solid #d72c0d;padding:10px 40px 10px 14px}
 .toast.none>b{color:#ff9a86;font-size:16px;margin-bottom:6px}
-.toast .verdict{margin-top:10px;font-size:16px;font-weight:700;color:#ff9a86}
+.toast .verdict{margin-top:6px;font-size:14px;font-weight:700;color:#ff9a86}
 
-.toast.shown{border:2px solid #2ea043;padding:14px 16px}
+.toast.shown{border:2px solid #2ea043;padding:10px 40px 10px 14px}
 .toast.shown>b{color:#7fe09a;font-size:16px;margin-bottom:6px}
 .toast .verdict.ok{color:#7fe09a}
 
@@ -227,10 +233,10 @@
 .mk.y{background:#1f7a33;color:#fff}
 
 /* 고발 결과 알림(맞음/틀림) */
-.toast.accuse-ok{border:3px solid #2ea043;padding:16px 18px;background:#12301c}
-.toast.accuse-bad{border:3px solid #d72c0d;padding:16px 18px;background:#33140f}
+.toast.accuse-ok{border:3px solid #2ea043;padding:12px 40px 12px 16px;background:#12301c}
+.toast.accuse-bad{border:3px solid #d72c0d;padding:12px 40px 12px 16px;background:#33140f}
 .toast.accuse-ok>b,.toast.accuse-bad>b{font-size:17px;margin-bottom:6px}
-.toast .verdict.big{margin-top:12px;font-size:19px;line-height:1.4}
+.toast .verdict.big{margin-top:6px;font-size:16px;line-height:1.4}
 .toast.accuse-ok .verdict.big{color:#8ff0a8}
 
 /* 힌트 카드(진짜 힌트 카드) */

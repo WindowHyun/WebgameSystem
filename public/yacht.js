@@ -11,6 +11,8 @@
   if (!nickname) { location.href = '/'; return; }
 
   var state = null;
+  var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
+  var lastHelpPhase = null;
   var picked = null;     // 점수판에서 고른 칸(아직 기록 전)
   var skew = 0;          // 서버 시계 - 내 시계. 남은 시간을 서버 기준으로 세려고 쓴다
 
@@ -195,6 +197,9 @@
       if (state.result) message = '지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.' + (state.canStart ? '' : ' (준비 ' + state.readyCount + '명)');
     }
     $('message').textContent = message;
+
+    // 단계가 바뀌면 지난 단계에서 본 버튼 설명은 지운다(예전에는 시작 버튼 설명이 판 도중에도 남았다). 홀덤과 같은 방식.
+    if (lastHelpPhase !== state.phase) { $('action-help').textContent = DEFAULT_HELP; lastHelpPhase = state.phase; }
     renderTimer();
 
     setHtml('players', state.players.map(function (p) {

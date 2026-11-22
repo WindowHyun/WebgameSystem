@@ -124,7 +124,7 @@ input:disabled { opacity:.5; }
 #chat { flex:1; overflow-y:auto; padding:14px 20px; }
 .msg { display:flex; gap:10px; margin-bottom:14px; }
 .msg .avatar-slot { width:28px; flex-shrink:0; display:flex; align-items:flex-start; justify-content:center; }
-.msg .avatar { width:28px; height:28px; border-radius:6px; background:#7F77DD; color:#fff; font-size:11px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.msg .avatar { width:28px; height:28px; border-radius:6px; background:#6860D0; color:#fff; font-size:11px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .msg .avatar.sys { background:#5A3D5C; font-size:13px; }
 .msg .body { min-width:0; flex:1; }
 .msg .who { font-size:13px; font-weight:700; display:flex; align-items:baseline; gap:6px; }
@@ -191,7 +191,7 @@ input:disabled { opacity:.5; }
 .opts { display:flex; flex-direction:column; gap:6px; margin-top:9px; max-width:340px; }
 .opt { display:flex; align-items:center; gap:9px; border:1px solid #D8D8DA; background:#fff; border-radius:6px; padding:7px 11px; font-size:13.5px; cursor:pointer; text-align:left; font-family:inherit; color:inherit; }
 @media (hover:hover) { .opt:hover { background:#F8F8F9; } }
-.opt .mini { width:20px; height:20px; border-radius:4px; background:#7F77DD; color:#fff; font-size:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.opt .mini { width:20px; height:20px; border-radius:4px; background:#6860D0; color:#fff; font-size:9px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
 .opt .cnt { margin-left:auto; font-size:12px; color:#8A8A8E; font-variant-numeric:tabular-nums; }
 .opt.offline { opacity:.6; }
 .opt.offline .mini { opacity:.7; }
@@ -351,3 +351,6 @@ input:disabled { opacity:.5; }
   #start-btn .btn-label, #vote-btn:not(:disabled) .btn-label { display:inline; margin-left:5px; font-size:13px; font-weight:700; white-space:nowrap; }
   #start-btn, #vote-btn:not(:disabled) { width:auto; min-width:44px; padding:0 12px; }
 }
+
+/* 키보드로 옮겨 다닐 때 지금 어디인지 보이게 한다(파란 고리 + 흰 테두리라 어두운 사이드바와 밝은 본문 모두에서 보인다). */
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible, [tabindex]:focus-visible { outline:3px solid #1264A3; outline-offset:2px; box-shadow:0 0 0 2px #fff; }

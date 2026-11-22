@@ -5,6 +5,8 @@
   var nickname = sessionStorage.getItem(NAME_KEY);
   if (!nickname) { location.href = '/'; return; }
   var state = null;
+  var DEFAULT_HELP = '버튼에 마우스를 올리거나 선택하면 기능 설명이 표시됩니다.';
+  var lastHelpPhase = null;
   var donationTarget = null;
   function $(id) { return document.getElementById(id); }
 
@@ -21,7 +23,7 @@
   }
   function chipLine(player) {
     var chips = shortMoney(player.chips);
-    return player.roundBet > 0 ? chips + ' · +' + shortMoney(player.roundBet) : chips;
+    return player.roundBet > 0 ? chips + ' · 배팅 ' + shortMoney(player.roundBet) : chips;
   }
   // 레이즈 하한(= 직전 사람이 올린 폭)을 입력창에 반영한다(public/poker.js의 같은 주석 참고).
   var lastRaiseFloor = null;
@@ -106,7 +108,10 @@
     // [보스 키] 차례인 사람이 화면을 가려 두는 동안에는 그 사람의 제한시간이 멈춘다(web/cover-pause.js).
     if (state.paused && !state.result) message += ' 차례인 사람의 화면이 가려져 있어 제한시간이 멈췄습니다.';
     $('message').textContent = message;
-    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = lobby ? (player.ready ? '준비' : '대기') /* 대기 중에는 지난 판의 스탠드·폴드가 아니라 준비 여부 */ : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : player.ready ? '준비' : '대기'; if (player.connected === false) status = '끊김'; /* 두 단어면 폰에서 금액 줄이 잘린다(public/poker.js 참고) */ var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
+
+    // 단계가 바뀌면 지난 단계에서 본 버튼 설명은 지운다(예전에는 시작 버튼 설명이 판 도중에도 남았다). 홀덤과 같은 방식.
+    if (lastHelpPhase !== state.phase) { $('action-help').textContent = DEFAULT_HELP; lastHelpPhase = state.phase; }
+    $('players').innerHTML = state.players.map(function (player) { var waiting = !lobby && !player.inRound; var status = lobby ? (player.ready ? '준비' : '대기') /* 대기 중에는 지난 판의 스탠드·폴드가 아니라 준비 여부 */ : waiting ? '다음 판 대기' : player.isFolded ? '폴드' : player.isAllIn ? '올인' : player.isBusted ? '21 초과' : player.isStanding ? '스탠드' : !lobby ? '진행' : player.ready ? '준비' : '대기'; if (player.connected === false) status = '끊김'; /* 두 단어면 폰에서 금액 줄이 잘린다(public/poker.js 참고) */ var initial = Array.from(player.nickname)[0] || '나'; return '<div class="player ' + (player.id === state.turnPlayerId ? 'turn' : '') + '" role="button" tabindex="0" title="대기 중 선택하면 기부할 수 있습니다" data-id="' + player.id + '" data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(player.nickname) + (player.id === state.you.id ? ' (나)' : '') + '</b><small>' + chipLine(player) + '</small><span class="status">' + status + '</span></div>'; }).join('');
     $('cards').innerHTML = state.players.filter(function (player) { return player.cards.length; }).map(function (player) {
       var cards = player.cards.map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
       var tieCards = (player.tieCards || []).map(function (card) { var red = !card.hidden && (card.suit === '♥' || card.suit === '♦'); return '<div class="card tie-card ' + (card.hidden ? 'hidden-card ' : '') + (red ? 'red' : '') + '">' + cardLabel(card) + '</div>'; }).join('');
