@@ -139,6 +139,7 @@
 /* 알림이 판을 가리지 않게 작게 두고, 닫는 방법이 보이게 ✕를 붙인다. */
 .toast .toast-close{position:absolute;top:4px;right:4px;width:28px;height:28px;min-height:0;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:#ffffff1f;color:#fff;font-size:15px;line-height:1;cursor:pointer}
 .toast .toast-close:hover{background:#ffffff40}
+/* 아래쪽 변형(.shown/.none/.accuse-*/.hint)도 오른쪽 여백을 40px 이상 둬서 ✕ 아래에 제목이 깔리지 않게 한다. */
 .toast b{display:block;font-size:13px}
 .toast.suggest{border:2px solid #ecb22e}
 .toast.suggest b{color:#ecb22e;margin-bottom:4px;font-size:13px}
@@ -184,11 +185,11 @@
 .hint-meta b{font-size:12px;color:#fff}
 .hint-meta small{font-size:11px;color:#cdbfe0}
 
-.toast.none{border:2px solid #d72c0d;padding:14px 16px}
+.toast.none{border:2px solid #d72c0d;padding:10px 40px 10px 14px}
 .toast.none>b{color:#ff9a86;font-size:16px;margin-bottom:6px}
 .toast .verdict{margin-top:6px;font-size:14px;font-weight:700;color:#ff9a86}
 
-.toast.shown{border:2px solid #2ea043;padding:14px 16px}
+.toast.shown{border:2px solid #2ea043;padding:10px 40px 10px 14px}
 .toast.shown>b{color:#7fe09a;font-size:16px;margin-bottom:6px}
 .toast .verdict.ok{color:#7fe09a}
 
@@ -232,8 +233,8 @@
 .mk.y{background:#1f7a33;color:#fff}
 
 /* 고발 결과 알림(맞음/틀림) */
-.toast.accuse-ok{border:3px solid #2ea043;padding:16px 18px;background:#12301c}
-.toast.accuse-bad{border:3px solid #d72c0d;padding:16px 18px;background:#33140f}
+.toast.accuse-ok{border:3px solid #2ea043;padding:12px 40px 12px 16px;background:#12301c}
+.toast.accuse-bad{border:3px solid #d72c0d;padding:12px 40px 12px 16px;background:#33140f}
 .toast.accuse-ok>b,.toast.accuse-bad>b{font-size:17px;margin-bottom:6px}
 .toast .verdict.big{margin-top:6px;font-size:16px;line-height:1.4}
 .toast.accuse-ok .verdict.big{color:#8ff0a8}

@@ -114,13 +114,14 @@ const stateOf = (page) => page.evaluate(() => {
         }
         await pages[d].click('#disprove .pick-card', { timeout: 3000 }).catch(() => {});
         await wait(500);
-        const toasts = await Promise.all(pages.map((p) => p.evaluate(() => [...document.querySelectorAll('#toasts .toast')].map((t) => ({ h: Math.round(t.getBoundingClientRect().height), close: !!t.querySelector('.toast-close') })))));
+        const toasts = await Promise.all(pages.map((p) => p.evaluate(() => [...document.querySelectorAll('#toasts .toast')].map((t) => ({ h: Math.round(t.getBoundingClientRect().height), close: !!t.querySelector('.toast-close'), padRight: parseFloat(getComputedStyle(t).paddingRight) })))));
         const withToast = toasts.findIndex((t) => t.length > 0);
         if (withToast >= 0 && !sawToast) {
           sawToast = true;
           toastDetail = { who: withToast, toasts: toasts[withToast] };
           check('추측 알림에는 닫기(✕) 버튼이 있다', toasts[withToast].every((t) => t.close), JSON.stringify(toastDetail));
           check('추측 알림은 작다(폰 화면 높이의 1/4 이하)', toasts[withToast].every((t) => t.h <= 844 / 4), JSON.stringify(toastDetail));
+          check('알림 오른쪽에 ✕ 자리(34px 이상)가 비어 있어 긴 닉네임 제목이 버튼 밑에 깔리지 않는다', toasts[withToast].every((t) => t.padRight >= 34), JSON.stringify(toastDetail));
           check('알림은 동시에 2개까지만 쌓인다', toasts.every((t) => t.length <= 2));
           await pages[withToast].click('#toasts .toast-close');
           check('✕를 누르면 알림이 닫힌다', (await pages[withToast].locator('#toasts .toast').count()) < toasts[withToast].length);
