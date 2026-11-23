@@ -14,7 +14,10 @@
  * 실행: node test/clue-room-test.js
  */
 
-const { createClueRoom, computeReach, isCorridor, ROOMS, SUSPECTS, WEAPONS, CARDS, MAP, HINT_CELLS } = require('../web/clue-room');
+const clueRoom = require('../web/clue-room');
+const { computeReach, isCorridor, ROOMS, SUSPECTS, WEAPONS, CARDS, MAP, HINT_CELLS } = clueRoom;
+// 기존 시험은 차례가 말 순서(스칼렛부터)로 도는 것을 전제로 쓰였다. 룰렛 순서는 아래 '=== 순서 룰렛 ===' 에서 따로 본다.
+const createClueRoom = (options) => clueRoom.createClueRoom({ rouletteOrder: false, ...(options || {}) });
 
 let pass = 0;
 let fail = 0;
@@ -605,6 +608,70 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   ds.room.leave(m[1].id);
   check('고르던 사람이 나가면 서버가 첫 번째 카드를 대신 보여 주고 이어 간다', ds.room._debug().step === 'end' && ds.room.stateFor(m[0].id).you.seen.length === 1);
   ds.room.dispose();
+
+  console.log('\n=== 순서 룰렛 ===');
+  const spun = game(['가', '나', '다'], { rouletteOrder: true, random: lcg(21) });
+  const spunState = spun.room.stateFor(spun.id('가'));
+  check('룰렛이 켜져 있으면 상태에 룰렛 정보(순서·첫 사람·시간)가 실린다', !!spunState.roulette && spunState.roulette.order.length === 3 && spunState.roulette.firstId === spunState.roulette.order[0].id && spunState.roulette.durationMs === 5000 && spunState.roulette.seq === 1);
+  check('룰렛 순서가 곧 차례 순서다(모두에게 같은 결과)', spunState.roulette.order.map((x) => x.id).join() === spun.dbg.seats.map((x) => x.id).join() && spun.room.stateFor(spun.id('다')).roulette.order.map((x) => x.id).join() === spunState.roulette.order.map((x) => x.id).join() && turnName(spun) === spunState.roulette.order[0].nickname);
+  const orders = new Set();
+  let everyoneOnce = true;
+  for (let seed = 1; seed <= 40; seed += 1) {
+    const t = game(['가', '나', '다'], { rouletteOrder: true, random: lcg(seed) });
+    orders.add(t.dbg.seats.map((x) => x.nickname).join());
+    if (new Set(t.dbg.seats.map((x) => x.id)).size !== 3) everyoneOnce = false;
+    t.room.dispose();
+  }
+  check('순서는 참가자 모두가 정확히 한 번씩 들어간 무작위 순열이다', everyoneOnce && orders.size >= 4, `${orders.size}가지 순서`);
+  check('룰렛을 끄면(시험용) 순서는 말 순서이고 룰렛 정보가 없다', (() => { const t = game(['가', '나', '다']); const st = t.room.stateFor(t.id('가')); return st.roulette === null && t.dbg.seats.map((x) => SUSPECTS.findIndex((u) => u.key === x.suspect)).every((v, i, a) => i === 0 || a[i - 1] < v); })());
+  check('룰렛 중에는 첫 차례의 제한시간이 흐르지 않는다(자동 굴림이 그만큼 늦게 시작)', await (async () => {
+    const t = game(['가', '나'], { rouletteOrder: true, rouletteMs: 400, autoRollMs: 150, turnTimeoutMs: 0, disproveTimeoutMs: 0, random: lcg(5) });
+    await sleep(250);
+    const early = t.room._debug().step === 'start' && t.room._debug().dice === null;
+    await sleep(450);
+    const later = t.room._debug().dice !== null;
+    t.room.dispose();
+    return early && later;
+  })());
+
+  // 직전 판 첫 순서는 다음 판 첫 순서가 될 수 없다
+  function finishGame(g) {
+    const d = g.room._debug();
+    const cur = d.seats[d.turn];
+    d.setSolution({ suspect: 'green', weapon: 'rope', room: 'kitchen' });
+    d.setPosition(cur.suspect, { room: 'envelope' });
+    return g.room.accuse(cur.id, 'green', 'rope', 'kitchen');
+  }
+  for (const [count, rounds] of [[2, 12], [3, 40], [6, 40]]) {
+    const names = ['가', '나', '다', '라', '마', '바'].slice(0, count);
+    const t = game(names, { rouletteOrder: true, random: lcg(100 + count) });
+    const firsts = [t.room._debug().seats[0].id];
+    let never = true;
+    let prevShown = true;
+    for (let r = 0; r < rounds; r += 1) {
+      if (finishGame(t) !== null) { never = false; break; }
+      const prev = firsts[firsts.length - 1];
+      if (!t.room.stateFor(t.id('가')).previousFirst || t.room.stateFor(t.id('가')).previousFirst.id !== prev) prevShown = false;
+      if (t.room.begin(t.id('가')) !== null) { never = false; break; }
+      const next = t.room._debug().seats[0].id;
+      if (next === prev) never = false;
+      firsts.push(next);
+    }
+    check(`${count}명: ${rounds}판 연속으로 지난 판 첫 순서가 다음 판 첫 순서가 된 적이 없다`, never && firsts.length === rounds + 1, firsts.length + '판');
+    check(`${count}명: 로비 상태가 다음 판에서 빠질 사람(previousFirst)을 알려 준다`, prevShown);
+    if (count === 2) check('2명이면 첫 순서가 판마다 번갈아 바뀐다', firsts.every((id, i) => i === 0 || id !== firsts[i - 1]));
+    else check(`${count}명: 그래도 첫 순서는 여러 사람에게 돌아간다(고정되지 않는다)`, new Set(firsts).size >= Math.min(count, 3), `${new Set(firsts).size}명`);
+    t.room.dispose();
+  }
+  // 지난 판 첫 순서가 이번 판에 안 뛰면 제한은 없다
+  const skip = game(['가', '나', '다'], { rouletteOrder: true, random: lcg(77) });
+  const skipFirst = skip.room._debug().seats[0];
+  finishGame(skip);
+  skip.room.setReady(skipFirst.id, false);
+  const restId = skip.dbg.seats.find((x) => x.id !== skipFirst.id).id;
+  check('지난 판 첫 순서가 준비를 풀어 빠지면 나머지 둘로 시작하고 순서 제한은 없다', skip.room.begin(restId) === null && skip.room._debug().seats.length === 2 && !skip.room._debug().seats.some((x) => x.id === skipFirst.id));
+  skip.room.dispose();
+  spun.room.dispose();
 
   console.log('\n=== 입장·재접속 ===');
   const rj = game(['가', '나']);

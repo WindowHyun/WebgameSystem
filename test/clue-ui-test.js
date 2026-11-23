@@ -8,6 +8,7 @@
  *     (예전에는 지도 아래라 스크롤해 내려가야 했고, 45초 안에 못 고르면 서버가 첫 카드를 대신 보여 줬다)
  *   - 주사위를 굴린 뒤에는 눌리지 않는 "이미 굴렸습니다" 버튼이 없고, 배너에 나온 눈이 적힌다.
  *   - 추측·고발 알림은 작고, 닫기(✕) 버튼이 있고, 동시에 2개까지만 쌓인다.
+ *   - 시작하면 룰렛이 돌아 순서가 모두에게 같게 나오고, 닫을 수 있다.
  *   - 폰 화면에서 가로로 넘치지 않고, 참가자 칸의 말·카드 수가 잘리지 않고 줄바꿈된다.
  *   - 브라우저 오류(favicon 404 포함)가 없다.
  *
@@ -87,6 +88,19 @@ const stateOf = (page) => page.evaluate(() => {
     await a.click('#start-go');
     for (const p of pages) await p.waitForSelector('#game-view:not(.hidden)');
     check('시작하면 지도가 보인다', await a.isVisible('#map'));
+    // 룰렛: 시작하면 모두의 화면에서 바퀴가 돌고, 결과(순서)가 나온 뒤 닫힌다.
+    await Promise.all(pages.map((p) => p.waitForSelector('#roulette:not(.hidden)', { timeout: 5000 })));
+    check('시작하면 모두의 화면에 순서 정하는 룰렛이 뜬다(바퀴 칸이 참가자 수만큼)', (await a.locator('#wheel path').count()) === 3 && (await c.locator('#wheel path').count()) === 3);
+    await a.waitForFunction(() => document.querySelectorAll('#roulette-order li').length === 3, null, { timeout: 8000 });
+    const spunOrder = await Promise.all(pages.map((p) => p.$$eval('#roulette-order li', (items) => items.map((li) => li.textContent.replace(/\s+/g, ' ').trim()).join('|'))));
+    check('결과가 나오면 순서 목록이 모두의 화면에서 같다', spunOrder[0].length > 0 && spunOrder.every((v) => v === spunOrder[0]), spunOrder.join(' / '));
+    const firstName = await a.textContent('#roulette-order li.first');
+    const turnNow = await a.$eval('#players .player.turn b', (b) => b.textContent.replace(' (나)', '').replace(/^\d+/, '').trim());
+    check('룰렛의 첫 순서가 실제 첫 차례다', firstName.includes(turnNow), `${firstName} / ${turnNow}`);
+    check('참가자 칸에 1·2·3번째 순서가 적힌다', (await a.$$eval('#players .player .ord', (items) => items.map((i) => i.textContent).sort().join())) === '1,2,3');
+    await a.click('#roulette-ok');
+    check('바로 시작을 누르면 룰렛이 닫힌다', await a.isHidden('#roulette'));
+    for (const p of [b, c]) await p.click('#roulette-ok').catch(() => {});
     const players = await a.evaluate(() => [...document.querySelectorAll('#players .player small')].map((s) => ({ white: getComputedStyle(s).whiteSpace, clipped: s.scrollWidth > s.clientWidth + 1 })));
     check('폰에서 참가자 칸의 말·카드 수가 줄바꿈되고 잘리지 않는다', players.length === 3 && players.every((p) => p.white === 'normal' && !p.clipped), JSON.stringify(players));
 

@@ -24,7 +24,8 @@
  *   - 주사위와 카드 나누기는 서버가 한다. 카드는 본인에게만 보이고, 보여 준 카드는 추측한 사람에게만 간다.
  *     비밀 봉투의 답은 게임이 끝날 때까지 어떤 화면에도 가지 않는다.
  *   - 2~6명이 한다. 말(범인)은 시작 전에 원하는 것을 고를 수 있고(한 말은 한 사람만), 고르지 않은 사람은 남은 말을 무작위로 받는다.
- *     차례는 스칼렛·머스터드·화이트·그린·피콕·플럼 순이다.
+ *     차례 순서는 시작할 때 룰렛(무작위)으로 정한다. 직전 판에서 첫 순서였던 사람은 이번 판에서 첫 순서가 되지 않는다(그 사람이 이번 판에 안 뛰면 상관없다).
+ *     카드를 보여 주는 차례도 이 순서를 따라 돈다.
  *     참가자가 맡지 않은 말도 보드에 서 있고 막는 말이 된다.
  *   - 보여 줄 카드가 한 장뿐이어도 가진 사람이 직접 눌러 보여 준다(한 장인지 두 장인지 시간으로 드러나지 않게). 시간이 지나면 서버가 첫 번째를 대신 보여 준다.
  *   - 차례가 와도 30초 동안 주사위를 굴리지 않으면 서버가 대신 굴리고, 가장 가까운 방으로 들어가 아직 확인하지 않은 범인·흉기로 추측한다.
@@ -180,6 +181,8 @@ function createClueRoom(options) {
   const onAction = opts.onAction || (() => {});
   const act = (who, what) => { try { onAction(who, what); } catch { /* 로그 실패는 무시 */ } };
   const random = opts.random || Math.random;
+  const rouletteOrder = opts.rouletteOrder !== false;   // 차례 순서를 룰렛(무작위)으로 정한다. 끄면 말(범인) 순서로 돈다(시험용).
+  const rouletteMs = rouletteOrder ? (Number.isFinite(opts.rouletteMs) ? opts.rouletteMs : 5000) : 0; // 화면이 룰렛을 돌려 보여 주는 시간. 그동안 첫 차례의 제한시간은 흐르지 않는다.
   const turnTimeoutMs = Number.isFinite(opts.turnTimeoutMs) ? opts.turnTimeoutMs : 120000;
   const autoRollMs = Number.isFinite(opts.autoRollMs) ? opts.autoRollMs : 30000;
   const autoEndMs = Number.isFinite(opts.autoEndMs) ? opts.autoEndMs : 3000;
@@ -204,6 +207,9 @@ function createClueRoom(options) {
   let hintSeq = 0;
   let lastHintDraw = null;  // 모두에게 보이는 마지막 뽑기 { seq, byId, kind(턴 한 번 더만 공개, 나머지는 null) }
   const shownCards = new Map(); // 추측 번호 -> 그때 보여 준 카드("같이 보기"용. 서버 안에서만 쓴다)
+  let lastFirstId = null;    // 직전 판에서 첫 순서였던 사람(이번 판 첫 순서에서 제외한다)
+  let roulette = null;       // 이번 판 순서를 정한 룰렛 { seq, startedAt, durationMs, firstId, order[] }
+  let rouletteSeq = 0;
   let lastAccusation = null; // 모두에게 보이는 마지막 고발 { seq, byId, suspect, weapon, room, correct, opened(틀렸을 때 공개된 카드) }
   let accusationSeq = 0;
   let suggestionSeq = 0;
@@ -277,13 +283,13 @@ function createClueRoom(options) {
 
   // ───────────────────────────── 진행 ─────────────────────────────
 
-  function armTimer() {
+  function armTimer(extraMs = 0) {
     clock.clear();
     const id = waitingOn();
     if (!id) return;
     const ms = step === 'disprove' ? disproveTimeoutMs : step === 'start' ? autoRollMs : turnTimeoutMs;
     if (ms <= 0) return;
-    clock.start(() => autoPlay(id), ms);
+    clock.start(() => autoPlay(id), ms + extraMs);
   }
 
   /** 다른 말이 서 있는 복도 칸(내 말은 빼고). */
@@ -484,7 +490,7 @@ function createClueRoom(options) {
     dropTimers.clear();
     if (autoEnd) { clearTimeout(autoEnd.timer); autoEnd = null; }
     pause.reset();
-    players.length = 0; history.length = 0; seats = []; turn = 0; phase = 'lobby'; result = null;
+    players.length = 0; history.length = 0; seats = []; turn = 0; phase = 'lobby'; result = null; lastFirstId = null; roulette = null;
     step = 'start'; dice = null; moveLeft = 0; solution = null; positions = {}; weaponRooms = {}; pending = null; lastSuggestion = null; lastAccusation = null; hintDeck = []; lastHintDraw = null; shownCards.clear(); suggestionLog.length = 0;
   }
 
@@ -599,6 +605,19 @@ function createClueRoom(options) {
     seats = assigned.map(({ player, suspect }) => ({
       id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, opened: [], left: false, idle: 0, summoned: false, suggestedIn: null, hints: [], extraTurns: 0, peeked: [], drew: null,
     }));
+    // 차례 순서는 룰렛(무작위)이다. 직전 판의 첫 순서였던 사람은 이번 판 첫 순서가 되지 못한다(한 명이면 어쩔 수 없다).
+    if (rouletteOrder) {
+      seats = shuffle(seats);
+      if (seats.length > 1 && seats[0].id === lastFirstId) {
+        const swap = 1 + Math.min(seats.length - 2, Math.floor(random() * (seats.length - 1)));
+        [seats[0], seats[swap]] = [seats[swap], seats[0]];
+      }
+    }
+    lastFirstId = seats[0].id;
+    rouletteSeq += 1;
+    roulette = rouletteOrder
+      ? { seq: rouletteSeq, startedAt: Date.now(), durationMs: rouletteMs, firstId: seats[0].id, order: seats.map((x) => ({ id: x.id, nickname: x.nickname, suspect: x.suspect })) }
+      : null;
     for (const seat of seats) find(seat.id).pick = seat.suspect; // 다음 판도 같은 말
     for (const p of players) { if (!going.includes(p) && p.pick && seats.some((x) => x.suspect === p.pick)) p.pick = null; }
     solution = { suspect: pick(SUSPECT_KEYS), weapon: pick(WEAPON_KEYS), room: pick(ROOM_KEYS) };
@@ -626,8 +645,9 @@ function createClueRoom(options) {
     note(`${going.length}명이 게임을 시작합니다. (${seats.map((s) => `${s.nickname}=${labelOf(s.suspect)}`).join(', ')})`);
     act(starter.nickname, `게임 시작 (${going.length}명: ${seats.map((s) => `${s.nickname}=${labelOf(s.suspect)}`).join(', ')})`);
     // 정답 봉투는 관리 로그에도 남기지 않는다.
+    if (rouletteOrder) note(`룰렛으로 순서를 정했습니다: ${seats.map((x, i) => `${i + 1}번 ${x.nickname}`).join(', ')}`);
     note(`${seats[0].nickname}님(${labelOf(seats[0].suspect)})의 차례입니다.`);
-    armTimer();
+    armTimer(rouletteMs);
     changed();
     return null;
   }
@@ -902,6 +922,8 @@ function createClueRoom(options) {
       hintKinds: HINT_KINDS,
       lastHintDraw,
       lastAccusation, // 고발이 맞았는지 틀렸는지(모두에게 알림으로 띄운다)
+      roulette: phase === 'playing' ? roulette : null, // 이번 판 순서를 정한 룰렛(화면이 돌려 보여 준다)
+      previousFirst: rouletteOrder && lastFirstId && find(lastFirstId) ? { id: lastFirstId, nickname: find(lastFirstId).nickname } : null, // 다음 판 첫 순서에서 빠질 사람
       // 이번 판의 모든 추측(오래된 것부터). 내 추측·남의 추측을 따로 보는 화면이 쓴다.
       suggestions: suggestionLog.map((x) => ({ seq: x.seq, byId: x.byId, suspect: x.suspect, weapon: x.weapon, room: x.room, shownBy: x.shownBy, resolved: x.resolved })),
       history: history.slice(-14),
