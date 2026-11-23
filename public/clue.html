@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="poker.css?v=5">
   <link rel="stylesheet" href="responsive-fixes.css?v=8">
-  <link rel="stylesheet" href="clue.css?v=36">
+  <link rel="stylesheet" href="clue.css?v=37">
 </head>
 <body class="poker-page clue-page">
   <div id="app">
@@ -32,6 +32,7 @@
             <p>저택에서 사건이 벌어졌습니다. <strong>범인·흉기·장소</strong> 카드가 한 장씩 비밀 봉투에 들어가 있고, 나머지 카드는 참가자들이 나눠 가집니다. 추리해서 봉투 속 세 장을 가장 먼저 맞히는 사람이 이깁니다.</p>
             <ul>
               <li><b>말</b> 시작 전에 원하는 범인 말을 고를 수 있습니다(한 말은 한 사람만).</li>
+              <li><b>순서</b> 게임을 시작하면 <strong>룰렛</strong>으로 차례 순서를 정합니다. 지난 판에서 첫 순서였던 사람은 이번 판에서 첫 순서가 되지 않습니다.</li>
               <li><b>이동</b> 내 차례에 주사위 2개를 굴려 나온 눈의 합만큼 복도를 걷습니다. 다른 사람의 말이 선 칸은 지나갈 수 없고, 방에 들어가면 이동이 끝납니다. 굴린 뒤에 움직이지 않고 <strong>제자리에 있을</strong> 수도 있습니다.</li>
               <li><b>힌트 카드</b> 복도의 ★ 칸에서 이동을 마치면 힌트 카드를 한 장 뽑습니다. <strong>턴 한 번 더</strong>는 뽑는 즉시 쓰여 이번 차례가 끝나면 한 번 더 진행하고, <strong>추리 한 번 더</strong>는 내 차례에 추리가 끝난 뒤 같은 방에서 한 번 더 추리하며, <strong>같이 보기</strong>는 남이 추리해 카드를 보여 준 직후 그 카드를 같이 봅니다.</li>
               <li><b>비밀 통로</b> 모서리 방(주방↔연구실, 온실↔라운지)에서는 주사위를 굴리는 대신 건너편 방으로 갈 수 있습니다.</li>
@@ -109,11 +110,12 @@
   </div>
 
   <div id="start-confirm" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="start-confirm-title"><div class="modal-card"><small>게임 시작</small><h2 id="start-confirm-title"></h2><p id="start-confirm-ready"></p><p id="start-confirm-waiting"></p><div><button id="start-cancel" class="secondary">취소</button><button id="start-go">시작하기</button></div></div></div>
+  <div id="roulette" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="roulette-title"><div class="modal-card roulette-card"><small>순서 정하기</small><h2 id="roulette-title">룰렛으로 순서를 정하는 중…</h2><div class="wheel-wrap"><div class="wheel-pointer" aria-hidden="true"></div><svg id="wheel" class="wheel" viewBox="-104 -104 208 208" role="img" aria-label="순서를 정하는 룰렛"></svg></div><ol id="roulette-order" class="roulette-order"></ol><div><button id="roulette-ok">바로 시작</button></div></div></div>
   <div id="seen-popup" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="seen-title"><div class="modal-card seen-card"><small id="seen-from"></small><h2 id="seen-title">카드를 받았습니다</h2><div id="seen-card" class="seen-face"></div><p id="seen-ask"></p><div><button id="seen-ok">확인</button></div></div></div>
   <div id="toasts" aria-live="polite"></div>
   <div id="error" role="alert"></div>
   <script src="game-socket.js?v=3"></script><script src="join-next.js?v=1"></script>
-  <script src="clue.js?v=32"></script>
+  <script src="clue.js?v=33"></script>
   <script src="mobile.js?v=4"></script>
   <script src="cover.js?v=14"></script>
 </body>

@@ -23,6 +23,8 @@
   var accusedSeq = null;   // 마지막으로 알린 고발 번호(접속·재접속 때 이미 지난 고발은 알리지 않는다)
   var alertedSeq = null;   // 결과(누가 보여 줬는지)까지 알린 추측 번호
   var logFilter = 'all';   // 추리 기록 보기: all | mine | others
+  var rouletteSeen = null;   // 마지막으로 보여 준 룰렛 번호(접속·새로고침 때 이미 끝난 룰렛은 다시 돌리지 않는다)
+  var rouletteTimers = [];
   var showingDisprove = false; // 카드 보여 주기 패널이 이미 떠 있었는지(처음 뜰 때만 화면을 옮긴다)
   var seenCount = null;    // 지금까지 받은 카드 수(새로 받았을 때만 팝업을 띄운다. 접속·재접속 때는 띄우지 않는다)
 
@@ -380,6 +382,71 @@
     }
   }
 
+  // ───────────────────────────── 순서 룰렛 ─────────────────────────────
+
+  function closeRoulette() {
+    rouletteTimers.forEach(clearTimeout);
+    rouletteTimers = [];
+    $('roulette').classList.add('hidden');
+  }
+  function sector(i, count, radius) {
+    var a = 360 / count;
+    var p = function (deg) { var r = deg * Math.PI / 180; return (radius * Math.sin(r)).toFixed(2) + ',' + (-radius * Math.cos(r)).toFixed(2); };
+    return 'M0,0 L' + p(i * a) + ' A' + radius + ',' + radius + ' 0 ' + (a > 180 ? 1 : 0) + ' 1 ' + p((i + 1) * a) + ' Z';
+  }
+  /** 서버가 정한 순서(r.order, 첫 사람이 맨 앞)를 바퀴를 돌려 보여 준다. 결과는 서버가 이미 정했고 화면은 거기에 맞춰 멈출 뿐이다. */
+  function showRoulette(r, leftMs) {
+    var count = r.order.length;
+    var a = 360 / count;
+    var R = 100;
+    var parts = r.order.map(function (item, i) {
+      var mid = i * a + a / 2;
+      var flip = mid > 90 && mid < 270;
+      var name = Array.from(item.nickname).slice(0, 6).join('');
+      var dark = DARK_TEXT[item.suspect] ? '#1d1c1d' : '#fff';
+      return '<path d="' + sector(i, count, R) + '" fill="' + COLORS[item.suspect] + '" stroke="#fff" stroke-width="2"/>'
+        + '<text transform="rotate(' + (flip ? mid + 180 : mid) + ')" x="0" y="' + (flip ? 62 : -62) + '" text-anchor="middle" dominant-baseline="middle" font-size="' + (count <= 3 ? 13 : 11) + '" font-weight="700" fill="' + dark + '">' + escapeHtml(name) + '</text>';
+    }).join('');
+    $('wheel').innerHTML = '<g class="spinner" id="wheel-spin">' + parts + '<circle r="9" fill="#1d1c1d" stroke="#fff" stroke-width="2"/></g>';
+    $('roulette-title').textContent = '룰렛으로 순서를 정하는 중…';
+    $('roulette-order').innerHTML = '';
+    $('roulette').classList.remove('hidden');
+    $('roulette-ok').focus();
+
+    var first = r.order[0];
+    var jitter = (((r.seq * 37) % 9) - 4) / 10 * a * 0.8; // 칸 한가운데가 아니라 조금 비껴서 서게(모두의 화면이 같게 번호로 정한다)
+    var finalDeg = 360 * 4 - a / 2 + jitter;
+    var spin = $('wheel-spin');
+    var spinMs = Math.max(600, Math.min(3600, leftMs - 1400));
+    var still = reducedMotion();
+    function reveal() {
+      $('roulette-title').textContent = first.nickname + '님이 첫 순서입니다!';
+      $('roulette-order').innerHTML = r.order.map(function (item, i) {
+        return '<li' + (i === 0 ? ' class="first"' : '') + '><i>' + (i + 1) + '</i>' + escapeHtml(item.nickname) + '<small>' + escapeHtml(suspectLabel(item.suspect)) + '</small></li>';
+      }).join('');
+    }
+    if (still) {
+      spin.style.transform = 'rotate(' + finalDeg + 'deg)';
+      reveal();
+    } else {
+      spin.style.transform = 'rotate(0deg)';
+      spin.style.transition = 'none';
+      void spin.getBoundingClientRect(); // 시작 각도를 먼저 반영한 뒤 돌린다
+      spin.style.transition = 'transform ' + spinMs + 'ms cubic-bezier(.12,.62,.12,1)';
+      spin.style.transform = 'rotate(' + finalDeg + 'deg)';
+      rouletteTimers.push(setTimeout(reveal, spinMs + 150));
+    }
+    rouletteTimers.push(setTimeout(closeRoulette, Math.max(leftMs, spinMs + 1500)));
+  }
+  function checkRoulette() {
+    var r = state.roulette;
+    if (!r || r.seq === rouletteSeen) return;
+    rouletteSeen = r.seq;
+    var left = r.startedAt + r.durationMs - (Date.now() + skew);
+    if (left < 1500 || !r.durationMs) return; // 이미 끝나 가는 룰렛(새로고침·늦은 접속)은 보이지 않는다
+    showRoulette(r, left);
+  }
+
   /** 같이 보기로 본 카드를 팝업으로 보여 준다(본 사람에게만). */
   function checkPeeked() {
     var list = state.you.peeked;
@@ -547,6 +614,7 @@
     checkAccusation();
     checkHintDraw();
     checkPeeked();
+    checkRoulette();
 
     renderPicks();
     var showGame = state.board.length > 0 && (playing || !!state.result);
@@ -581,6 +649,7 @@
           ? '클루는 ' + state.maxPlayers + '명까지 할 수 있습니다. 준비한 사람을 ' + state.maxPlayers + '명 이하로 맞춰 주세요. (현재 ' + state.readyCount + '명)'
           : '준비한 참가자가 ' + state.minPlayers + '명 이상이면 누구나 시작할 수 있습니다. (현재 ' + state.readyCount + '명)';
       if (state.result) message = '지난 판 참가자는 자동으로 준비됩니다. 빠지려면 준비를 취소하고, 구경한 사람은 준비를 눌러 주세요.' + (state.canStart ? '' : ' (준비 ' + state.readyCount + '명)');
+      if (state.previousFirst) message += ' 순서는 룰렛으로 정하고, 지난 판 첫 순서였던 ' + state.previousFirst.nickname + '님은 이번 판 첫 순서가 되지 않습니다.';
     }
     $('message').textContent = message;
     renderTimer();
@@ -595,7 +664,9 @@
       else status = p.id === state.waitingId ? '차례' : '대기';
       var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + (seat.eliminated ? ' · 탈락(카드 공개)' : ' · 카드 ' + seat.cards + '장' + (seat.hints ? ' · 힌트 ' + seat.hints + '장' : '')) + '</small>' : '';
       var initial = Array.from(p.nickname)[0] || '나';
-      return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '"' + (seat ? ' data-suspect="' + seat.suspect + '"' : '') + ' data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
+      var seatIndex = seat ? state.board.indexOf(seat) : -1;
+      var ordinal = playing && seatIndex >= 0 ? '<i class="ord" title="' + (seatIndex + 1) + '번째 순서">' + (seatIndex + 1) + '</i>' : '';
+      return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '"' + (seat ? ' data-suspect="' + seat.suspect + '"' : '') + ' data-initial="' + escapeHtml(initial) + '"><b>' + ordinal + escapeHtml(p.nickname)
         + (p.id === you.id ? ' (나)' : '') + '</b>' + piece + '<span class="status">' + status + '</span></div>';
     }).join(''));
 
@@ -731,8 +802,9 @@
   $('toasts').addEventListener('click', function (event) {
     if (useHintFrom(event)) { var toastEl = event.target.closest('.toast'); if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl); }
   });
+  $('roulette-ok').onclick = closeRoulette;
   $('seen-ok').onclick = closeSeen;
-  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeSeen(); });
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { closeSeen(); closeRoulette(); } });
   $('roll').onclick = function () { markSending($('roll')); send('roll'); };
   $('stay').onclick = function () { markSending($('stay')); send('stay'); };
   $('passage').onclick = function () { markSending($('passage')); send('passage'); };
