@@ -54,7 +54,15 @@
 .below .controls{margin:0;padding:0}
 .below-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
 .below-row>.panel.hidden{display:none}
-.below .suggestions{max-height:240px}
+.log-col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.log-col .panel.hidden{display:none}
+.log-col .suggestions{max-height:240px}
+/* 탈락해서 공개된 카드 */
+.open-box>b small{margin-left:6px;color:#cdbfe0;font-weight:400;font-size:12px}
+.open-cards{display:flex;flex-direction:column;gap:8px}
+.open-row>b{display:block;margin-bottom:4px;font-size:12px;color:#fff}
+.open-row>b small{color:#cdbfe0;font-weight:400}
+.open-row .clue-card{opacity:.85}
 
 /* 주사위 */
 .dice-area{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 10px;border-radius:12px;background:#1c4a35;border:1px solid #ffffff22;box-shadow:inset 0 2px 10px #0005}
@@ -111,8 +119,9 @@
 #turn-controls .main-actions{width:100%;flex-wrap:wrap}
 #turn-controls button{flex:1 1 120px}
 #turn-controls button.hidden{display:none}
-@media(max-width:1180px){
+@media(max-width:1199px){
   .clue-grid{grid-template-columns:minmax(0,1fr)}
+  .map-col{order:1}.log-col{order:2}.side{order:3}
   .map-wrap{max-width:860px;margin:0 auto;width:76.5%}
   .below,.turn-banner{width:76.5%}
   .side{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));align-items:start}
@@ -266,3 +275,49 @@
 .toast-actions{display:flex;flex-direction:column;gap:6px;margin-top:10px}
 .toast-btn{min-height:38px;border-color:#f0c95a;background:#f0c95a;color:#3f2e00}
 .toast-btn:hover{background:#f7d774;color:#3f2e00}
+
+/* ───── 넓은 화면(1200px 이상): 스크롤 없이 한 화면에 ─────
+   [왼쪽] 추측·고발 창 + 추리 기록   [가운데] 지도 + 내 카드·힌트   [오른쪽] 주사위 + 추리 노트
+   지도는 화면 높이에 맞춰 줄어든다(예전 크기의 95% 안팎). 위아래 여백도 줄여서 지도 아래 패널까지 한눈에 들어오게 한다. */
+@media(min-width:1200px){
+  .clue-page #table{padding:10px 16px 6px}
+  .clue-page .round-info{margin-bottom:8px;padding:6px 10px}
+  .clue-page #board{position:relative;min-height:0;gap:8px;padding:10px 12px}
+  .clue-page #game-view{gap:8px}
+  /* "규칙 보기"는 지도 줄을 차지하지 않게 보드 왼쪽 위 모서리에 붙인다(펼치면 제자리에서 열린다). */
+  .clue-page .rules-fold:not([open]){position:absolute;top:10px;left:12px;width:auto;z-index:2}
+  .clue-page .rules-fold summary{padding:4px 10px;font-size:12px}
+  .clue-grid{max-width:1560px;grid-template-columns:clamp(210px,17vw,280px) minmax(0,1fr) clamp(240px,19vw,300px);gap:14px}
+  /* 지도 너비: 화면 높이에서 위(상단바·안내·여백 ≈122px)와 아래(조작 줄·내 카드·힌트 ≈185px)를 뺀 만큼. 1440×900에서 예전의 95% 안팎. */
+  .map-col{--map-w:min(100%,max(420px,calc((100svh - 305px) * .96)))}
+  /* 안내 배너("내 차례입니다")는 위 안내 줄과 겹치고, 주사위 눈은 오른쪽에 있어서 넓은 화면에서는 줄인다. */
+  .turn-banner{display:none}
+  .log-col{padding-top:30px}
+  .log-tab{min-width:0;padding:0 2px;font-size:12px;white-space:nowrap;overflow:hidden}
+  .map-wrap,.turn-banner,.below,#disprove{width:var(--map-w)}
+  .map-col,.below{gap:8px}
+  .below-row{gap:8px}
+  .below-row .panel{padding:8px 10px}
+  .hint-help{margin-top:4px;font-size:11px;line-height:1.4}
+  .clue-hand{gap:4px}
+  .log-col .suggestions{max-height:calc(100svh - 280px);min-height:120px}
+  .side{gap:8px}
+  .dice-area{padding:8px 10px;gap:6px}
+  .dice{min-height:50px}
+  .die{width:46px;height:46px;padding:7px}
+  .nb-grid{grid-template-columns:1fr;gap:2px}
+  .notebook{padding:8px 10px}
+  .notebook td{padding:2px 6px;line-height:1.2}
+  .notebook td.mark{font-size:13px}
+  .notebook th{padding:3px 6px}
+  .notebook td.note{font-size:10px}
+  .notebook .hint{margin-top:6px;font-size:10px}
+  /* 알림은 지도·안내 줄을 가리지 않게 왼쪽 아래(추리 기록 칸의 아래쪽)에 띄운다. 알림 내용은 추리 기록에도 남는다. */
+  #toasts{top:auto;bottom:14px;left:258px;width:clamp(230px,17vw,280px);transform:none;align-items:stretch}
+}
+
+/* 화면 높이가 낮은 노트북(≈768px 이하): 노트 설명 글을 접어 노트가 화면 안에 들어오게 한다. */
+@media(min-width:1200px) and (max-height:820px){
+  .notebook .hint{display:none}
+  .hint-help{display:none}
+}
