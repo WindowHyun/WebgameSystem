@@ -204,7 +204,7 @@
       var ring = '';
       if (turn) ring = '<circle class="turn-ring" cx="' + p.x + '" cy="' + p.y + '" r="15" fill="none" stroke="#ecb22e" stroke-width="3"/>';
       else if (mine) ring = '<circle cx="' + p.x + '" cy="' + p.y + '" r="14" fill="none" stroke="#4a154b" stroke-width="2" stroke-dasharray="4 3"/>';
-      var gone = seat && (seat.eliminated || seat.left);
+      var gone = seat && seat.left && !seat.eliminated; // 탈락한 사람의 말은 주인 없는 말처럼 보드에 남는다
       tokens += ring + '<g opacity="' + (gone ? '.4' : '1') + '">' + tokenSvg(p.x, p.y, 'suspect', s.key) + '</g>';
     });
     state.weapons.forEach(function (w) {
@@ -268,12 +268,16 @@
     you.seen.forEach(function (s) { (seen[s.card] = seen[s.card] || []).push(s.by); });
     var peekedCards = {};
     you.peeked.forEach(function (p) { peekedCards[p.card] = true; });
+    // 탈락한 사람의 공개된 카드는 정답이 아님이 확실하다(누구의 카드였는지도 적는다).
+    var openedBy = {};
+    state.board.forEach(function (b) { (b.opened || []).forEach(function (card) { openedBy[card] = b.nickname; }); });
     function rows(title, list) {
       return '<table><tr><th colspan="3">' + title + '</th></tr>' + list.map(function (item) {
-        var cls = mine[item.key] ? 'mine' : (seen[item.key] || peekedCards[item.key] ? 'seen' : '');
-        var note = mine[item.key] ? '내 카드' : (seen[item.key] ? escapeHtml(seen[item.key].join(', ')) + '님이 보여 줌' : (peekedCards[item.key] ? '같이 본 카드' : ''));
+        var known = seen[item.key] || peekedCards[item.key] || openedBy[item.key];
+        var cls = mine[item.key] ? 'mine' : (known ? 'seen' : '');
+        var note = mine[item.key] ? '내 카드' : (seen[item.key] ? escapeHtml(seen[item.key].filter(function (name, i, all) { return all.indexOf(name) === i; }).join(', ')) + '님이 보여 줌' : (peekedCards[item.key] ? '같이 본 카드' : (openedBy[item.key] ? escapeHtml(openedBy[item.key]) + '님 카드(공개)' : '')));
         var m = marks[item.key] || 0;
-        var markCell = mine[item.key] || seen[item.key] || peekedCards[item.key]
+        var markCell = mine[item.key] || known
           ? '<td class="mark no">✕</td>'
           : '<td class="mark ' + MARK_CLASS[m] + '" data-mark="' + item.key + '" role="button" tabindex="0" aria-label="' + escapeHtml(item.label) + ' 표시 바꾸기">' + (MARK_TEXT[m] || '·') + '</td>';
         return '<tr class="' + cls + '"><td class="label">' + escapeHtml(item.label) + '</td>' + markCell + '<td class="note">' + note + '</td></tr>';
@@ -334,6 +338,7 @@
     state.you.hand.forEach(function (card) { mine[card] = true; });
     state.you.seen.forEach(function (h) { mine[h.card] = true; });
     state.you.peeked.forEach(function (h) { mine[h.card] = true; });
+    state.board.forEach(function (b) { (b.opened || []).forEach(function (card) { mine[card] = true; }); });
     var changed = false;
     [ls.suspect, ls.weapon, ls.room].forEach(function (card) {
       if (mine[card] || marks[card]) return;
@@ -425,7 +430,11 @@
     var body = '<b>' + escapeHtml(who) + '님의 최종 고발</b><div class="said">' + escapeHtml(sentence(a)) + '</div><div class="chips">'
       + chip('suspect', suspectLabel(a.suspect)) + chip('weapon', weaponLabel(a.weapon)) + chip('room', roomLabel(a.room)) + '</div>';
     if (a.correct) toast(body + '<div class="verdict ok big">정답입니다! ' + escapeHtml(who) + '님이 사건을 해결했습니다.</div>', 'accuse-ok', 9000);
-    else toast(body + '<div class="verdict big">오답입니다. ' + escapeHtml(who) + '님은 탈락합니다.</div>', 'accuse-bad', 9000);
+    else {
+      var openedChips = (a.opened || []).map(function (card) { return chip(cardKind(card), cardLabel(card)); }).join('');
+      toast(body + '<div class="verdict big">오답입니다. ' + escapeHtml(who) + '님은 탈락합니다.</div>'
+        + (openedChips ? '<div class="said small">공개되는 카드 ' + (a.opened || []).length + '장</div><div class="chips">' + openedChips + '</div>' : ''), 'accuse-bad', 9000);
+    }
   }
 
   /**
@@ -488,7 +497,7 @@
   /** 이번 판의 모든 추측을 최근 것부터. 내 추리와 상대 추리를 따로 볼 수 있다. 카드 이름은 내가 받은 것만 보인다. */
   /** 추리 기록의 카드 칩에 붙일 표시: 내 카드·받은 카드는 ✕, 노트에서 ?·✓로 둔 카드는 그대로. */
   function markOf(key) {
-    var known = state.you.hand.indexOf(key) >= 0 || state.you.seen.some(function (h) { return h.card === key; }) || state.you.peeked.some(function (h) { return h.card === key; });
+    var known = state.you.hand.indexOf(key) >= 0 || state.you.seen.some(function (h) { return h.card === key; }) || state.you.peeked.some(function (h) { return h.card === key; }) || state.board.some(function (b) { return (b.opened || []).indexOf(key) >= 0; });
     if (known) return '<i class="mk x">✕</i>';
     if (marks[key] === 2) return '<i class="mk q">?</i>';
     if (marks[key] === 3) return '<i class="mk y">✓</i>';
@@ -556,7 +565,7 @@
       if (!you.inGame) message = '진행 중인 게임을 구경하고 있습니다. 다음 게임부터 참여할 수 있습니다.';
       else if (you.disprove) message = '보여 줄 카드를 골라 주세요.';
       else if (state.step === 'disprove') message = waitName + '님이 보여 줄 카드를 고르는 중입니다.';
-      else if (you.eliminated) message = '고발이 틀려 탈락했습니다. 다른 사람의 추측에는 계속 카드를 보여 줍니다.';
+      else if (you.eliminated) message = '고발이 틀려 탈락했습니다. 가진 카드는 모두 공개됐고, 이제 판을 지켜보기만 할 수 있습니다.';
       else if (you.myTurn) {
         if (state.step === 'start') message = '내 차례입니다. 주사위를 굴리세요. (' + state.autoRollSec + '초 안에 굴리지 않으면 서버가 대신 굴려 가까운 방으로 가서 추측합니다)' + (you.canPassage ? ' 비밀 통로로 바로 건너갈 수도 있습니다.' : '') + (you.canAccuse ? ' 정답 봉투 방에 있어 바로 고발할 수도 있습니다.' : '') + (you.canSuggest ? ' 불려 온 방이라 굴리지 않고 바로 추측해도 됩니다.' : '');
         else if (state.step === 'move') message = '최대 ' + state.moveLeft + '칸 이동할 수 있습니다. 초록색 칸이나 방을 눌러 이동하거나, 움직이지 않으려면 "제자리에 있기"를 누르세요.' + (you.reach && !you.reach.cells.length && !you.reach.rooms.length ? ' 갈 수 있는 곳이 없습니다. 차례를 끝내세요.' : '');
@@ -584,7 +593,7 @@
       else if (!p.inGame) status = '구경';
       else if (seat && seat.eliminated) status = '탈락';
       else status = p.id === state.waitingId ? '차례' : '대기';
-      var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + ' · 카드 ' + seat.cards + '장' + (seat.hints ? ' · 힌트 ' + seat.hints + '장' : '') + '</small>' : '';
+      var piece = seat ? '<small>' + escapeHtml(suspectLabel(seat.suspect)) + (seat.eliminated ? ' · 탈락(카드 공개)' : ' · 카드 ' + seat.cards + '장' + (seat.hints ? ' · 힌트 ' + seat.hints + '장' : '')) + '</small>' : '';
       var initial = Array.from(p.nickname)[0] || '나';
       return '<div class="player' + (playing && p.id === state.waitingId ? ' turn' : '') + '" data-id="' + p.id + '"' + (seat ? ' data-suspect="' + seat.suspect + '"' : '') + ' data-initial="' + escapeHtml(initial) + '"><b>' + escapeHtml(p.nickname)
         + (p.id === you.id ? ' (나)' : '') + '</b>' + piece + '<span class="status">' + status + '</span></div>';
@@ -630,6 +639,12 @@
       $('hint-box').classList.toggle('hidden', !you.inGame && !state.result);
       $('hint-count').textContent = you.hints.length ? you.hints.length + '장' : '';
       setHtml('hint-cards', hintCardsHtml());
+      var openList = state.board.filter(function (b) { return b.eliminated && b.opened && b.opened.length; });
+      $('open-box').classList.toggle('hidden', !openList.length);
+      setHtml('open-cards', openList.map(function (b) {
+        return '<div class="open-row"><b>' + escapeHtml(b.nickname) + '<small> · ' + escapeHtml(suspectLabel(b.suspect)) + '</small></b><div class="clue-hand">'
+          + b.opened.map(function (card) { return '<span class="clue-card ' + cardKind(card) + '">' + escapeHtml(cardLabel(card)) + '</span>'; }).join('') + '</div></div>';
+      }).join(''));
       $('log-box').classList.toggle('hidden', !state.suggestions.length && !you.inGame && !state.result);
       $('log-count').textContent = state.suggestions.length ? state.suggestions.length + '건' : '';
       setHtml('suggestions', suggestionsHtml());
@@ -723,7 +738,12 @@
   $('passage').onclick = function () { markSending($('passage')); send('passage'); };
   $('end').onclick = function () { markSending($('end')); accuseOpen = false; send('endTurn'); };
   $('suggest').onclick = function () { var form = $('suggest-form'); form.scrollIntoView && form.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); };
-  $('accuse').onclick = function () { accuseOpen = !accuseOpen; render(); };
+  $('accuse').onclick = function () {
+    accuseOpen = !accuseOpen;
+    render();
+    // 좁은 화면에서는 고발 창이 버튼보다 한참 아래(기록 칸 쪽)에 있어서, 열면 그 자리로 화면을 옮긴다.
+    if (accuseOpen) { try { $('accuse-form').scrollIntoView({ block: 'nearest', behavior: reducedMotion() ? 'auto' : 'smooth' }); } catch (e) { /* 오래된 브라우저 */ } }
+  };
   $('accuse-cancel').onclick = function () { accuseOpen = false; render(); };
   $('suggest-go').onclick = function () {
     markSending($('suggest-go'));

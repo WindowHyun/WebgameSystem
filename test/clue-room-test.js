@@ -403,6 +403,13 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   check('다른 방 안에서도 고발할 수 없다', /정답 봉투 방/.test(g7.room.accuse(p[0].id, 'green', 'rope', 'kitchen') || '') && p[0].eliminated === false);
   g7.room._debug().setPosition(p[0].suspect, { room: 'envelope' });
   check('틀린 고발은 탈락이고 차례가 넘어간다(정답은 안 알려 준다)', g7.room.accuse(p[0].id, 'plum', 'rope', 'kitchen') === null && p[0].eliminated === true && turnName(g7) === p[1].nickname && g7.room.stateFor(p[1].id).result === null && g7.room.stateFor(p[1].id).phase === 'playing');
+  check('오답 고발로 탈락하면 가진 카드가 모두에게 공개된다(다른 사람 화면의 board에도 보인다)', (() => {
+    const mine = g7.room._debug().seats[0].hand.slice().sort().join();
+    const seen = g7.room.stateFor(p[2].id).board.find((b) => b.id === p[0].id);
+    const a = g7.room.stateFor(p[2].id).lastAccusation;
+    return mine.length > 0 && seen.eliminated === true && seen.opened.slice().sort().join() === mine && a.opened.slice().sort().join() === mine;
+  })());
+  check('탈락하지 않은 사람의 카드는 공개되지 않는다', g7.room.stateFor(p[2].id).board.filter((b) => !b.eliminated).every((b) => b.opened.length === 0));
   check('탈락한 사람은 더 조작할 수 없다', /내 차례가 아닙니다/.test(g7.room.roll(p[0].id) || '') && g7.room.stateFor(p[0].id).you.eliminated === true && g7.room.stateFor(p[0].id).you.myTurn === false);
   check('틀린 고발은 누가 무엇으로 고발했고 틀렸는지가 모두에게 보인다(알림용)', (() => {
     const a = g7.room.stateFor(p[2].id).lastAccusation;
@@ -411,15 +418,14 @@ const state = (g, name) => g.room.stateFor(g.id(name));
   g7.room.endTurn(p[1].id);
   g7.room.endTurn(p[2].id);
   check('탈락한 사람은 차례에서 건너뛴다', turnName(g7) === p[1].nickname);
-  // 탈락한 사람의 카드도 계속 반박한다
+  // [규칙] 탈락한 사람은 판에서 빠진다: 카드는 오답 고발 때 모두에게 공개되고, 더 반박하지 않는다.
   g7.room._debug().setHand(p[0].id, ['wrench']);
   g7.room._debug().setHand(p[1].id, ['mustard']);
   g7.room._debug().setHand(p[2].id, ['hall']);
   g7.room._debug().setPosition(p[1].suspect, { room: 'study' });
   g7.room._debug().seats[1].summoned = true;
   g7.room.suggest(p[1].id, 'white', 'wrench');
-  g7.room.show(p[0].id, 'wrench');
-  check('탈락한 사람의 카드도 반박에 쓰인다', g7.room.stateFor(p[1].id).you.seen.some((x) => x.card === 'wrench' && x.byId === p[0].id));
+  check('탈락한 사람은 카드를 갖고 있어도 반박하지 않는다(없는 사람처럼 건너뛴다)', g7.room.stateFor(p[1].id).step !== 'disprove' && !g7.room.stateFor(p[1].id).you.seen.some((x) => x.byId === p[0].id));
   g7.room._debug().setPosition(p[1].suspect, { room: 'envelope' });
   check('맞는 고발이면 승리하고 정답이 공개된다', g7.room.accuse(p[1].id, 'green', 'rope', 'kitchen') === null && g7.room.stateFor(p[2].id).phase === 'result' && g7.room.stateFor(p[2].id).result.winnerId === p[1].id && g7.room.stateFor(p[2].id).result.solution.room === 'kitchen');
   check('맞는 고발도 결과가 모두에게 보인다(번호가 늘고 correct가 true)', (() => {

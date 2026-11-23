@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="favicon.png">
   <link rel="stylesheet" href="poker.css?v=5">
   <link rel="stylesheet" href="responsive-fixes.css?v=8">
-  <link rel="stylesheet" href="clue.css?v=30">
+  <link rel="stylesheet" href="clue.css?v=36">
 </head>
 <body class="poker-page clue-page">
   <div id="app">
@@ -37,13 +37,34 @@
               <li><b>비밀 통로</b> 모서리 방(주방↔연구실, 온실↔라운지)에서는 주사위를 굴리는 대신 건너편 방으로 갈 수 있습니다.</li>
               <li><b>추측</b> 방에 들어가면 그 방에서 범인과 흉기를 추측합니다. 추측한 범인의 말과 흉기가 그 방으로 불려 옵니다. 다음 사람부터 시계 방향으로, 그 세 장 중 가진 첫 사람이 한 장을 골라 나에게만 보여 줍니다.</li>
               <li><b>불려 온 사람</b> 남의 추측으로 불려 온 사람은 다음 차례에 주사위를 굴리지 않고 그 방에서 바로 추측할 수 있습니다.</li>
-              <li><b>고발</b> 주사위로 가운데 <strong>정답 봉투 방</strong>에 들어가면 범인·흉기·장소를 고발할 수 있습니다(방 안에서는 추측할 수 없습니다). 맞히면 승리, 틀리면 탈락입니다. 탈락해도 내 카드는 다른 사람의 추측에 계속 쓰입니다.</li>
+              <li><b>고발</b> 주사위로 가운데 <strong>정답 봉투 방</strong>에 들어가면 범인·흉기·장소를 고발할 수 있습니다(방 안에서는 추측할 수 없습니다). 맞히면 승리, 틀리면 그 자리에서 탈락입니다. 탈락하면 가진 카드를 모두에게 공개하고 판에서 빠집니다(더 움직이거나 카드를 보여 주지 않고 지켜보기만 합니다).</li>
             </ul>
           </div>
           <div id="game-view" class="hidden">
             <div id="result" class="result hidden"></div>
             <details id="rules-fold" class="rules-fold"><summary>규칙 보기</summary><div id="rules-copy" class="rules"></div></details>
             <div class="clue-grid">
+              <div class="log-col">
+                <div id="suggest-form" class="panel hidden">
+                <b>추측하기</b>
+                <p id="suggest-room" class="panel-note"></p>
+                <label>범인 <select id="sg-suspect"></select></label>
+                <label>흉기 <select id="sg-weapon"></select></label>
+                <button id="suggest-go">추측하기</button>
+                </div>
+                <div id="accuse-form" class="panel hidden">
+                <b>고발하기</b>
+                <p class="panel-note">틀리면 바로 탈락합니다. 확신이 설 때만 하세요.</p>
+                <label>범인 <select id="ac-suspect"></select></label>
+                <label>흉기 <select id="ac-weapon"></select></label>
+                <label>장소 <select id="ac-room"></select></label>
+                <div class="row"><button id="accuse-cancel" class="secondary">닫기</button><button id="accuse-go" class="danger">고발 확정</button></div>
+                </div>
+                <div id="open-box" class="panel open-box hidden"><b>공개된 카드 <small>탈락한 사람의 카드</small></b><div id="open-cards" class="open-cards"></div></div>
+                <div id="log-box" class="panel log-box"><b>추리 기록 <small id="log-count"></small></b>
+                <div class="log-tabs" role="group" aria-label="추리 기록 보기"><button type="button" class="log-tab on" data-f="all" aria-pressed="true">전체</button><button type="button" class="log-tab" data-f="mine" aria-pressed="false">내 추리</button><button type="button" class="log-tab" data-f="others" aria-pressed="false">상대 추리</button></div>
+                <div id="suggestions" class="suggestions"></div></div>
+              </div>
               <div class="map-col">
                 <div id="turn-banner" class="turn-banner hidden"></div>
                 <div id="disprove" class="panel hidden" role="group" aria-label="보여 줄 카드 고르기"></div>
@@ -59,28 +80,10 @@
                   <button id="end" class="secondary">차례 끝내기</button>
                   </div>
                   </section>
-                  <div id="suggest-form" class="panel hidden">
-                  <b>추측하기</b>
-                  <p id="suggest-room" class="panel-note"></p>
-                  <label>범인 <select id="sg-suspect"></select></label>
-                  <label>흉기 <select id="sg-weapon"></select></label>
-                  <button id="suggest-go">추측하기</button>
-                  </div>
-                  <div id="accuse-form" class="panel hidden">
-                  <b>고발하기</b>
-                  <p class="panel-note">틀리면 바로 탈락합니다. 확신이 설 때만 하세요.</p>
-                  <label>범인 <select id="ac-suspect"></select></label>
-                  <label>흉기 <select id="ac-weapon"></select></label>
-                  <label>장소 <select id="ac-room"></select></label>
-                  <div class="row"><button id="accuse-cancel" class="secondary">닫기</button><button id="accuse-go" class="danger">고발 확정</button></div>
-                  </div>
                   <div class="below-row">
                     <div id="hand-box" class="panel hidden"><b>내 카드</b><div id="hand" class="clue-hand"></div></div>
                     <div id="hint-box" class="panel hint-box"><b>힌트 카드 <small id="hint-count"></small></b><div id="hint-cards" class="hint-cards"></div><p class="hint-help">복도의 ★ 칸에서 이동을 마치면 힌트 카드를 한 장 뽑습니다.</p></div>
                   </div>
-                  <div id="log-box" class="panel log-box"><b>추리 기록 <small id="log-count"></small></b>
-                  <div class="log-tabs" role="group" aria-label="추리 기록 보기"><button type="button" class="log-tab on" data-f="all" aria-pressed="true">전체</button><button type="button" class="log-tab" data-f="mine" aria-pressed="false">내 추리</button><button type="button" class="log-tab" data-f="others" aria-pressed="false">상대 추리</button></div>
-                  <div id="suggestions" class="suggestions"></div></div>
 
                 </div>
               </div>
@@ -110,7 +113,7 @@
   <div id="toasts" aria-live="polite"></div>
   <div id="error" role="alert"></div>
   <script src="game-socket.js?v=3"></script><script src="join-next.js?v=1"></script>
-  <script src="clue.js?v=29"></script>
+  <script src="clue.js?v=32"></script>
   <script src="mobile.js?v=4"></script>
   <script src="cover.js?v=14"></script>
 </body>

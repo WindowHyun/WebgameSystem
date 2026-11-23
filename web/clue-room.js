@@ -17,7 +17,8 @@
  *       추리 한 번 더  가지고 있다가, 내 차례에 추리가 끝난 뒤 버튼으로 같은 방에서 한 번 더 추리한다(쓰면 사라진다).
  *       같이 보기  가지고 있다가, 남이 추리해 카드를 보여 준 직후에 버튼으로 그 카드를 같이 본다(쓰면 사라진다).
  *   - 고발(범인·흉기·장소)은 주사위로 가운데 "정답 봉투" 방에 들어가야 할 수 있다(방 안에서는 추측을 못 한다). 맞히면 이기고, 틀리면 탈락한다.
- *     탈락한 사람은 더 움직이지 않지만, 그 사람의 카드는 계속 다른 사람의 추측을 반박한다.
+ *     고발이 틀리면 그 자리에서 탈락한다. 탈락한 사람은 판에서 완전히 빠진 것으로 본다: 가진 카드를 모두에게 공개하고,
+ *     더 움직이지도 추측을 반박하지도 않는다(공개된 카드는 정답이 아님을 모두가 안다). 그 사람의 말은 맡은 사람이 없는 말처럼 보드에 남는다.
  *
  * [기본값] 원작에 없는 온라인 사정은 이렇게 정했다.
  *   - 주사위와 카드 나누기는 서버가 한다. 카드는 본인에게만 보이고, 보여 준 카드는 추측한 사람에게만 간다.
@@ -189,7 +190,7 @@ function createClueRoom(options) {
   const players = []; // { id, token, nickname, connected, ready }
   const history = [];
   let phase = 'lobby'; // lobby | playing | result
-  let seats = [];      // 이번 판 참가자(차례 순서) { id, nickname, suspect, hand, seen, eliminated, left, idle, summoned }
+  let seats = [];      // 이번 판 참가자(차례 순서) { id, nickname, suspect, hand, seen, eliminated, opened(탈락해서 공개된 카드), left, idle, summoned }
   let turn = 0;
   let step = 'start';  // start(굴리기 전) | move(굴린 뒤 이동) | suggest(방에 들어와 추측 전) | disprove(카드를 기다림) | end(추측 뒤)
   let dice = null;     // [a, b] 또는 null
@@ -203,7 +204,7 @@ function createClueRoom(options) {
   let hintSeq = 0;
   let lastHintDraw = null;  // 모두에게 보이는 마지막 뽑기 { seq, byId, kind(턴 한 번 더만 공개, 나머지는 null) }
   const shownCards = new Map(); // 추측 번호 -> 그때 보여 준 카드("같이 보기"용. 서버 안에서만 쓴다)
-  let lastAccusation = null; // 모두에게 보이는 마지막 고발 { seq, byId, suspect, weapon, room, correct }
+  let lastAccusation = null; // 모두에게 보이는 마지막 고발 { seq, byId, suspect, weapon, room, correct, opened(틀렸을 때 공개된 카드) }
   let accusationSeq = 0;
   let suggestionSeq = 0;
   const suggestionLog = []; // 이번 판의 모든 추측(누가·무엇을·결과). 카드 이름은 없다 - 모두에게 보여도 되는 정보만
@@ -373,6 +374,7 @@ function createClueRoom(options) {
     const passed = [];
     for (let n = 1; n < seats.length; n += 1) {
       const seat = seats[(from + n) % seats.length];
+      if (seat.eliminated) continue; // 탈락한 사람은 판에서 빠졌다. 카드는 이미 공개됐고 더 반박하지 않는다.
       const matches = seat.hand.filter((card) => named.includes(card));
       if (!matches.length) { passed.push(seat.id); continue; }
       pending.passed = passed;
@@ -395,8 +397,11 @@ function createClueRoom(options) {
   }
 
   /** 이 사람이 아직 확인하지 못한 카드만 남긴 후보(내 카드·받은 카드는 뺀다). 다 확인했으면 전체. */
+  /** 탈락해서 모두에게 공개된 카드들(정답이 아님이 확실하다). */
+  function openedCards() { return seats.reduce((all, x) => all.concat(x.opened), []); }
+
   function unknownKeys(seat, keys) {
-    const known = new Set(seat.hand.concat(seat.seen.map((x) => x.card)));
+    const known = new Set(seat.hand.concat(seat.seen.map((x) => x.card), openedCards()));
     const open = keys.filter((k) => !known.has(k));
     return open.length ? open : keys;
   }
@@ -592,7 +597,7 @@ function createClueRoom(options) {
     const assigned = going.map((p) => ({ player: p, suspect: p.pick || free.shift() }));
     assigned.sort((a, b) => SUSPECT_KEYS.indexOf(a.suspect) - SUSPECT_KEYS.indexOf(b.suspect));
     seats = assigned.map(({ player, suspect }) => ({
-      id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, left: false, idle: 0, summoned: false, suggestedIn: null, hints: [], extraTurns: 0, peeked: [], drew: null,
+      id: player.id, nickname: player.nickname, suspect, hand: [], seen: [], eliminated: false, opened: [], left: false, idle: 0, summoned: false, suggestedIn: null, hints: [], extraTurns: 0, peeked: [], drew: null,
     }));
     for (const seat of seats) find(seat.id).pick = seat.suspect; // 다음 판도 같은 말
     for (const p of players) { if (!going.includes(p) && p.pick && seats.some((x) => x.suspect === p.pick)) p.pick = null; }
@@ -793,7 +798,7 @@ function createClueRoom(options) {
     positions[suspect] = { room };
     weaponRooms[weapon] = room;
     const owner = seats.find((s) => s.suspect === suspect);
-    if (owner && owner !== seat && movedFrom !== room) { owner.summoned = true; owner.suggestedIn = null; }
+    if (owner && owner !== seat && !owner.eliminated && movedFrom !== room) { owner.summoned = true; owner.suggestedIn = null; }
     suggestionSeq += 1;
     lastSuggestion = { seq: suggestionSeq, byId: seat.id, suspect, weapon, room, shownBy: null, passed: [], resolved: false };
     suggestionLog.push(lastSuggestion);
@@ -835,8 +840,11 @@ function createClueRoom(options) {
       return null;
     }
     seat.eliminated = true;
+    seat.opened = seat.hand.slice(); // 가진 카드를 모두 공개한다
+    lastAccusation.opened = seat.opened.slice();
     note(`${seat.nickname}님이 ${text}(으)로 고발했지만 틀렸습니다. 탈락합니다.`);
-    act(seat.nickname, `고발 실패 ${text}`);
+    note(`${seat.nickname}님의 카드가 모두 공개됩니다: ${seat.opened.map(labelOf).join(', ') || '(없음)'}`);
+    act(seat.nickname, `고발 실패 ${text} → 카드 공개 ${seat.opened.map(labelOf).join(', ')}`);
     if (!settleIfDecided()) advance();
     changed();
     return null;
@@ -931,6 +939,7 @@ function createClueRoom(options) {
         nickname: nameOf(s.id),
         suspect: s.suspect,
         eliminated: s.eliminated,
+        opened: s.eliminated ? s.opened.slice() : [], // 탈락해서 공개된 카드(모두에게 보인다)
         left: s.left,
         connected: !!find(s.id) && find(s.id).connected,
         cards: s.hand.length,
